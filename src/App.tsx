@@ -1291,7 +1291,9 @@ export default function App() {
 
       const syncedResidents = await syncApprovedRequestsWithResidents(loadedResidents);
 
-      setResidents(syncedResidents);
+      if (syncedResidents && syncedResidents.length > 0) {
+        setResidents(syncedResidents);
+      }
       setPayments(loadedPayments);
       setExpenses(loadedExpenses);
       setRules(loadedRules);
@@ -3605,6 +3607,7 @@ export default function App() {
             role={role}
             currentYear={currentYear}
             floorConfigs={buildingLayout}
+            config={config}
             onAdd={addPayment}
             onEdit={editPayment}
             onDelete={deletePayment}
@@ -3741,6 +3744,7 @@ export default function App() {
           <SettingsTab 
             config={config}
             role={role}
+            userEmail={user?.email || ''}
             onSaveConfig={handleSaveAppConfig}
             onNotification={addNotification}
             rules={rules}
@@ -3757,6 +3761,8 @@ export default function App() {
             onDeleteRule={handleDeleteRule}
             onOpenEditRulesModal={() => setShowRulesEditModal(true)}
             onRefreshAllData={refreshAllData}
+            onConnectGoogleDrive={handleConnectGoogleDrive}
+            isConnectingGoogle={isConnectingGoogle}
           />
         )}
 

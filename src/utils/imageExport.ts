@@ -192,9 +192,13 @@ export async function generateElementImageBlob(
             }
           });
 
-          // 6. Sanitize inline styles ONLY on target nodes that contain modern color functions
+          // 6. Fix for Arabic typography in html2canvas (letter-spacing breaks Arabic ligatures) and sanitize color functions
           const targetNodes = [clonedTarget, ...Array.from(clonedTarget.querySelectorAll('*'))] as HTMLElement[];
           targetNodes.forEach((node) => {
+            node.style.letterSpacing = 'normal';
+            (node.style as any).fontFeatureSettings = '"liga" 1, "calt" 1';
+            node.style.textRendering = 'geometricPrecision';
+
             const styleAttr = node.getAttribute('style');
             if (styleAttr && /(oklch|oklab|lab|lch|hwb|color)\(/i.test(styleAttr)) {
               node.setAttribute('style', sanitizeStyleText(styleAttr));

@@ -16,9 +16,9 @@ export async function compressImageFile(
   options: CompressionOptions = {}
 ): Promise<string> {
   const {
-    maxWidth = 1024,
-    maxHeight = 1024,
-    quality = 0.72,
+    maxWidth = 800,
+    maxHeight = 800,
+    quality = 0.65,
     mimeType = 'image/jpeg'
   } = options;
 
@@ -31,7 +31,7 @@ export async function compressImageFile(
         let width = img.width;
         let height = img.height;
 
-        // Calculate aspect ratio preserving dimensions
+        // First pass scaling
         if (width > height) {
           if (width > maxWidth) {
             height = Math.round((height * maxWidth) / width);
@@ -50,17 +50,32 @@ export async function compressImageFile(
 
         const ctx = canvas.getContext('2d');
         if (!ctx) {
-          // Fallback to original data URL if 2D context fails
           resolve(event.target?.result as string);
           return;
         }
 
-        // Draw with smoothing for high-quality downsampling
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(img, 0, 0, width, height);
 
-        const compressedDataUrl = canvas.toDataURL(mimeType, quality);
+        let compressedDataUrl = canvas.toDataURL(mimeType, quality);
+
+        // Safeguard: If compressed result is still larger than 180KB (~240k chars base64), do an aggressive second pass
+        if (compressedDataUrl.length > 240000) {
+          const pass2Canvas = document.createElement('canvas');
+          const pass2Width = Math.min(width, 600);
+          const pass2Height = Math.round((height * pass2Width) / width);
+          pass2Canvas.width = pass2Width;
+          pass2Canvas.height = pass2Height;
+          const pass2Ctx = pass2Canvas.getContext('2d');
+          if (pass2Ctx) {
+            pass2Ctx.imageSmoothingEnabled = true;
+            pass2Ctx.imageSmoothingQuality = 'medium';
+            pass2Ctx.drawImage(img, 0, 0, pass2Width, pass2Height);
+            compressedDataUrl = pass2Canvas.toDataURL(mimeType, 0.52);
+          }
+        }
+
         resolve(compressedDataUrl);
       };
 

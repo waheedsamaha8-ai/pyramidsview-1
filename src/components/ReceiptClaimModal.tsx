@@ -93,6 +93,15 @@ const ReceiptClaimModalContent: React.FC<{
   const [isCopied, setIsCopied] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const modalContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    // Scroll modal overlay to top when opened
+    if (modalContainerRef.current) {
+      modalContainerRef.current.scrollTop = 0;
+    }
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }, []);
 
   // Determine active target phone & recipient name based on selection
   const selectedOtherResident = useMemo(() => {
@@ -278,8 +287,11 @@ const ReceiptClaimModalContent: React.FC<{
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-2.5 sm:p-4 overflow-y-auto">
-      <div className="w-full max-w-2xl bg-white rounded-3xl border border-slate-100 shadow-2xl overflow-hidden text-right flex flex-col max-h-[94vh] animate-scale-up">
+    <div 
+      ref={modalContainerRef}
+      className="fixed inset-0 z-[9999] bg-slate-900/75 backdrop-blur-sm flex items-start sm:items-center justify-center p-2.5 sm:p-4 overflow-y-auto pt-4 sm:pt-6"
+    >
+      <div className="w-full max-w-2xl bg-white rounded-3xl border border-slate-100 shadow-2xl overflow-hidden text-right flex flex-col max-h-[92vh] my-auto animate-scale-up">
         
         {/* Header */}
         <div className={`px-5 py-3.5 flex items-center justify-between border-b shrink-0 ${
@@ -607,7 +619,7 @@ const ReceiptClaimModalContent: React.FC<{
           }}
         >
           <div>
-            <div style={{ fontSize: '18px', fontWeight: '900', letterSpacing: '-0.2px' }}>
+            <div style={{ fontSize: '18px', fontWeight: '900', letterSpacing: 'normal' }}>
               اتحاد ملاك عمارة بيراميدز فيو ١
             </div>
             <div style={{ fontSize: '12.5px', fontWeight: '700', color: isReceipt ? '#a7f3d0' : '#bfdbfe', marginTop: '3px' }}>
@@ -702,7 +714,7 @@ const ReceiptClaimModalContent: React.FC<{
                 fontSize: '20px',
                 fontWeight: '900',
                 color: isReceipt ? '#047857' : '#1e40af',
-                letterSpacing: '-0.3px',
+                letterSpacing: 'normal',
               }}
             >
               {Math.round(data.amount).toLocaleString()} جنيه مصري

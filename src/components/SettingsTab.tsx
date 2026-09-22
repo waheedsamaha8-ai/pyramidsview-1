@@ -13,6 +13,7 @@ import * as backupService from '../services/backupService';
 interface SettingsTabProps {
   config: AppConfig;
   role: UserRole;
+  userEmail?: string;
   onSaveConfig: (updatedConfig: AppConfig) => void;
   onNotification?: (title: string, message: string, type: 'success' | 'info' | 'warning' | 'error') => void;
   rules?: string[];
@@ -22,11 +23,14 @@ interface SettingsTabProps {
   isDarkMode?: boolean;
   onToggleTheme?: (isDark: boolean) => void;
   onRefreshAllData?: () => void;
+  onConnectGoogleDrive?: () => void;
+  isConnectingGoogle?: boolean;
 }
 
 export const SettingsTab: React.FC<SettingsTabProps> = ({
   config,
   role,
+  userEmail,
   onSaveConfig,
   onNotification,
   rules = [],
@@ -36,8 +40,27 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   isDarkMode = false,
   onToggleTheme,
   onRefreshAllData,
+  onConnectGoogleDrive,
+  isConnectingGoogle = false,
 }) => {
   const isAdmin = role === 'ADMIN';
+  const activeUserEmail = userEmail || config.presidentEmail || 'الحساب المعتمد حالياً';
+
+  const getAuthUserUrl = (rawUrl?: string) => {
+    if (!rawUrl || rawUrl === '#' || rawUrl === 'https://drive.google.com/' || rawUrl === 'https://docs.google.com/spreadsheets') {
+      return rawUrl || 'https://drive.google.com/';
+    }
+    const email = activeUserEmail && activeUserEmail.includes('@') ? activeUserEmail : '';
+    if (!email) return rawUrl;
+    try {
+      const url = new URL(rawUrl);
+      url.searchParams.set('authuser', email);
+      return url.toString();
+    } catch {
+      if (rawUrl.includes('authuser=')) return rawUrl;
+      return rawUrl.includes('?') ? `${rawUrl}&authuser=${encodeURIComponent(email)}` : `${rawUrl}?authuser=${encodeURIComponent(email)}`;
+    }
+  };
   const [activeSubTab, setActiveSubTab] = useState<'settings' | 'storage' | 'permissions' | 'types'>('settings');
   const [newRuleInput, setNewRuleInput] = useState('');
 
@@ -742,7 +765,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                       <span>سحابة التخزين وقواعد البيانات (Google Drive & Google Sheets)</span>
                     </h3>
                     <p className="text-xs text-slate-500 font-bold mt-0.5">
-                      النظام مرتبط ومؤمن بحساب Google الرسمي الخاص برئيس الاتحاد وحيد سماحة.
+                      النظام مرتبط ومؤمن بحساب Google المسجل والمفعل للنظام ({activeUserEmail}).
                     </p>
                   </div>
                 </div>
@@ -751,7 +774,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
               {/* Status Badge */}
               <div className="flex items-center gap-2 bg-emerald-50 text-emerald-800 px-3.5 py-1.5 rounded-xl border border-emerald-200/80 text-xs font-black self-start sm:self-auto">
                 <BadgeCheck className="w-4 h-4 text-emerald-600" />
-                <span>الحساب المرتبط: waheedsamaha8@gmail.com</span>
+                <span>الحساب المرتبط: {activeUserEmail}</span>
               </div>
             </div>
 
@@ -782,7 +805,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                 </div>
 
                 <a
-                  href={driveFolders?.rootFolderUrl || 'https://drive.google.com/'}
+                  href={getAuthUserUrl(driveFolders?.rootFolderUrl)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="w-full py-2 px-3 bg-blue-900 hover:bg-blue-950 text-white text-xs font-black rounded-xl transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
@@ -805,12 +828,12 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                   </div>
                   <h4 className="text-xs font-black text-slate-900">جدول البيانات المركزي (Google Sheets)</h4>
                   <p className="text-[11px] text-slate-500 font-bold leading-relaxed">
-                    ملف شيت الإدارة المركزي "Pyramids View 1 - Management Database" المحفوظ على حساب وحيد سماحة.
+                    ملف شيت الإدارة المركزي "Pyramids View 1 - Management Database" المحفوظ على حسابك ({activeUserEmail}).
                   </p>
                 </div>
 
                 <a
-                  href={driveFolders?.spreadsheetUrl || 'https://docs.google.com/spreadsheets'}
+                  href={getAuthUserUrl(driveFolders?.spreadsheetUrl)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="w-full py-2 px-3 bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-black rounded-xl transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
@@ -821,9 +844,20 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
               </div>
             </div>
 
-            {/* Sync / Check Button */}
+            {/* Sync / Re-auth Buttons */}
             {isAdmin && (
-              <div className="pt-2 flex justify-end">
+              <div className="pt-2 flex flex-wrap items-center justify-end gap-2">
+                {onConnectGoogleDrive && (
+                  <button
+                    type="button"
+                    onClick={onConnectGoogleDrive}
+                    disabled={isConnectingGoogle}
+                    className="px-4 py-2 bg-blue-900 hover:bg-blue-950 text-white rounded-xl text-xs font-black transition flex items-center gap-2 cursor-pointer disabled:opacity-50 shadow-2xs"
+                  >
+                    <Cloud className={`w-3.5 h-3.5 ${isConnectingGoogle ? 'animate-spin' : ''}`} />
+                    <span>{isConnectingGoogle ? 'جاري الربط...' : 'ربط أو تغيير حساب Google Drive 🔗'}</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={handleSyncDriveFolders}
@@ -831,7 +865,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                   className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-black transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isCheckingFolders ? 'animate-spin' : ''}`} />
-                  <span>{isCheckingFolders ? 'جاري فحص وتحديث المجلدات...' : 'إعادة فحص ومزامنة مجلدات جوجل درايف 🔄'}</span>
+                  <span>{isCheckingFolders ? 'جاري فحص وتحديث المجلدات...' : 'إعادة فحص ومزامنة المجلدات 🔄'}</span>
                 </button>
               </div>
             )}
@@ -862,7 +896,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                   <p className="text-[10px] text-slate-500 font-medium">يضم ملف قاعدة بيانات النظام الرئيسي</p>
                 </div>
                 <a
-                  href={driveFolders?.sheetsFolderUrl || driveFolders?.rootFolderUrl || 'https://drive.google.com/'}
+                  href={getAuthUserUrl(driveFolders?.sheetsFolderUrl || driveFolders?.rootFolderUrl)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="px-2.5 py-1.5 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-[11px] font-bold text-slate-800 flex items-center justify-between cursor-pointer"
@@ -884,7 +918,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                   <p className="text-[10px] text-slate-500 font-medium">تخزين صور إيصالات التحصيل وسندات القبض</p>
                 </div>
                 <a
-                  href={driveFolders?.receiptsFolderUrl || driveFolders?.rootFolderUrl || 'https://drive.google.com/'}
+                  href={getAuthUserUrl(driveFolders?.receiptsFolderUrl || driveFolders?.rootFolderUrl)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="px-2.5 py-1.5 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-[11px] font-bold text-slate-800 flex items-center justify-between cursor-pointer"
@@ -906,7 +940,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                   <p className="text-[10px] text-slate-500 font-medium">فواتير الكهرباء والمياه وقطع الغيار والصيانة</p>
                 </div>
                 <a
-                  href={driveFolders?.expensesFolderUrl || driveFolders?.rootFolderUrl || 'https://drive.google.com/'}
+                  href={getAuthUserUrl(driveFolders?.expensesFolderUrl || driveFolders?.rootFolderUrl)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="px-2.5 py-1.5 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-[11px] font-bold text-slate-800 flex items-center justify-between cursor-pointer"
@@ -928,7 +962,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                   <p className="text-[10px] text-slate-500 font-medium">صور بلاغات الأعطال وشكاوى السكان المرفوعة</p>
                 </div>
                 <a
-                  href={driveFolders?.complaintsFolderUrl || driveFolders?.rootFolderUrl || 'https://drive.google.com/'}
+                  href={getAuthUserUrl(driveFolders?.complaintsFolderUrl || driveFolders?.rootFolderUrl)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="px-2.5 py-1.5 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-[11px] font-bold text-slate-800 flex items-center justify-between cursor-pointer"
@@ -950,7 +984,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                   <p className="text-[10px] text-slate-500 font-medium">المرفقات والصور المتبادلة في غرفة المحادثة</p>
                 </div>
                 <a
-                  href={driveFolders?.chatFolderUrl || driveFolders?.rootFolderUrl || 'https://drive.google.com/'}
+                  href={getAuthUserUrl(driveFolders?.chatFolderUrl || driveFolders?.rootFolderUrl)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="px-2.5 py-1.5 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-[11px] font-bold text-slate-800 flex items-center justify-between cursor-pointer"
@@ -1128,7 +1162,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
               <span>ضمان استمرارية وأمان البيانات</span>
             </div>
             <p>
-              يتم حفظ ومزامنة كافة السجلات في جدول Google Sheets السحابي المرتبط بحساب رئيس الاتحاد (waheedsamaha8@gmail.com). هذا يضمن حفظ كافة البيانات في حسابك بشكل مستقل ودائم، مع إمكانية الوصول للملفات وتصديرها أو مشاركتها في أي وقت من هاتفك أو حاسوبك عبر تطبيقات Google الرسمية.
+              يتم حفظ ومزامنة كافة السجلات في قواعد البيانات السحابية وجدول Google Sheets المرتبط بالحساب المسجل ({activeUserEmail}). هذا يضمن حفظ كافة البيانات في حسابك بشكل مستقل ودائم، مع إمكانية الوصول للملفات وتصديرها أو مشاركتها في أي وقت من هاتفك أو حاسوبك عبر تطبيقات Google الرسمية.
             </p>
           </div>
         </div>

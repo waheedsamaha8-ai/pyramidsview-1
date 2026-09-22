@@ -1,7 +1,8 @@
 import React, { useState, useRef, useMemo } from 'react';
-import { Payment, Resident, UserRole, FloorConfig } from '../types';
+import { Payment, Resident, UserRole, FloorConfig, AppConfig } from '../types';
 import { Search, Plus, Calendar, FileText, Image as ImageIcon, Camera, Trash2, Edit, AlertCircle, Eye, User, LayoutGrid, List, Building, ArrowUpDown, Upload, X, ZoomIn, Download, RefreshCw, Share2, CheckCircle2, Receipt } from 'lucide-react';
 import { deriveFloorConfigsFromResidents, getUnitNumbersForFloor, compareFlatNumbers } from '../utils/buildingStructure';
+import { getResidentMonthlyFee } from '../utils/financialCalculations';
 import { generateElementImageBlob, GeneratedImageResult } from '../utils/imageExport';
 import { shareImageViaWhatsApp } from '../utils/shareImageViaWhatsApp';
 import { ShareReportModal } from './ShareReportModal';
@@ -15,6 +16,7 @@ interface PaymentsListProps {
   role: UserRole;
   currentYear: number;
   floorConfigs?: FloorConfig[];
+  config?: AppConfig;
   onAdd: (payment: Payment, base64Image?: string) => void;
   onEdit: (payment: Payment, base64Image?: string) => void;
   onDelete: (id: string) => void;
@@ -28,6 +30,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
   role,
   currentYear,
   floorConfigs,
+  config,
   onAdd,
   onEdit,
   onDelete,
@@ -354,10 +357,10 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
     if (floorConfigs && floorConfigs.length > 0) {
       return floorConfigs;
     }
-    if (floorConfigs && floorConfigs.length === 0) {
-      return [];
+    if (residents && residents.length > 0) {
+      return deriveFloorConfigsFromResidents(residents);
     }
-    return deriveFloorConfigsFromResidents(residents);
+    return [];
   }, [floorConfigs, residents]);
 
   const floorPaymentGroups = useMemo(() => {
@@ -391,12 +394,45 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
     return groups;
   }, [effectiveFloorConfigs, filteredPayments, residents]);
 
+  const defaultMonthlyFee = config?.defaultMonthlyFee || 400;
+  const activityDefaultFees = config?.activityDefaultFees;
+
+  const handleResidentSelect = (newResidentId: string) => {
+    setResidentId(newResidentId);
+    if (!selectedPayment) {
+      const selectedRes = residents.find(r => r.id === newResidentId);
+      if (selectedRes) {
+        const fee = getResidentMonthlyFee(selectedRes, defaultMonthlyFee, activityDefaultFees);
+        setAmount(fee);
+      }
+    }
+  };
+
+  const handlePaymentTypeSelect = (newType: string) => {
+    setPaymentType(newType);
+    if (!selectedPayment) {
+      const selectedRes = residents.find(r => r.id === residentId);
+      if (selectedRes) {
+        if (newType === 'اشتراك شهري' || newType.includes('اشتراك') || newType.includes('شهري')) {
+          const fee = getResidentMonthlyFee(selectedRes, defaultMonthlyFee, activityDefaultFees);
+          setAmount(fee);
+        }
+      }
+    }
+  };
+
   const openAddModal = () => {
     setSelectedPayment(null);
-    setResidentId(residents[0]?.id || '');
+    const sortedRes = [...residents].sort((a, b) => compareFlatNumbers(a.flatNumber, b.flatNumber));
+    const firstRes = sortedRes[0] || residents[0];
+    const initialResId = firstRes?.id || '';
+    const initialType = paymentTypes[0] || 'اشتراك شهري';
+    const initialFee = firstRes ? getResidentMonthlyFee(firstRes, defaultMonthlyFee, activityDefaultFees) : '';
+
+    setResidentId(initialResId);
     setMonth(String(new Date().getMonth() + 1).padStart(2, '0'));
-    setPaymentType(paymentTypes[0] || 'اشتراك شهري');
-    setAmount('');
+    setPaymentType(initialType);
+    setAmount(initialFee);
     setReceiptNumber('');
     setNotes('');
     setImageName('');
@@ -1077,7 +1113,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                 <label className="text-xs font-bold text-slate-500">الساكن / الوحدة <span className="text-red-500">*</span></label>
                 <select
                   value={residentId}
-                  onChange={(e) => setResidentId(e.target.value)}
+                  onChange={(e) => handleResidentSelect(e.target.value)}
                   disabled={role === 'ASSISTANT' && !!selectedPayment}
                   className="w-full px-4 py-3 bg-slate-50 border border-slate-100 focus:bg-white rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 outline-none text-right font-medium transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                   required
@@ -1113,7 +1149,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                   <label className="text-xs font-bold text-slate-500">نوع التحصيل <span className="text-red-500">*</span></label>
                   <select
                     value={paymentType}
-                    onChange={(e) => setPaymentType(e.target.value)}
+                    onChange={(e) => handlePaymentTypeSelect(e.target.value)}
                     disabled={role === 'ASSISTANT' && !!selectedPayment}
                     className="w-full px-4 py-3 bg-slate-50 border border-slate-100 focus:bg-white rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 outline-none text-right font-medium transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                   >

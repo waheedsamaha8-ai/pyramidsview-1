@@ -312,7 +312,11 @@ export function saveCachedData(key: string, data: any) {
   const keys = normalizeKeyAliases(key);
   for (const k of keys) {
     const cacheKey = getBuildingCacheKey(k);
-    localStorage.setItem(cacheKey, JSON.stringify(data));
+    try {
+      localStorage.setItem(cacheKey, JSON.stringify(data));
+    } catch (e) {
+      console.warn('LocalStorage save warning:', e);
+    }
   }
 
   if (typeof window !== 'undefined') {

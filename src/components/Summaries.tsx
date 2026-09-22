@@ -139,10 +139,10 @@ export const Summaries: React.FC<SummariesProps> = ({
     if (floorConfigs && floorConfigs.length > 0) {
       return floorConfigs;
     }
-    if (floorConfigs && floorConfigs.length === 0) {
-      return [];
+    if (residents && residents.length > 0) {
+      return deriveFloorConfigsFromResidents(residents);
     }
-    return deriveFloorConfigsFromResidents(residents);
+    return [];
   }, [floorConfigs, residents]);
 
   const floorResidentGroups = useMemo(() => {

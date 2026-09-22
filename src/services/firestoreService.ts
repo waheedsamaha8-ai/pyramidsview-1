@@ -133,8 +133,10 @@ export async function getResidentsFromFirestore(): Promise<Resident[]> {
     });
     if (residents.length > 0) {
       offlineSync.saveCachedData(cacheKey, residents);
+      return residents;
     }
-    return residents;
+    const cached = offlineSync.getCachedData<Resident[]>(cacheKey);
+    return (cached && cached.length > 0) ? cached : [];
   } catch (error) {
     handleFirestoreError(error, {
       operation: OperationType.LIST,

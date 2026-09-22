@@ -73,21 +73,23 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
     if (floorConfigs && floorConfigs.length > 0) {
       return floorConfigs;
     }
-    if (floorConfigs && floorConfigs.length === 0) {
-      return [];
+    if (residents && residents.length > 0) {
+      return deriveFloorConfigsFromResidents(residents);
     }
-    return deriveFloorConfigsFromResidents(residents);
+    return [];
   }, [floorConfigs, residents]);
 
   const getPaymentStatus = (flatNumber: number | string) => {
     const resident = residents.find(r => isSameFlatNumber(r.flatNumber, flatNumber));
     if (!resident) return 'empty';
 
+    const targetMonthNum = parseInt(selectedMonth, 10);
+
     const payment = payments.find(p => 
       p.residentId === resident.id && 
       p.year === currentYear && 
-      p.month === selectedMonth &&
-      p.paymentType === 'اشتراك شهري'
+      parseInt(p.month, 10) === targetMonthNum &&
+      (p.paymentType === 'اشتراك شهري' || p.paymentType?.includes('اشتراك') || p.paymentType?.includes('شهري') || p.amount > 0)
     );
 
     if (payment && (payment.amount > 0 || payment.isManuallyPaid)) return 'paid';
@@ -100,7 +102,8 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
 
     const unitPayments = payments.filter(p => p.residentId === resident.id && p.year === currentYear);
     const totalPaid = unitPayments.reduce((sum, p) => sum + p.amount, 0);
-    const currentMonthPayment = unitPayments.find(p => p.month === selectedMonth && p.paymentType === 'اشتراك شهري');
+    const targetMonthNum = parseInt(selectedMonth, 10);
+    const currentMonthPayment = unitPayments.find(p => parseInt(p.month, 10) === targetMonthNum && (p.paymentType === 'اشتراك شهري' || p.paymentType?.includes('اشتراك') || p.paymentType?.includes('شهري') || p.amount > 0));
     
     // Overall financial calculations
     const residentFin = calculateResidentFinancials(
