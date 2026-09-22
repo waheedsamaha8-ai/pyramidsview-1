@@ -364,9 +364,11 @@ export default function App() {
     }
   }, [activeTab]);
 
-  // Sync residents to server for backend auth verification
+  // Sync residents to server for backend auth verification (if server is active)
   useEffect(() => {
-    if (residents && residents.length > 0) {
+    const isLocalOrNodeServer = typeof window !== 'undefined' && 
+      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+    if (isLocalOrNodeServer && residents && residents.length > 0) {
       try {
         fetch('/api/residents/sync', {
           method: 'POST',
@@ -377,49 +379,74 @@ export default function App() {
     }
   }, [residents]);
 
-  // Periodic polling to sync chat messages and complaints for all users
+  // Real-time Firestore Sync & local offline sync for chat messages and complaints
   useEffect(() => {
     let isMounted = true;
+    let isApiServerAvailable = typeof window !== 'undefined' && 
+      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+    // Subscribe to Firestore for real-time multi-user chat (Works on GitHub Pages & Static hosting without backend server)
+    const unsubChat = firestoreService.subscribeToChatMessages((firestoreMsgs) => {
+      if (!isMounted || !Array.isArray(firestoreMsgs) || firestoreMsgs.length === 0) return;
+      const deletedMsgIds = deletedMessageIdsRef.current;
+      setMessages(prev => {
+        const validMsgs = firestoreMsgs.filter(m => m && m.id && !deletedMsgIds.has(m.id));
+        const map = new Map<string, ChatMessage>();
+        prev.forEach(m => {
+          if (m && m.id && !deletedMsgIds.has(m.id)) map.set(m.id, m);
+        });
+        validMsgs.forEach(m => map.set(m.id, m));
+        const merged = Array.from(map.values()).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+        offlineSync.saveCachedData('chat_messages', merged);
+        return merged;
+      });
+    });
+
     const fetchLatestChatAndComplaints = async () => {
+      if (!isApiServerAvailable) return;
       try {
         const [chatRes, compRes] = await Promise.all([
-          fetch('/api/chat').then(r => r.ok ? r.json() : null).catch(() => null),
-          fetch('/api/complaints').then(r => r.ok ? r.json() : null).catch(() => null),
+          fetch('/api/chat').then(r => {
+            if (r.status === 404) isApiServerAvailable = false;
+            return r.ok ? r.json() : null;
+          }).catch(() => {
+            isApiServerAvailable = false;
+            return null;
+          }),
+          fetch('/api/complaints').then(r => {
+            if (r.status === 404) isApiServerAvailable = false;
+            return r.ok ? r.json() : null;
+          }).catch(() => {
+            isApiServerAvailable = false;
+            return null;
+          }),
         ]);
 
-        if (!isMounted) return;
+        if (!isMounted || !isApiServerAvailable) return;
 
         const deletedMsgIds = deletedMessageIdsRef.current;
         const deletedCompIds = deletedComplaintIdsRef.current;
 
         if (chatRes && Array.isArray(chatRes)) {
           setMessages(prev => {
-            // Filter out any locally deleted messages from server response
             const validServer = chatRes.filter((m: any) => m && m.id && !deletedMsgIds.has(m.id));
             const serverIdSet = new Set(validServer.map(m => m.id));
-
-            // Map by unique message ID to guarantee zero duplicates
             const map = new Map<string, ChatMessage>();
 
-            // 1. Keep local messages that aren't deleted
-            // If the server explicitly returned an empty or updated list, only retain very recent local items (< 15s) that may not have reached server yet
             const now = Date.now();
             prev.forEach(m => {
               if (m && m.id && !deletedMsgIds.has(m.id)) {
                 const msgTime = new Date(m.timestamp).getTime();
                 const isRecent = (now - msgTime) < 15000;
-                // If it's on the server or recently created locally, keep it
                 if (serverIdSet.has(m.id) || isRecent) {
                   map.set(m.id, m);
                 }
               }
             });
 
-            // 2. Merge server messages with unique ID indexing
             validServer.forEach((m: ChatMessage) => {
               const existing = map.get(m.id);
               if (existing) {
-                // Preserve local image preview if server URL is still propagating
                 map.set(m.id, {
                   ...existing,
                   ...m,
@@ -490,16 +517,19 @@ export default function App() {
             return prev;
           });
         }
-      } catch (err) {
-        console.warn('Error polling chat/complaints:', err);
+      } catch {
+        isApiServerAvailable = false;
       }
     };
 
-    fetchLatestChatAndComplaints();
-    const interval = setInterval(fetchLatestChatAndComplaints, 3000);
+    if (isApiServerAvailable) {
+      fetchLatestChatAndComplaints();
+    }
+    const interval = isApiServerAvailable ? setInterval(fetchLatestChatAndComplaints, 8000) : null;
     return () => {
       isMounted = false;
-      clearInterval(interval);
+      unsubChat();
+      if (interval) clearInterval(interval);
     };
   }, []);
 
@@ -2144,12 +2174,14 @@ export default function App() {
       return updated;
     });
 
-    // Sync to backend server
-    fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: safeMsg }),
-    }).catch(() => {});
+    // Sync to backend server if active
+    if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+      fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: safeMsg }),
+      }).catch(() => {});
+    }
 
     // Save directly to Firestore cloud database
     firestoreService.saveChatMessageToFirestore(safeMsg).catch(err => {
@@ -2194,12 +2226,14 @@ export default function App() {
       return updated;
     });
 
-    // Sync directly to backend server for multi-user sharing
-    fetch('/api/complaints', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ complaint: safeComplaint }),
-    }).catch(() => {});
+    // Sync directly to backend server if active
+    if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+      fetch('/api/complaints', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ complaint: safeComplaint }),
+      }).catch(() => {});
+    }
 
     // Save directly to Firestore cloud database
     firestoreService.saveComplaintToFirestore(safeComplaint).catch(err => {
@@ -2233,12 +2267,14 @@ export default function App() {
     setComplaints(updated);
     offlineSync.saveCachedData('public_complaints', updated);
 
-    // Sync to backend server
-    fetch(`/api/complaints/${complaintId}/comments`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ comment: newComment }),
-    }).catch(() => {});
+    // Sync to backend server if active
+    if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+      fetch(`/api/complaints/${complaintId}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ comment: newComment }),
+      }).catch(() => {});
+    }
 
     if (targetComplaint) {
       addNotification(
@@ -2314,10 +2350,12 @@ export default function App() {
     setComplaints(updated);
     offlineSync.saveCachedData('public_complaints', updated);
 
-    // Delete from backend server API
-    fetch(`/api/complaints/${complaintId}`, {
-      method: 'DELETE',
-    }).catch(() => {});
+    // Delete from backend server API if active
+    if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+      fetch(`/api/complaints/${complaintId}`, {
+        method: 'DELETE',
+      }).catch(() => {});
+    }
 
     firestoreService.deleteComplaintFromFirestore(complaintId).catch(err => {
       logError(err, 'handleDeleteComplaint');
@@ -2339,10 +2377,12 @@ export default function App() {
     setMessages(updated);
     offlineSync.saveCachedData('chat_messages', updated);
 
-    // Delete from backend server API
-    fetch(`/api/chat/${messageId}`, {
-      method: 'DELETE',
-    }).catch(() => {});
+    // Delete from backend server API if active
+    if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+      fetch(`/api/chat/${messageId}`, {
+        method: 'DELETE',
+      }).catch(() => {});
+    }
 
     firestoreService.deleteChatMessageFromFirestore(messageId).catch(err => {
       logError(err, 'handleDeleteChatMessage');
@@ -2362,12 +2402,14 @@ export default function App() {
     setMessages(updated);
     offlineSync.saveCachedData('chat_messages', updated);
 
-    // Update in backend server API
-    fetch(`/api/chat/${messageId}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: newText }),
-    }).catch(() => {});
+    // Update in backend server API if active
+    if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+      fetch(`/api/chat/${messageId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: newText }),
+      }).catch(() => {});
+    }
 
     if (targetMsg) {
       firestoreService.saveChatMessageToFirestore(targetMsg).catch(err => {

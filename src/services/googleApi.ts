@@ -774,12 +774,14 @@ export async function saveAppConfig(config: AppConfig) {
     'تجاري': 500,
   };
 
-  // Sync with backend /api/config
-  fetch('/api/config', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(config),
-  }).catch(() => {});
+  // Sync with backend /api/config if active
+  if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+    fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(config),
+    }).catch(() => {});
+  }
 
   const values = [
     ['Key', 'Value'],

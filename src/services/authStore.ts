@@ -67,8 +67,14 @@ export function saveLocalJoinRequests(requests: StoredJoinRequest[]) {
   }
 }
 
+let isServerApiAvailable = typeof window !== 'undefined' && 
+  (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
 // Safely attempt a server fetch with timeout
 async function safeFetchJson(url: string, options: RequestInit = {}, timeoutMs = 2500): Promise<{ ok: boolean; data?: any; status: number }> {
+  if (!isServerApiAvailable) {
+    return { ok: false, status: 0 };
+  }
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -76,9 +82,15 @@ async function safeFetchJson(url: string, options: RequestInit = {}, timeoutMs =
     const res = await fetch(url, { ...options, signal: controller.signal });
     clearTimeout(timeoutId);
 
+    if (res.status === 404 || res.status === 405) {
+      isServerApiAvailable = false;
+      return { ok: false, status: res.status };
+    }
+
     const contentType = res.headers.get('content-type') || '';
     if (!contentType.includes('application/json')) {
-      // Server returned HTML or other non-JSON response (e.g., Netlify 404 page)
+      // Server returned HTML or other non-JSON response (e.g., GitHub Pages 404 page)
+      isServerApiAvailable = false;
       return { ok: false, status: res.status };
     }
 
