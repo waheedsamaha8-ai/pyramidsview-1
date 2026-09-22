@@ -17,7 +17,7 @@ import {
   deleteAllBuildings,
   DEFAULT_BUILDING_ID 
 } from '../services/buildingStore';
-import { Building as BuildingType } from '../types';
+import { Building as BuildingType, UserRole } from '../types';
 import { formatMobileNumber } from '../utils/phoneUtils';
 import { 
   Mail, 
@@ -321,11 +321,16 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
           localStorage.setItem('resident_flat_number', data.flatNumber.toString());
         }
         const activeB = getActiveBuilding();
+        const userRole: UserRole = (data.role as UserRole) || (portalMode === 'PRESIDENT' ? 'ADMIN' : portalMode === 'ASSISTANT' ? 'ASSISTANT' : 'RESIDENT');
+
+        localStorage.setItem('user_role', userRole);
+        localStorage.setItem('app_user_role', userRole);
+
         const user = {
           email: data.email,
           displayName: data.name,
           uid: data.email,
-          role: data.role || (portalMode === 'PRESIDENT' ? 'ADMIN' : 'RESIDENT'),
+          role: userRole,
           flatNumber: data.flatNumber,
           buildingId: matchedBuilding?.id || activeB.id,
           buildingName: matchedBuilding?.name || activeB.name,
@@ -1290,14 +1295,6 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
           <span className="text-[11px] text-slate-500 dark:text-slate-400 font-bold">
             العمارة - المنظومة السحابية الموحدة
           </span>
-          <button
-            type="button"
-            onClick={handleFactoryResetClick}
-            className="mt-1 text-[10px] text-slate-400 hover:text-red-500 transition font-bold flex items-center gap-1 cursor-pointer bg-slate-50 dark:bg-slate-800/60 px-2.5 py-1 rounded-lg border border-slate-200/60 dark:border-slate-700"
-          >
-            <RotateCcw className="w-3 h-3 text-slate-400" />
-            <span>مسح الذاكرة المؤقتة والبدء من جديد</span>
-          </button>
         </div>
       </div>
 

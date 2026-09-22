@@ -169,9 +169,15 @@ function setLocalCache<T>(key: string, data: T): void {
 
 export function setAccessToken(token: string | null) {
   currentAccessToken = token;
+  if (token && typeof window !== 'undefined') {
+    localStorage.setItem('google_access_token', token);
+  }
 }
 
 export function getAccessToken(): string | null {
+  if (!currentAccessToken && typeof window !== 'undefined') {
+    currentAccessToken = localStorage.getItem('google_access_token');
+  }
   return currentAccessToken;
 }
 
@@ -183,10 +189,11 @@ export function getSpreadsheetId(): string | null {
   return spreadsheetId;
 }
 
-// Check if spreadsheetId is available and throw error if not
+// Check if accessToken is available
 function checkAuth() {
-  if (!currentAccessToken) {
-    throw new Error('لم يتم تسجيل الدخول بعد أو انتهت صلاحية الجلسة.');
+  const token = getAccessToken();
+  if (!token) {
+    throw new Error('يرجى الضغط على زر "ربط Google Drive" لمنح صلاحية الوصول وإنشاء الملفات والجداول على Google Drive و Sheets.');
   }
 }
 

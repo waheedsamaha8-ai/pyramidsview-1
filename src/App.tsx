@@ -120,12 +120,14 @@ const getInitialRole = (initialUser: User | null): UserRole => {
     }
   } catch {}
   if (!initialUser) return 'ADMIN';
-  if ((initialUser as any).role) return (initialUser as any).role;
+  if ((initialUser as any).role && ['ADMIN', 'MANAGER', 'ASSISTANT', 'RESIDENT'].includes((initialUser as any).role)) {
+    return (initialUser as any).role as UserRole;
+  }
   const email = initialUser.email?.toLowerCase().trim();
   const activeB = getActiveBuilding();
   if (email && activeB?.presidentEmail && email === activeB.presidentEmail.toLowerCase().trim()) return 'ADMIN';
   if (email === 'assistant@pyramids.com' || email === 'assistant') return 'ASSISTANT';
-  return 'ADMIN';
+  return 'RESIDENT';
 };
 
 const getInitialFlatNumber = (initialUser: User | null): number | string | undefined => {
@@ -1100,18 +1102,9 @@ export default function App() {
     window.addEventListener('offline', handleOffline);
 
     // Google API Credentials expiry handler
-    const handleGoogleAuthError = async () => {
-      console.warn('Google auth credentials expired or invalid. Logging out.');
-      addNotification('انتهت صلاحية الجلسة', 'انتهت صلاحية صلاحيات الوصول لحساب Google الخاص بك. يرجى تسجيل الدخول مجدداً لتحديث الاتصال بالبيانات.', 'error');
-      try {
-        await logoutUser();
-      } catch (err) {
-        console.error('Error during automatic logout:', err);
-      }
-      localStorage.removeItem('custom_user_session');
-      setUser(null);
-      setToken(null);
-      setRole('RESIDENT');
+    const handleGoogleAuthError = () => {
+      console.warn('Google API access token expired or invalid.');
+      addNotification('ربط Google Drive بحاجة للتجديد', 'انتهت صلاحية تصريح Google Drive. يرجى اضغط على "ربط Google Drive" لإعادة المزامنة الاحتياطية بنجاح.', 'warning');
       localStorage.removeItem('google_access_token');
     };
     window.addEventListener('google-auth-error', handleGoogleAuthError);
@@ -1308,34 +1301,30 @@ export default function App() {
       const savedRole = localStorage.getItem('user_role') || localStorage.getItem('app_user_role');
       if (savedRole && ['ADMIN', 'MANAGER', 'ASSISTANT', 'RESIDENT'].includes(savedRole)) {
         detectedRole = savedRole as UserRole;
+      } else if ((currentUser as any).role && ['ADMIN', 'MANAGER', 'ASSISTANT', 'RESIDENT'].includes((currentUser as any).role)) {
+        detectedRole = (currentUser as any).role as UserRole;
       } else {
         const activeB = getActiveBuilding();
         const isPresident = (activeB.presidentEmail && email === activeB.presidentEmail.toLowerCase().trim()) || appConfig.admins.some(a => a.toLowerCase().trim() === email);
 
         if (
-          (currentUser as any).role === 'ASSISTANT' ||
           (appConfig.assistantConfig && appConfig.assistantConfig.email?.toLowerCase().trim() === email) ||
           email === 'assistant@pyramids.com' ||
           email === 'assistant'
         ) {
           detectedRole = 'ASSISTANT';
-        } else if (
-          (currentUser as any).role === 'ADMIN' ||
-          isPresident
-        ) {
+        } else if (isPresident) {
           detectedRole = 'ADMIN';
-        } else if (
-          (currentUser as any).role === 'MANAGER' ||
-          appConfig.managers.some(m => m.toLowerCase().trim() === email)
-        ) {
+        } else if (appConfig.managers.some(m => m.toLowerCase().trim() === email)) {
           detectedRole = 'MANAGER';
         } else {
-          detectedRole = 'ADMIN';
+          detectedRole = 'RESIDENT';
         }
       }
 
       setRole(detectedRole);
       localStorage.setItem('user_role', detectedRole);
+      localStorage.setItem('app_user_role', detectedRole);
 
       const cachedFlat = localStorage.getItem('resident_flat_number') || (currentUser as any).flatNumber;
       if (cachedFlat) {

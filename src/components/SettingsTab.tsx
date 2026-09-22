@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import * as googleApi from '../services/googleApi';
 import * as backupService from '../services/backupService';
+import { requestGoogleDriveToken } from '../services/firebaseConfig';
 import { getActiveBuilding, getAllBuildings, deleteBuilding, deleteAllBuildings } from '../services/buildingStore';
 
 interface SettingsTabProps {
@@ -133,11 +134,27 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
     setIsBackingUpGoogle(true);
     setBackupGoogleProgress({
       status: 'syncing',
-      message: 'جاري بدء النسخ الاحتياطي السحابي...',
+      message: 'جاري التحقق من ربط Google Drive...',
       step: 1,
       totalSteps: 6,
     });
     try {
+      let token = googleApi.getAccessToken();
+      if (!token || token === 'local-token') {
+        setBackupGoogleProgress({
+          status: 'syncing',
+          message: 'جاري فتح نافذة مصادقة Google للحصول على التصريح...',
+          step: 1,
+          totalSteps: 6,
+        });
+        token = await requestGoogleDriveToken();
+        if (token) {
+          googleApi.setAccessToken(token);
+        } else {
+          throw new Error('لم يتم منح التصريح للوصول لـ Google Drive.');
+        }
+      }
+
       await backupService.performGoogleBackup((prog) => {
         setBackupGoogleProgress(prog);
       });
@@ -145,6 +162,32 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
       if (cached) setLastBackupInfo(JSON.parse(cached));
       onNotification?.('نسخ احتياطي ناجح', 'تم نسخ كافة الجداول والبيانات والصور إلى Google Drive و Sheets بنجاح.', 'success');
     } catch (err: any) {
+      // If token expired or missing scope, retry once with fresh consent popup
+      const errStr = (err?.message || '').toLowerCase();
+      if (errStr.includes('scope') || errStr.includes('insufficient') || errStr.includes('permission') || errStr.includes('403') || errStr.includes('401') || errStr.includes('تسجيل الدخول')) {
+        try {
+          setBackupGoogleProgress({
+            status: 'syncing',
+            message: 'تحديث تصريح Google Drive...',
+            step: 1,
+            totalSteps: 6,
+          });
+          const freshToken = await requestGoogleDriveToken();
+          if (freshToken) {
+            googleApi.setAccessToken(freshToken);
+            await backupService.performGoogleBackup((prog) => {
+              setBackupGoogleProgress(prog);
+            });
+            const cached = localStorage.getItem('pyramids_last_google_backup');
+            if (cached) setLastBackupInfo(JSON.parse(cached));
+            onNotification?.('نسخ احتياطي ناجح', 'تم نسخ كافة الجداول والبيانات والصور إلى Google Drive و Sheets بنجاح.', 'success');
+            return;
+          }
+        } catch (retryErr: any) {
+          err = retryErr;
+        }
+      }
+
       setBackupGoogleProgress({
         status: 'error',
         message: err.message || 'حدث خطأ أثناء إجراء النسخ الاحتياطي',
