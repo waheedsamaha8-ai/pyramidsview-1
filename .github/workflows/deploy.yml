@@ -24,19 +24,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
+      - name: Set up Node.js 22 LTS
         uses: actions/setup-node@v4
         with:
-            node-version: 22
-            cache: 'npm'
+          node-version: 22
 
       - name: Install dependencies
-        run: |
-          if [ -f package-lock.json ]; then
-            npm ci
-          else
-            npm install
-          fi
+        run: npm install
 
       - name: Build project with Vite
         run: npm run build

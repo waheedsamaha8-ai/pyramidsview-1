@@ -10,15 +10,15 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig(({ mode }) => {
   return {
-    base: mode === 'production' ? './' : '/',
+    base: './',
     plugins: [
       react(), 
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['apple-touch-icon.png', 'icon.svg', 'pwa-192x192.png', 'pwa-512x512.png'],
+        includeAssets: ['apple-touch-icon.png', 'icon.svg', 'pwa-192x192.png', 'pwa-512x512.png', '.nojekyll', '404.html'],
         manifest: {
-          id: '/',
+          id: './',
           name: 'اتحاد ملاك بيراميدز فيو ١ - رئيس الاتحاد وحيد سماحة',
           short_name: 'بيراميدز فيو ١',
           description: 'نظام ذكي متكامل لإدارة عمارة بيراميدز فيو ١ ومتابعة الاشتراكات والتحصيلات والمصروفات - رئيس الاتحاد وحيد سماحة.',
@@ -57,6 +57,7 @@ export default defineConfig(({ mode }) => {
           ],
         },
         workbox: {
+          maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
           runtimeCaching: [
             {
@@ -95,6 +96,19 @@ export default defineConfig(({ mode }) => {
         },
       }),
     ],
+    build: {
+      chunkSizeWarningLimit: 3000,
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            vendor: ['react', 'react-dom'],
+            firebase: ['firebase/app', 'firebase/firestore', 'firebase/auth'],
+            charts: ['recharts'],
+            icons: ['lucide-react']
+          }
+        }
+      }
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
