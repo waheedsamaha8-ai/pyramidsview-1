@@ -43,6 +43,8 @@ export interface ReceiptClaimData {
   totalDues?: number;
   totalPaid?: number;
   remainingBalance?: number;
+  activityType?: string;
+  occupancyType?: string;
   breakdown?: { label: string; value: string; isHighlight?: boolean; color?: string }[];
 }
 
@@ -74,9 +76,55 @@ const ReceiptClaimModalContent: React.FC<{
   const monthIndex = typeof data.month === 'number' ? data.month - 1 : parseInt(data.month, 10) - 1;
   const monthName = monthNamesArabic[monthIndex] || String(data.month);
   
-  const docNumber = isReceipt 
-    ? (data.receiptNumber ? `#${data.receiptNumber}` : `REC-${data.unitNumber}-${data.month}${data.year}`)
-    : (data.claimNumber ? `#${data.claimNumber}` : `CLM-${data.unitNumber}-${data.month}${data.year}`);
+  const docNumber = useMemo(() => {
+    if (isReceipt && data.receiptNumber) return data.receiptNumber;
+    if (!isReceipt && data.claimNumber) return data.claimNumber;
+    const prefix = isReceipt ? 'REC' : 'CLM';
+    const mPadded = String(data.month).padStart(2, '0');
+    return `${prefix}-${data.unitNumber}-${mPadded}${data.year}`;
+  }, [data, isReceipt]);
+
+  const displayFormattedDate = useMemo(() => {
+    if (data.date) {
+      const parts = data.date.split('-');
+      if (parts.length === 3) {
+        const y = parts[0];
+        const mIdx = parseInt(parts[1], 10) - 1;
+        const d = parseInt(parts[2], 10);
+        if (mIdx >= 0 && mIdx < 12) {
+          return `${d} ${monthNamesArabic[mIdx]} ${y}`;
+        }
+      }
+      return data.date;
+    }
+    const mIdx = (typeof data.month === 'number' ? data.month : parseInt(String(data.month), 10)) - 1;
+    const monthStr = (mIdx >= 0 && mIdx < 12) ? monthNamesArabic[mIdx] : data.month;
+    return `21 ${monthStr} ${data.year}`;
+  }, [data.date, data.month, data.year]);
+
+  const residentRecord = useMemo(() => {
+    if (!data.unitNumber) return null;
+    return residents.find(r => String(r.flatNumber) === String(data.unitNumber)) || null;
+  }, [residents, data.unitNumber]);
+
+  const formattedPhone = useMemo(() => {
+    const raw = data.phone || residentRecord?.phone || '';
+    if (!raw) return '';
+    return formatMobileNumber(raw);
+  }, [data.phone, residentRecord]);
+
+  const activityType = data.activityType || residentRecord?.activityType || 'سكني';
+  const occupancyType = data.occupancyType || residentRecord?.ownershipType || 'تمليك';
+  const displayMonthlyFee = data.monthlyFee || residentRecord?.monthlyFee || (activityType === 'إداري' ? 800 : activityType === 'تحت التشطيب' ? 200 : 400);
+
+  const carriedDebt = useMemo(() => {
+    if (data.carriedBalance !== undefined && data.carriedBalance < 0) return Math.abs(data.carriedBalance);
+    if (data.carriedBalance !== undefined && data.carriedBalance > 0) return 0;
+    if (residentRecord?.initialBalance !== undefined && residentRecord.initialBalance < 0) return Math.abs(residentRecord.initialBalance);
+    return 0;
+  }, [data.carriedBalance, residentRecord]);
+
+  const showCarriedDebt = carriedDebt > 0;
 
   // Recipient selection state
   const hasTenant = Boolean(data.tenantName || data.tenantPhone);
@@ -594,156 +642,298 @@ const ReceiptClaimModalContent: React.FC<{
         className="printable-area hidden print:block text-right font-sans bg-white"
         dir="rtl"
         style={{
-          width: '680px',
-          maxWidth: '680px',
+          width: '720px',
+          maxWidth: '720px',
           padding: '24px',
           backgroundColor: '#ffffff',
           color: '#0f172a',
-          borderRadius: '16px',
-          border: isReceipt ? '2px solid #059669' : '2px solid #2563eb',
+          borderRadius: '24px',
+          border: '1px solid #e2e8f0',
           boxSizing: 'border-box',
           fontFamily: 'Cairo, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+          letterSpacing: 'normal',
         }}
       >
-        {/* Card Header */}
+        {/* Card Header Banner */}
         <div
           style={{
-            backgroundColor: isReceipt ? '#047857' : '#1e3a8a',
+            backgroundColor: isReceipt ? '#047857' : '#1d4ed8',
             color: '#ffffff',
-            borderRadius: '12px',
-            padding: '16px 20px',
+            borderRadius: '16px',
+            padding: '18px 22px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: '16px',
+          }}
+        >
+          <div>
+            <div style={{ fontSize: '19px', fontWeight: '900', letterSpacing: 'normal', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span>{isReceipt ? '💐 إيصال سداد واستلام مالي معتمد' : '🏛️ إشعار مطالبة وبيان مستحقات شهرية'}</span>
+            </div>
+            <div style={{ fontSize: '13.5px', fontWeight: '700', color: '#ffffff', marginTop: '4px', opacity: 0.95 }}>
+              اتحاد ملاك عمارة بيراميدز فيو ١
+            </div>
+          </div>
+          <div
+            style={{
+              textAlign: 'left',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '4px',
+            }}
+          >
+            <div style={{ fontSize: '12px', fontWeight: '800', color: '#ffffff' }}>
+              التاريخ: {displayFormattedDate}
+            </div>
+            <div style={{ fontSize: '12px', fontWeight: '800', color: '#ffffff' }}>
+              المرجع: {docNumber}
+            </div>
+          </div>
+        </div>
+
+        {/* Status Alert Bar */}
+        <div
+          style={{
+            backgroundColor: isReceipt ? '#ecfdf5' : '#fffbeb',
+            border: isReceipt ? '1px solid #a7f3d0' : '1px solid #fde68a',
+            borderRadius: '14px',
+            padding: '10px 16px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: '16px',
+          }}
+        >
+          <div style={{ fontSize: '12.5px', fontWeight: '800', color: isReceipt ? '#047857' : '#92400e', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span>
+              {isReceipt 
+                ? '✓ تم استلام مبلغ الاشتراك بنجاح وتوثيقه في السجل المالي المعتمد' 
+                : '⏳ نأمل المبادرة بالسداد لدعم استمرار خدمات وصيانة العمارة'}
+            </span>
+          </div>
+          <div
+            style={{
+              backgroundColor: isReceipt ? '#d1fae5' : '#fef3c7',
+              color: isReceipt ? '#047857' : '#92400e',
+              padding: '4px 12px',
+              borderRadius: '20px',
+              fontSize: '11.5px',
+              fontWeight: '900',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+            }}
+          >
+            <span>{isReceipt ? 'تم السداد ✓' : '⏳ مطالبة بالسداد'}</span>
+          </div>
+        </div>
+
+        {/* Structured Grid Table */}
+        <div
+          style={{
+            backgroundColor: '#f8fafc',
+            border: '1px solid #e2e8f0',
+            borderRadius: '16px',
+            overflow: 'hidden',
+            marginBottom: '16px',
+          }}
+        >
+          {/* Row 1 */}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              borderBottom: '1px solid #e2e8f0',
+              padding: '12px 18px',
+              alignItems: 'center',
+            }}
+          >
+            <div style={{ fontSize: '13.5px', display: 'flex', gap: '8px' }}>
+              <span style={{ color: '#64748b', fontWeight: '700' }}>اسم الشاغل:</span>
+              <span style={{ color: '#0f172a', fontWeight: '900' }}>
+                {data.residentName} {formattedPhone ? `(${formattedPhone})` : ''}
+              </span>
+            </div>
+            <div style={{ fontSize: '13.5px', display: 'flex', gap: '8px' }}>
+              <span style={{ color: '#64748b', fontWeight: '700' }}>رقم الوحدة:</span>
+              <span style={{ color: '#1e3a8a', fontWeight: '900' }}>
+                شقة {data.unitNumber} ({activityType})
+              </span>
+            </div>
+          </div>
+
+          {/* Row 2 */}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              borderBottom: isReceipt ? '1px solid #e2e8f0' : 'none',
+              padding: '12px 18px',
+              alignItems: 'center',
+            }}
+          >
+            <div style={{ fontSize: '13.5px', display: 'flex', gap: '8px' }}>
+              <span style={{ color: '#64748b', fontWeight: '700' }}>عن شهر:</span>
+              <span style={{ color: '#0f172a', fontWeight: '900' }}>
+                اشتراك {monthName} {data.year} ({Math.round(displayMonthlyFee).toLocaleString()} ج.م)
+              </span>
+            </div>
+            <div style={{ fontSize: '13.5px', display: 'flex', gap: '8px' }}>
+              <span style={{ color: '#64748b', fontWeight: '700' }}>نوع الإشغال:</span>
+              <span style={{ color: '#0f172a', fontWeight: '800' }}>
+                {occupancyType}{activityType ? ` / ${activityType}` : ''}
+              </span>
+            </div>
+          </div>
+
+          {/* Row 3 (Receipt Specifics) */}
+          {isReceipt && (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                borderBottom: '1px solid #e2e8f0',
+                padding: '12px 18px',
+                alignItems: 'center',
+              }}
+            >
+              <div style={{ fontSize: '13.5px', display: 'flex', gap: '8px' }}>
+                <span style={{ color: '#64748b', fontWeight: '700' }}>تاريخ السداد:</span>
+                <span style={{ color: '#0f172a', fontWeight: '900', fontFamily: 'monospace' }}>
+                  {data.date || `${data.year}-${String(data.month).padStart(2, '0')}`}
+                </span>
+              </div>
+              <div style={{ fontSize: '13.5px', display: 'flex', gap: '8px' }}>
+                <span style={{ color: '#64748b', fontWeight: '700' }}>نوع التحصيل:</span>
+                <span style={{ color: '#047857', fontWeight: '800' }}>
+                  {data.paymentType || 'اشتراك شهري'}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Row 4 (Payment Method) */}
+          {isReceipt && (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                padding: '12px 18px',
+                alignItems: 'center',
+              }}
+            >
+              <div style={{ fontSize: '13.5px', display: 'flex', gap: '8px' }}>
+                <span style={{ color: '#64748b', fontWeight: '700' }}>طريقة السداد:</span>
+                <span style={{ color: '#047857', fontWeight: '800' }}>
+                  {data.notes?.includes('تحويل') ? 'تحويل بنكي / محفظة' : 'سداد نقدي'}
+                </span>
+              </div>
+              <div></div>
+            </div>
+          )}
+        </div>
+
+        {/* Previous Debt Alert Box (if debt present) */}
+        {showCarriedDebt && (
+          <div
+            style={{
+              backgroundColor: '#fef2f2',
+              border: '1px solid #fecaca',
+              borderRadius: '14px',
+              padding: '12px 16px',
+              marginBottom: '16px',
+              color: '#991b1b',
+            }}
+          >
+            <div style={{ fontSize: '13px', fontWeight: '900', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span>⚠️ تنبيه بوجود مديونية قديمة مرحلة:</span>
+            </div>
+            <div style={{ fontSize: '13px', fontWeight: '800' }}>
+              توجد مديونية قديمة مرحلة على الوحدة قدرها: <span style={{ textDecoration: 'underline', fontWeight: '900' }}>{Math.round(carriedDebt).toLocaleString()} ج.م</span>
+            </div>
+          </div>
+        )}
+
+        {/* Thank You / Friendly Reminder Box */}
+        <div
+          style={{
+            backgroundColor: isReceipt ? '#f0fdf4' : '#eff6ff',
+            border: isReceipt ? '1px solid #bbf7d0' : '1px solid #bfdbfe',
+            borderRadius: '14px',
+            padding: '12px 16px',
+            marginBottom: '16px',
+            fontSize: '12.5px',
+            fontWeight: '800',
+            color: isReceipt ? '#166534' : '#1e40af',
+            lineHeight: '1.6',
+          }}
+        >
+          {isReceipt ? (
+            <span>
+              🌺 نشكركم جزيل الشكر والتقدير على حرصكم الدائم وسدادكم المنتظم، مما يساهم مباشرةً في الحفاظ على العمارة وتطوير خدماتها لراحة الجميع.
+            </span>
+          ) : (
+            <span>
+              🤝 نأمل من سيادتكم التكرم بالمبادرة بسداد المستحقات في أقرب وقت لضمان استمرار خدمات النظافة، الحراسة، الصيانة، وتشغيل المصاعد بكفاءة لراحة جميع السكّان.
+            </span>
+          )}
+        </div>
+
+        {/* Big Total Amount Banner */}
+        <div
+          style={{
+            backgroundColor: isReceipt ? '#ecfdf5' : '#ffffff',
+            border: isReceipt ? '2px solid #059669' : '2px solid #e11d48',
+            borderRadius: '16px',
+            padding: '16px 22px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
             marginBottom: '20px',
           }}
         >
-          <div>
-            <div style={{ fontSize: '18px', fontWeight: '900', letterSpacing: 'normal' }}>
-              اتحاد ملاك عمارة بيراميدز فيو ١
-            </div>
-            <div style={{ fontSize: '12.5px', fontWeight: '700', color: isReceipt ? '#a7f3d0' : '#bfdbfe', marginTop: '3px' }}>
-              {isReceipt ? '💐 إيصال سداد واستلام مالي معتمد' : '🏛️ إشعار مطالبة وبيان مستحقات شهرية'}
-            </div>
-          </div>
-          <div
+          <span style={{ fontSize: '15px', fontWeight: '900', color: '#0f172a' }}>
+            {isReceipt ? 'إجمالي المبلغ المسدد معتمداً:' : 'إجمالي المبلغ المستحق للسداد:'}
+          </span>
+          <span
             style={{
-              backgroundColor: isReceipt ? '#065f46' : '#172554',
-              borderRadius: '8px',
-              padding: '6px 14px',
-              textAlign: 'center',
-              border: isReceipt ? '1px solid #10b981' : '1px solid #3b82f6',
+              fontSize: '26px',
+              fontWeight: '900',
+              color: isReceipt ? '#047857' : '#be123c',
+              letterSpacing: 'normal',
             }}
           >
-            <div style={{ fontSize: '10px', fontWeight: '800', color: isReceipt ? '#a7f3d0' : '#93c5fd' }}>
-              {isReceipt ? 'رقم الإيصال الرسمي' : 'رقم المطالبة'}
-            </div>
-            <div style={{ fontSize: '13.5px', fontWeight: '900', color: '#ffffff', fontFamily: 'monospace' }}>
-              {docNumber}
-            </div>
-          </div>
+            {Math.round(data.amount).toLocaleString()} ج.م
+          </span>
         </div>
 
-        {/* Details Table / Grid */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '20px' }}>
-          
-          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-            <span style={{ fontSize: '13px', fontWeight: '700', color: '#64748b' }}>الوحدة السكنية:</span>
-            <span style={{ fontSize: '14px', fontWeight: '900', color: '#0f172a' }}>شقة رقم ({data.unitNumber})</span>
-          </div>
-
-          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', backgroundColor: '#ffffff', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-            <span style={{ fontSize: '13px', fontWeight: '700', color: '#64748b' }}>اسم الساكن / الشاغل:</span>
-            <span style={{ fontSize: '14px', fontWeight: '900', color: '#0f172a' }}>{data.residentName}</span>
-          </div>
-
-          {hasTenant && data.tenantName && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-              <span style={{ fontSize: '13px', fontWeight: '700', color: '#64748b' }}>المستأجر الحالي:</span>
-              <span style={{ fontSize: '14px', fontWeight: '900', color: '#1e3a8a' }}>{data.tenantName}</span>
-            </div>
-          )}
-
-          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', backgroundColor: '#ffffff', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-            <span style={{ fontSize: '13px', fontWeight: '700', color: '#64748b' }}>بيان الاشتراك:</span>
-            <span style={{ fontSize: '13.5px', fontWeight: '800', color: '#0f172a' }}>اشتراك شهر {monthName} ({data.year})</span>
-          </div>
-
-          {data.paymentType && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-              <span style={{ fontSize: '13px', fontWeight: '700', color: '#64748b' }}>فئة المعاملة:</span>
-              <span style={{ fontSize: '13.5px', fontWeight: '800', color: '#0f172a' }}>{data.paymentType}</span>
-            </div>
-          )}
-
-          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', backgroundColor: '#ffffff', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-            <span style={{ fontSize: '13px', fontWeight: '700', color: '#64748b' }}>
-              {isReceipt ? 'تاريخ السداد والتحصيل:' : 'تاريخ إصدار المطالبة:'}
-            </span>
-            <span style={{ fontSize: '13.5px', fontWeight: '800', color: '#0f172a' }}>
-              {data.date || `${data.year}-${data.month}`}
-            </span>
-          </div>
-
-          {/* Breakdown Items if provided */}
-          {data.breakdown && data.breakdown.map((item, bIdx) => (
-            <div key={bIdx} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-              <span style={{ fontSize: '13px', fontWeight: '700', color: '#64748b' }}>{item.label}:</span>
-              <span style={{ fontSize: '13.5px', fontWeight: item.isHighlight ? '900' : '700', color: item.color || '#0f172a' }}>{item.value}</span>
-            </div>
-          ))}
-
-          {/* Big Amount Highlight Banner */}
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              padding: '14px 18px',
-              backgroundColor: isReceipt ? '#ecfdf5' : '#eff6ff',
-              borderRadius: '10px',
-              border: isReceipt ? '2px solid #10b981' : '2px solid #3b82f6',
-              marginTop: '6px',
-            }}
-          >
-            <span style={{ fontSize: '14px', fontWeight: '900', color: isReceipt ? '#065f46' : '#1e3a8a' }}>
-              {isReceipt ? 'المبلغ المستلم والمسدد:' : 'إجمالي المبلغ المطلوب:'}
-            </span>
-            <span
-              style={{
-                fontSize: '20px',
-                fontWeight: '900',
-                color: isReceipt ? '#047857' : '#1e40af',
-                letterSpacing: 'normal',
-              }}
-            >
-              {Math.round(data.amount).toLocaleString()} جنيه مصري
-            </span>
-          </div>
-
-          {data.notes && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', backgroundColor: '#fffbeb', borderRadius: '8px', border: '1px solid #fef3c7' }}>
-              <span style={{ fontSize: '12px', fontWeight: '700', color: '#92400e' }}>ملاحظات:</span>
-              <span style={{ fontSize: '12px', fontWeight: '700', color: '#78350f' }}>{data.notes}</span>
-            </div>
-          )}
-        </div>
-
-        {/* Footer & Watermark */}
+        {/* Footer with dashed line */}
         <div
           style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            paddingTop: '12px',
             borderTop: '1px dashed #cbd5e1',
+            paddingTop: '14px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
             fontSize: '11px',
             fontWeight: '700',
             color: '#64748b',
           }}
         >
-          <span>إدارة اتحاد ملاك عمارة بيراميدز فيو ١</span>
-          <span style={{ color: '#94a3b8' }}>مستند إلكتروني رسمي وموثق بالسجلات المالية ✓</span>
+          <div
+            style={{
+              border: '1px solid #94a3b8',
+              borderRadius: '8px',
+              padding: '4px 10px',
+              fontSize: '11px',
+              fontWeight: '800',
+              color: '#334155',
+            }}
+          >
+            معتمد إلكترونياً ✓ اتحاد ملاك بيراميدز فيو ١
+          </div>
+          <span>تم استخراج هذا الإيصال إلكترونياً ومطابق للسجلات المالية الرسمية</span>
         </div>
       </div>
 

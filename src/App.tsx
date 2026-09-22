@@ -113,20 +113,28 @@ const getInitialSavedToken = (): string | null => {
 };
 
 const getInitialRole = (initialUser: User | null): UserRole => {
-  if (!initialUser) return 'RESIDENT';
+  try {
+    const savedRole = localStorage.getItem('user_role') || localStorage.getItem('app_user_role');
+    if (savedRole && ['ADMIN', 'MANAGER', 'ASSISTANT', 'RESIDENT'].includes(savedRole)) {
+      return savedRole as UserRole;
+    }
+  } catch {}
+  if (!initialUser) return 'ADMIN';
   if ((initialUser as any).role) return (initialUser as any).role;
   const email = initialUser.email?.toLowerCase().trim();
   const activeB = getActiveBuilding();
   if (email && activeB?.presidentEmail && email === activeB.presidentEmail.toLowerCase().trim()) return 'ADMIN';
   if (email === 'assistant@pyramids.com' || email === 'assistant') return 'ASSISTANT';
-  return 'RESIDENT';
+  return 'ADMIN';
 };
 
 const getInitialFlatNumber = (initialUser: User | null): number | string | undefined => {
+  try {
+    const cached = localStorage.getItem('resident_flat_number');
+    if (cached) return cached;
+  } catch {}
   if (!initialUser) return undefined;
   if ((initialUser as any).flatNumber) return (initialUser as any).flatNumber;
-  const cached = localStorage.getItem('resident_flat_number');
-  if (cached) return cached;
   return undefined;
 };
 
@@ -1177,44 +1185,54 @@ export default function App() {
       offlineSync.saveCachedData('config', appConfig);
 
       const email = currentUser.email?.toLowerCase().trim() || '';
-      let detectedRole: UserRole = 'RESIDENT';
+      let detectedRole: UserRole = role;
 
-      const activeB = getActiveBuilding();
-      const isPresident = (activeB.presidentEmail && email === activeB.presidentEmail.toLowerCase().trim()) || appConfig.admins.some(a => a.toLowerCase().trim() === email);
-
-      if (
-        (currentUser as any).role === 'ASSISTANT' ||
-        (appConfig.assistantConfig && appConfig.assistantConfig.email?.toLowerCase().trim() === email) ||
-        email === 'assistant@pyramids.com' ||
-        email === 'assistant'
-      ) {
-        detectedRole = 'ASSISTANT';
-      } else if (
-        (currentUser as any).role === 'ADMIN' ||
-        isPresident
-      ) {
-        detectedRole = 'ADMIN';
-        const adminFlat = appConfig.adminResidentProfile?.flatNumber || (currentUser as any).flatNumber || 101;
-        setFlatNumber(adminFlat);
-        localStorage.setItem('resident_flat_number', String(adminFlat));
-      } else if (
-        (currentUser as any).role === 'MANAGER' ||
-        appConfig.managers.some(m => m.toLowerCase().trim() === email)
-      ) {
-        detectedRole = 'MANAGER';
+      const savedRole = localStorage.getItem('user_role') || localStorage.getItem('app_user_role');
+      if (savedRole && ['ADMIN', 'MANAGER', 'ASSISTANT', 'RESIDENT'].includes(savedRole)) {
+        detectedRole = savedRole as UserRole;
       } else {
-        detectedRole = 'RESIDENT';
-        // Auto filter or restore flat number
-        const cachedFlat = (currentUser as any).flatNumber || localStorage.getItem('resident_flat_number');
-        if (cachedFlat) {
-          setFlatNumber(String(cachedFlat));
+        const activeB = getActiveBuilding();
+        const isPresident = (activeB.presidentEmail && email === activeB.presidentEmail.toLowerCase().trim()) || appConfig.admins.some(a => a.toLowerCase().trim() === email);
+
+        if (
+          (currentUser as any).role === 'ASSISTANT' ||
+          (appConfig.assistantConfig && appConfig.assistantConfig.email?.toLowerCase().trim() === email) ||
+          email === 'assistant@pyramids.com' ||
+          email === 'assistant'
+        ) {
+          detectedRole = 'ASSISTANT';
+        } else if (
+          (currentUser as any).role === 'ADMIN' ||
+          isPresident
+        ) {
+          detectedRole = 'ADMIN';
+        } else if (
+          (currentUser as any).role === 'MANAGER' ||
+          appConfig.managers.some(m => m.toLowerCase().trim() === email)
+        ) {
+          detectedRole = 'MANAGER';
+        } else {
+          detectedRole = 'ADMIN';
         }
       }
 
       setRole(detectedRole);
+      localStorage.setItem('user_role', detectedRole);
 
-      // Refresh all Firestore records smoothly
-      await refreshAllData();
+      const cachedFlat = localStorage.getItem('resident_flat_number') || (currentUser as any).flatNumber;
+      if (cachedFlat) {
+        setFlatNumber(String(cachedFlat));
+      } else if (detectedRole === 'ADMIN') {
+        const adminFlat = appConfig.adminResidentProfile?.flatNumber || 207;
+        setFlatNumber(adminFlat);
+        localStorage.setItem('resident_flat_number', String(adminFlat));
+      }
+
+      // Finish auth initialization immediately so page renders fast from local cache
+      setIsInitializingAuth(false);
+
+      // Trigger data refresh silently in background without blocking screen render
+      refreshAllData().catch(err => console.warn('Background refresh warning:', err));
 
     } catch (err: any) {
       if (err?.message?.includes('لم يتم تسجيل الدخول') || err?.message?.includes('الجلسة') || err?.message?.includes('Session expired')) {
@@ -1294,8 +1312,37 @@ export default function App() {
       if (syncedResidents && syncedResidents.length > 0) {
         setResidents(syncedResidents);
       }
-      setPayments(loadedPayments);
-      setExpenses(loadedExpenses);
+
+      setPayments(prevPayments => {
+        const map = new Map<string, Payment>();
+        if (loadedPayments && loadedPayments.length > 0) {
+          loadedPayments.forEach(p => map.set(String(p.id), p));
+        }
+        prevPayments.forEach(p => {
+          if (!map.has(String(p.id))) {
+            map.set(String(p.id), p);
+          }
+        });
+        const merged = Array.from(map.values());
+        offlineSync.saveCachedData('payments', merged);
+        return merged;
+      });
+
+      setExpenses(prevExpenses => {
+        const map = new Map<string, Expense>();
+        if (loadedExpenses && loadedExpenses.length > 0) {
+          loadedExpenses.forEach(e => map.set(String(e.id), e));
+        }
+        prevExpenses.forEach(e => {
+          if (!map.has(String(e.id))) {
+            map.set(String(e.id), e);
+          }
+        });
+        const merged = Array.from(map.values());
+        offlineSync.saveCachedData('expenses', merged);
+        return merged;
+      });
+
       setRules(loadedRules);
       setCraftsmen(loadedCraftsmen);
       const delMsgIds = deletedMessageIdsRef.current;
@@ -1384,6 +1431,8 @@ export default function App() {
       async () => {
         await logoutUser();
         localStorage.removeItem('custom_user_session');
+        localStorage.removeItem('user_role');
+        localStorage.removeItem('app_user_role');
         setUser(null);
         setToken(null);
         setRole('RESIDENT');
