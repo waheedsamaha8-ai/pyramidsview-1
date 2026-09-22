@@ -481,6 +481,18 @@ export default function App() {
       offlineSync.saveCachedData('expenses', validItems);
     });
 
+    const unsubConfig = firestoreService.subscribeToConfig((conf) => {
+      if (!isMounted || !conf) return;
+      setConfig(conf);
+      offlineSync.saveCachedData('config', conf);
+    });
+
+    const unsubRules = firestoreService.subscribeToRules((r) => {
+      if (!isMounted || !Array.isArray(r)) return;
+      setRules(r);
+      offlineSync.saveCachedData('rules', { rules: r });
+    });
+
     const fetchLatestChatAndComplaints = async () => {
       if (!isApiServerAvailable) return;
       try {
@@ -617,6 +629,8 @@ export default function App() {
       unsubResidents();
       unsubPayments();
       unsubExpenses();
+      unsubConfig();
+      unsubRules();
       if (interval) clearInterval(interval);
     };
   }, []);

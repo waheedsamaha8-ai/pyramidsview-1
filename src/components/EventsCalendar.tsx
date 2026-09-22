@@ -159,7 +159,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
           events: events.length,
         }}
         actionButton={
-          role === 'ADMIN' || role === 'MANAGER' ? (
+          role === 'ADMIN' || role === 'MANAGER' || role === 'ASSISTANT' ? (
             <button
               type="button"
               onClick={() => setShowAddForm(!showAddForm)}
@@ -172,8 +172,8 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
         }
       />
 
-      {/* Add Event Form (Managers/Admins only) */}
-      {showAddForm && (role === 'ADMIN' || role === 'MANAGER') && (
+      {/* Add Event Form (Managers/Admins/Assistants) */}
+      {showAddForm && (role === 'ADMIN' || role === 'MANAGER' || role === 'ASSISTANT') && (
         <form onSubmit={handleSubmit} className="bg-white dark:bg-[#111a2e] border border-slate-200/80 dark:border-slate-800 p-4 sm:p-5 rounded-2xl shadow-xs space-y-4 animate-scale-up">
           <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
             <div className="flex items-center gap-2">

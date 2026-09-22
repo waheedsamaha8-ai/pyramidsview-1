@@ -121,12 +121,21 @@ export const requestGoogleDriveToken = async (): Promise<string | null> => {
     const credential = GoogleAuthProvider.credentialFromResult(result);
     if (credential?.accessToken) {
       cachedAccessToken = credential.accessToken;
-      localStorage.setItem('google_access_token', credential.accessToken);
+      try {
+        localStorage.setItem('google_access_token', credential.accessToken);
+      } catch {}
       return credential.accessToken;
     }
     return null;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Drive token request error:', error);
+    const msg = String(error?.message || error?.code || error || '').toLowerCase();
+    if (msg.includes('access-denied') || msg.includes('access_denied') || msg.includes('403') || msg.includes('unauthorized')) {
+      throw new Error('الحساب الإلكتروني المختار ليس مضافاً كـ (مستخدم اختبار) في مشروع Google. يرجى اختيار البريد الإلكتروني الرئيسي المعتمد (waheedsamaha8@gmail.com) أو استخدام خيار تنزيل النسخة الاحتياطية المباشرة (ملف JSON).');
+    }
+    if (msg.includes('popup-closed-by-user') || msg.includes('cancelled')) {
+      throw new Error('تم إلغاء نافذة تسجيل الدخول من قبل المستخدم.');
+    }
     throw error;
   }
 };

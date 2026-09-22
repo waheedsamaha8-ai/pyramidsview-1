@@ -162,9 +162,9 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
       if (cached) setLastBackupInfo(JSON.parse(cached));
       onNotification?.('نسخ احتياطي ناجح', 'تم نسخ كافة الجداول والبيانات والصور إلى Google Drive و Sheets بنجاح.', 'success');
     } catch (err: any) {
-      // If token expired or missing scope, retry once with fresh consent popup
       const errStr = (err?.message || '').toLowerCase();
-      if (errStr.includes('scope') || errStr.includes('insufficient') || errStr.includes('permission') || errStr.includes('403') || errStr.includes('401') || errStr.includes('تسجيل الدخول')) {
+      // If token expired or missing scope (and not access_denied / unverified user), retry once with fresh consent popup
+      if (!errStr.includes('مستخدم اختبار') && !errStr.includes('access_denied') && !errStr.includes('access-denied') && (errStr.includes('scope') || errStr.includes('insufficient') || errStr.includes('permission') || errStr.includes('403') || errStr.includes('401') || errStr.includes('تسجيل الدخول'))) {
         try {
           setBackupGoogleProgress({
             status: 'syncing',

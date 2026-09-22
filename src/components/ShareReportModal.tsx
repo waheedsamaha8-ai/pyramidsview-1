@@ -314,12 +314,19 @@ export const ShareReportModal: React.FC<ShareReportModalProps> = ({
               <span className="text-[10.5px] text-slate-400">دقة فائقة جاهزة للإرسال</span>
             </div>
 
-            <div className="border border-slate-200 rounded-2xl overflow-hidden max-h-64 sm:max-h-80 overflow-y-auto bg-slate-100 flex items-center justify-center p-2 shadow-inner">
+            <div className="border border-slate-200 rounded-2xl overflow-hidden max-h-[55vh] overflow-y-auto bg-slate-900/5 p-2 shadow-inner flex flex-col items-center">
               {imageDataUrl ? (
                 <img 
                   src={imageDataUrl} 
                   alt="معاينة التقرير" 
-                  className="w-full h-auto object-contain rounded-xl border border-slate-300 shadow-xs bg-white"
+                  className="w-full h-auto object-contain rounded-xl border border-slate-200 shadow-md bg-white cursor-pointer"
+                  onClick={() => {
+                    const win = window.open('');
+                    if (win) {
+                      win.document.write(`<img src="${imageDataUrl}" style="max-width:100%;height:auto;margin:auto;display:block;" />`);
+                    }
+                  }}
+                  title="اضغط للتكبير والعرض بالحجم الكامل"
                 />
               ) : (
                 <div className="py-12 text-slate-400 text-xs font-bold flex flex-col items-center gap-2">

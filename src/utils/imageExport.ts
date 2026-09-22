@@ -107,7 +107,7 @@ export async function generateElementImageBlob(
 
   try {
     const canvas = await html2canvas(elem, {
-      scale: 1.8, // Ultra-sharp Retina quality without excessive canvas memory bloat
+      scale: 2.0, // Ultra-sharp Retina quality for crisp mobile viewing and WhatsApp sharing
       useCORS: true,
       logging: false,
       backgroundColor: '#ffffff',

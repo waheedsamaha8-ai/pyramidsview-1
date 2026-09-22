@@ -1102,3 +1102,34 @@ export function subscribeToExpenses(callback: (expenses: Expense[]) => void): ()
   return subscribeToFirestoreCollection<Expense>('expenses', callback);
 }
 
+export function subscribeToConfig(callback: (config: AppConfig) => void): () => void {
+  try {
+    const docRef = getBuildingDocRef('config', 'app_config');
+    return onSnapshot(docRef, (snap) => {
+      if (snap.exists()) {
+        callback(snap.data() as AppConfig);
+      }
+    }, (error) => {
+      console.warn('[Firestore listener notice for config]:', error.message);
+    });
+  } catch (error) {
+    return () => {};
+  }
+}
+
+export function subscribeToRules(callback: (rules: string[]) => void): () => void {
+  try {
+    const docRef = getBuildingDocRef('rules', 'building_rules');
+    return onSnapshot(docRef, (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        callback(data?.rules || []);
+      }
+    }, (error) => {
+      console.warn('[Firestore listener notice for rules]:', error.message);
+    });
+  } catch (error) {
+    return () => {};
+  }
+}
+
