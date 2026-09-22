@@ -7,6 +7,7 @@ interface NotificationCenterProps {
   onDismiss: (id: string) => void;
   onClearAll: () => void;
   onClose: () => void;
+  onSelectNotification?: (notification: AppNotification) => void;
   role?: UserRole;
   flatNumber?: number | string;
 }
@@ -16,6 +17,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
   onDismiss,
   onClearAll,
   onClose,
+  onSelectNotification,
   role,
   flatNumber,
 }) => {
@@ -198,11 +200,21 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
             displayedNotifications.map((notif) => (
               <div
                 key={notif.id}
-                className={`px-2.5 py-1.5 border rounded-xl flex items-start gap-2 transition-all duration-150 shadow-2xs ${getTypeStyle(notif.type)}`}
+                className={`px-2.5 py-1.5 border rounded-xl flex items-start gap-2 transition-all duration-150 shadow-2xs hover:shadow-xs hover:border-blue-400/80 cursor-pointer ${getTypeStyle(notif.type)}`}
+                onClick={() => {
+                  if (onSelectNotification) {
+                    onSelectNotification(notif);
+                  }
+                  onClose();
+                }}
               >
                 {/* Dismiss button */}
                 <button
-                  onClick={() => onDismiss(notif.id)}
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDismiss(notif.id);
+                  }}
                   className="text-slate-400 hover:text-red-500 hover:bg-red-50/80 rounded-md p-1 transition cursor-pointer shrink-0 mt-0.5"
                   title="حذف التنبيه"
                 >

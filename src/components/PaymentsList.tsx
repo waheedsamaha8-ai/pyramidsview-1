@@ -1,6 +1,6 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { Payment, Resident, UserRole, FloorConfig, AppConfig } from '../types';
-import { Search, Plus, Calendar, FileText, Image as ImageIcon, Camera, Trash2, Edit, AlertCircle, Eye, User, LayoutGrid, List, Building, ArrowUpDown, Upload, X, ZoomIn, Download, RefreshCw, Share2, CheckCircle2, Receipt } from 'lucide-react';
+import { Search, Plus, Calendar, FileText, Image as ImageIcon, Camera, Trash2, Edit, AlertCircle, Eye, User, LayoutGrid, List, Building, ArrowUpDown, Upload, X, ZoomIn, Download, RefreshCw, Share2, CheckCircle2, Receipt, Printer } from 'lucide-react';
 import { deriveFloorConfigsFromResidents, getUnitNumbersForFloor, compareFlatNumbers } from '../utils/buildingStructure';
 import { getResidentMonthlyFee } from '../utils/financialCalculations';
 import { generateElementImageBlob, GeneratedImageResult } from '../utils/imageExport';
@@ -218,6 +218,60 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       alert('حدث خطأ أثناء توليد صورة تقرير التحصيل، يُرجى المحاولة مرة أخرى.');
     } finally {
       setIsGeneratingImage(false);
+    }
+  };
+
+  // Print Collection Report Handler
+  const handlePrintPaymentsReport = () => {
+    document.body.classList.remove('printing-statement', 'printing-debts');
+    window.focus();
+
+    try {
+      window.print();
+    } catch (err) {
+      console.warn('Direct print failed, trying iframe print fallback:', err);
+    }
+
+    const elem = document.getElementById('payments-monthly-printable-area');
+    if (elem) {
+      let iframe = document.getElementById('print-iframe-payments') as HTMLIFrameElement;
+      if (!iframe) {
+        iframe = document.createElement('iframe');
+        iframe.id = 'print-iframe-payments';
+        iframe.style.position = 'fixed';
+        iframe.style.right = '0';
+        iframe.style.bottom = '0';
+        iframe.style.width = '0px';
+        iframe.style.height = '0px';
+        iframe.style.border = 'none';
+        document.body.appendChild(iframe);
+      }
+      const doc = iframe.contentWindow?.document;
+      if (doc) {
+        doc.open();
+        doc.write(`
+          <!DOCTYPE html>
+          <html dir="rtl" lang="ar">
+          <head>
+            <title>طباعة تقرير التحصيلات</title>
+            <style>
+              body { font-family: system-ui, -apple-system, sans-serif; padding: 20px; background: white; color: black; direction: rtl; }
+              table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+              th, td { border: 1px solid #334155; padding: 6px 8px; text-align: right; font-size: 12px; }
+              th { background-color: #f1f5f9; font-weight: bold; }
+            </style>
+          </head>
+          <body>
+            ${elem.innerHTML}
+          </body>
+          </html>
+        `);
+        doc.close();
+        setTimeout(() => {
+          iframe.contentWindow?.focus();
+          iframe.contentWindow?.print();
+        }, 400);
+      }
     }
   };
 
@@ -640,13 +694,13 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
           </div>
         </div>
 
-        {/* Action Controls: Toggle current month, Generate Report Image, Add Payment */}
-        <div className={`grid ${isReadOnly ? 'grid-cols-2' : 'grid-cols-3'} gap-1.5 sm:gap-2 w-full lg:w-auto pt-2 border-t border-slate-100 lg:border-t-0 lg:pt-0`}>
+        {/* Action Controls: Toggle current month, Generate Report Image, Print Report, Add Payment */}
+        <div className={`grid ${isReadOnly ? 'grid-cols-3' : 'grid-cols-4'} gap-1 sm:gap-2 w-full lg:w-auto pt-2 border-t border-slate-100 lg:border-t-0 lg:pt-0`}>
           {/* Toggle Button for Current Month Only */}
           <button
             type="button"
             onClick={() => setOnlyCurrentMonth(!onlyCurrentMonth)}
-            className={`w-full py-2.5 px-1.5 sm:px-3 rounded-xl text-[11px] sm:text-xs font-black transition flex items-center justify-center gap-1 sm:gap-1.5 cursor-pointer shadow-2xs border text-center ${
+            className={`w-full py-2 px-1 sm:px-2.5 rounded-xl text-[10px] sm:text-xs font-black transition flex items-center justify-center gap-1 cursor-pointer shadow-2xs border text-center ${
               onlyCurrentMonth
                 ? 'bg-blue-900 text-white border-blue-900'
                 : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
@@ -654,9 +708,9 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
             title="عند التفعيل يتم عرض تحصيل الشهر الحالي فقط، وعند الإلغاء يتم عرض تحصيل جميع الشهور"
           >
             <Calendar className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">الشهر الحالي فقط</span>
+            <span className="truncate">الشهر الحالي</span>
             <span
-              className={`w-2 h-2 rounded-full shrink-0 ${
+              className={`w-1.5 h-1.5 rounded-full shrink-0 ${
                 onlyCurrentMonth ? 'bg-emerald-400 animate-pulse' : 'bg-slate-300'
               }`}
             />
@@ -667,7 +721,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
             type="button"
             onClick={handleGenerateMonthlyReportImage}
             disabled={isGeneratingImage}
-            className="w-full py-2.5 px-1.5 sm:px-3 bg-emerald-700 hover:bg-emerald-800 active:scale-95 text-white rounded-xl text-[11px] sm:text-xs font-black transition flex items-center justify-center gap-1 sm:gap-1.5 cursor-pointer shadow-2xs disabled:opacity-50 text-center"
+            className="w-full py-2 px-1 sm:px-2.5 bg-emerald-700 hover:bg-emerald-800 active:scale-95 text-white rounded-xl text-[10px] sm:text-xs font-black transition flex items-center justify-center gap-1 cursor-pointer shadow-2xs disabled:opacity-50 text-center"
             title="توليد تقرير التحصيلات المتزامن تماماً مع البيانات المعروضة ومشاركته مباشرة عبر واتساب"
           >
             {isGeneratingImage ? (
@@ -678,18 +732,29 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
             ) : (
               <>
                 <Share2 className="w-3.5 h-3.5 text-emerald-200 shrink-0" />
-                <span className="truncate">توليد تقرير تحصيلات</span>
+                <span className="truncate">توليد تقرير</span>
               </>
             )}
+          </button>
+
+          {/* Print Collection Report Button */}
+          <button
+            type="button"
+            onClick={handlePrintPaymentsReport}
+            className="w-full py-2 px-1 sm:px-2.5 bg-indigo-800 hover:bg-indigo-900 active:scale-95 text-white rounded-xl text-[10px] sm:text-xs font-black transition flex items-center justify-center gap-1 cursor-pointer shadow-2xs text-center"
+            title="طباعة تقرير التحصيلات المعتمد المعروض حالياً"
+          >
+            <Printer className="w-3.5 h-3.5 text-indigo-200 shrink-0" />
+            <span className="truncate">طباعة تقرير</span>
           </button>
 
           {!isReadOnly && (
             <button
               onClick={openAddModal}
-              className="w-full py-2.5 px-1.5 sm:px-3 flex items-center justify-center gap-1 sm:gap-1.5 bg-blue-900 text-white rounded-xl font-bold text-[11px] sm:text-xs hover:bg-blue-950 active:scale-[0.98] transition shadow-xs cursor-pointer text-center"
+              className="w-full py-2 px-1 sm:px-2.5 flex items-center justify-center gap-1 bg-blue-900 text-white rounded-xl font-bold text-[10px] sm:text-xs hover:bg-blue-950 active:scale-[0.98] transition shadow-xs cursor-pointer text-center"
             >
-              <Plus className="w-4 h-4 shrink-0" />
-              <span className="truncate">إضافة تحصيل جديد</span>
+              <Plus className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">إضافة تحصيل</span>
             </button>
           )}
         </div>

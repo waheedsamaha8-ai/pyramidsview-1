@@ -399,126 +399,79 @@ export default function App() {
     const unsubChat = firestoreService.subscribeToChatMessages((firestoreMsgs) => {
       if (!isMounted || !Array.isArray(firestoreMsgs)) return;
       const deletedMsgIds = deletedMessageIdsRef.current;
-      setMessages(prev => {
-        const validMsgs = firestoreMsgs.filter(m => m && m.id && !deletedMsgIds.has(m.id));
-        const map = new Map<string, ChatMessage>();
-        prev.forEach(m => {
-          if (m && m.id && !deletedMsgIds.has(m.id)) map.set(m.id, m);
-        });
-        validMsgs.forEach(m => map.set(m.id, m));
-        const merged = Array.from(map.values()).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-        offlineSync.saveCachedData('chat_messages', merged);
-        return merged;
-      });
+      const validMsgs = firestoreMsgs.filter(m => m && m.id && !deletedMsgIds.has(m.id))
+        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      setMessages(validMsgs);
+      offlineSync.saveCachedData('chat_messages', validMsgs);
     });
 
     const unsubComplaints = firestoreService.subscribeToComplaints((items) => {
       if (!isMounted || !Array.isArray(items)) return;
       const delSet = deletedComplaintIdsRef.current;
-      setComplaints(prev => {
-        const map = new Map<string, PublicComplaint>();
-        prev.forEach(c => { if (c && c.id && !delSet.has(c.id)) map.set(c.id, c); });
-        items.forEach(c => { if (c && c.id && !delSet.has(c.id)) map.set(c.id, c); });
-        const merged = Array.from(map.values()).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-        offlineSync.saveCachedData('public_complaints', merged);
-        return merged;
-      });
+      const validComps = items.filter(c => c && c.id && !delSet.has(c.id))
+        .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+      setComplaints(validComps);
+      offlineSync.saveCachedData('public_complaints', validComps);
     });
 
     const unsubMaintenance = firestoreService.subscribeToMaintenance((items) => {
       if (!isMounted || !Array.isArray(items)) return;
-      setMaintenanceRequests(prev => {
-        const map = new Map<string, MaintenanceRequest>();
-        prev.forEach(m => { if (m && m.id) map.set(m.id, m); });
-        items.forEach(m => { if (m && m.id) map.set(m.id, m); });
-        const merged = Array.from(map.values()).sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
-        offlineSync.saveCachedData('maintenance', merged);
-        return merged;
-      });
+      const validItems = items.filter(m => m && m.id)
+        .sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+      setMaintenanceRequests(validItems);
+      offlineSync.saveCachedData('maintenance', validItems);
     });
 
     const unsubPolls = firestoreService.subscribeToPolls((items) => {
       if (!isMounted || !Array.isArray(items)) return;
-      setPolls(prev => {
-        const map = new Map<string, Poll>();
-        prev.forEach(p => { if (p && p.id) map.set(p.id, p); });
-        items.forEach(p => { if (p && p.id) map.set(p.id, p); });
-        const merged = Array.from(map.values()).sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-        offlineSync.saveCachedData('polls', merged);
-        return merged;
-      });
+      const validItems = items.filter(p => p && p.id)
+        .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+      setPolls(validItems);
+      offlineSync.saveCachedData('polls', validItems);
     });
 
     const unsubDecisions = firestoreService.subscribeToDecisions((items) => {
       if (!isMounted || !Array.isArray(items)) return;
-      setDecisions(prev => {
-        const map = new Map<string, AdminDecision>();
-        prev.forEach(d => { if (d && d.id) map.set(d.id, d); });
-        items.forEach(d => { if (d && d.id) map.set(d.id, d); });
-        const merged = Array.from(map.values()).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-        offlineSync.saveCachedData('admin_decisions', merged);
-        return merged;
-      });
+      const validItems = items.filter(d => d && d.id)
+        .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+      setDecisions(validItems);
+      offlineSync.saveCachedData('admin_decisions', validItems);
     });
 
     const unsubEvents = firestoreService.subscribeToEvents((items) => {
       if (!isMounted || !Array.isArray(items)) return;
-      setEvents(prev => {
-        const map = new Map<string, BuildingEvent>();
-        prev.forEach(ev => { if (ev && ev.id) map.set(ev.id, ev); });
-        items.forEach(ev => { if (ev && ev.id) map.set(ev.id, ev); });
-        const merged = Array.from(map.values()).sort((a, b) => (a.date || '').localeCompare(b.date || ''));
-        offlineSync.saveCachedData('events', merged);
-        return merged;
-      });
+      const validItems = items.filter(e => e && e.id)
+        .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+      setEvents(validItems);
+      offlineSync.saveCachedData('events', validItems);
     });
 
     const unsubCraftsmen = firestoreService.subscribeToCraftsmen((items) => {
       if (!isMounted || !Array.isArray(items)) return;
-      setCraftsmen(prev => {
-        const map = new Map<string, Craftsman>();
-        prev.forEach(c => { if (c && c.id) map.set(c.id, c); });
-        items.forEach(c => { if (c && c.id) map.set(c.id, c); });
-        const merged = Array.from(map.values());
-        offlineSync.saveCachedData('craftsmen', merged);
-        return merged;
-      });
+      const validItems = items.filter(c => c && c.id);
+      setCraftsmen(validItems);
+      offlineSync.saveCachedData('craftsmen', validItems);
     });
 
     const unsubResidents = firestoreService.subscribeToResidents((items) => {
       if (!isMounted || !Array.isArray(items)) return;
-      setResidents(prev => {
-        const map = new Map<string, Resident>();
-        prev.forEach(r => { if (r && r.id) map.set(r.id, r); });
-        items.forEach(r => { if (r && r.id) map.set(r.id, r); });
-        const merged = Array.from(map.values());
-        offlineSync.saveCachedData('residents', merged);
-        return merged;
-      });
+      const validItems = items.filter(r => r && r.id);
+      setResidents(validItems);
+      offlineSync.saveCachedData('residents', validItems);
     });
 
     const unsubPayments = firestoreService.subscribeToPayments((items) => {
       if (!isMounted || !Array.isArray(items)) return;
-      setPayments(prev => {
-        const map = new Map<string, Payment>();
-        prev.forEach(p => { if (p && p.id) map.set(p.id, p); });
-        items.forEach(p => { if (p && p.id) map.set(p.id, p); });
-        const merged = Array.from(map.values());
-        offlineSync.saveCachedData('payments', merged);
-        return merged;
-      });
+      const validItems = items.filter(p => p && p.id);
+      setPayments(validItems);
+      offlineSync.saveCachedData('payments', validItems);
     });
 
     const unsubExpenses = firestoreService.subscribeToExpenses((items) => {
       if (!isMounted || !Array.isArray(items)) return;
-      setExpenses(prev => {
-        const map = new Map<string, Expense>();
-        prev.forEach(e => { if (e && e.id) map.set(e.id, e); });
-        items.forEach(e => { if (e && e.id) map.set(e.id, e); });
-        const merged = Array.from(map.values());
-        offlineSync.saveCachedData('expenses', merged);
-        return merged;
-      });
+      const validItems = items.filter(e => e && e.id);
+      setExpenses(validItems);
+      offlineSync.saveCachedData('expenses', validItems);
     });
 
     const fetchLatestChatAndComplaints = async () => {
@@ -1416,105 +1369,65 @@ export default function App() {
 
       const syncedResidents = await syncApprovedRequestsWithResidents(loadedResidents);
 
-      setResidents(prev => {
-        const map = new Map<string, Resident>();
-        prev.forEach(r => { if (r && r.id) map.set(String(r.id), r); });
-        (syncedResidents || []).forEach(r => { if (r && r.id) map.set(String(r.id), r); });
-        const merged = Array.from(map.values());
-        offlineSync.saveCachedData('residents', merged);
-        return merged;
-      });
+      if (syncedResidents) {
+        setResidents(syncedResidents);
+        offlineSync.saveCachedData('residents', syncedResidents);
+      }
 
-      setPayments(prevPayments => {
-        const map = new Map<string, Payment>();
-        prevPayments.forEach(p => { if (p && p.id) map.set(String(p.id), p); });
-        (loadedPayments || []).forEach(p => { if (p && p.id) map.set(String(p.id), p); });
-        const merged = Array.from(map.values());
-        offlineSync.saveCachedData('payments', merged);
-        return merged;
-      });
+      if (loadedPayments) {
+        setPayments(loadedPayments);
+        offlineSync.saveCachedData('payments', loadedPayments);
+      }
 
-      setExpenses(prevExpenses => {
-        const map = new Map<string, Expense>();
-        prevExpenses.forEach(e => { if (e && e.id) map.set(String(e.id), e); });
-        (loadedExpenses || []).forEach(e => { if (e && e.id) map.set(String(e.id), e); });
-        const merged = Array.from(map.values());
-        offlineSync.saveCachedData('expenses', merged);
-        return merged;
-      });
+      if (loadedExpenses) {
+        setExpenses(loadedExpenses);
+        offlineSync.saveCachedData('expenses', loadedExpenses);
+      }
 
       if (loadedRules && loadedRules.length > 0) {
         setRules(loadedRules);
         offlineSync.saveCachedData('rules', { rules: loadedRules });
       }
 
-      setCraftsmen(prev => {
-        const map = new Map<string, Craftsman>();
-        prev.forEach(c => { if (c && c.id) map.set(c.id, c); });
-        (loadedCraftsmen || []).forEach(c => { if (c && c.id) map.set(c.id, c); });
-        const merged = Array.from(map.values());
-        offlineSync.saveCachedData('craftsmen', merged);
-        return merged;
-      });
+      if (loadedCraftsmen) {
+        setCraftsmen(loadedCraftsmen);
+        offlineSync.saveCachedData('craftsmen', loadedCraftsmen);
+      }
 
       const delMsgIds = deletedMessageIdsRef.current;
       const delCompIds = deletedComplaintIdsRef.current;
-      const safeLoadedMessages = loadedMessages ? loadedMessages.filter(m => !delMsgIds.has(m.id)) : [];
-      const safeLoadedComplaints = loadedComplaints ? loadedComplaints.filter(c => !delCompIds.has(c.id)) : [];
+      const safeLoadedMessages = loadedMessages ? loadedMessages.filter(m => !delMsgIds.has(m.id)).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()) : [];
+      const safeLoadedComplaints = loadedComplaints ? loadedComplaints.filter(c => !delCompIds.has(c.id)).sort((a, b) => (b.date || '').localeCompare(a.date || '')) : [];
 
-      setMessages(prev => {
-        const map = new Map<string, ChatMessage>();
-        prev.forEach(m => { if (m && m.id && !delMsgIds.has(m.id)) map.set(m.id, m); });
-        safeLoadedMessages.forEach(m => { if (m && m.id && !delMsgIds.has(m.id)) map.set(m.id, m); });
-        const merged = Array.from(map.values()).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-        offlineSync.saveCachedData('chat_messages', merged);
-        return merged;
-      });
+      setMessages(safeLoadedMessages);
+      offlineSync.saveCachedData('chat_messages', safeLoadedMessages);
 
-      setDecisions(prev => {
-        const map = new Map<string, AdminDecision>();
-        prev.forEach(d => { if (d && d.id) map.set(d.id, d); });
-        (loadedDecisions || []).forEach(d => { if (d && d.id) map.set(d.id, d); });
-        const merged = Array.from(map.values()).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-        offlineSync.saveCachedData('admin_decisions', merged);
-        return merged;
-      });
+      if (loadedDecisions) {
+        const sortedDec = loadedDecisions.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+        setDecisions(sortedDec);
+        offlineSync.saveCachedData('admin_decisions', sortedDec);
+      }
 
-      setPolls(prev => {
-        const map = new Map<string, Poll>();
-        prev.forEach(p => { if (p && p.id) map.set(p.id, p); });
-        (loadedPolls || []).forEach(p => { if (p && p.id) map.set(p.id, p); });
-        const merged = Array.from(map.values()).sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-        offlineSync.saveCachedData('polls', merged);
-        return merged;
-      });
+      if (loadedPolls) {
+        const sortedPolls = loadedPolls.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+        setPolls(sortedPolls);
+        offlineSync.saveCachedData('polls', sortedPolls);
+      }
 
-      setComplaints(prev => {
-        const map = new Map<string, PublicComplaint>();
-        prev.forEach(c => { if (c && c.id && !delCompIds.has(c.id)) map.set(c.id, c); });
-        safeLoadedComplaints.forEach(c => { if (c && c.id && !delCompIds.has(c.id)) map.set(c.id, c); });
-        const merged = Array.from(map.values()).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-        offlineSync.saveCachedData('public_complaints', merged);
-        return merged;
-      });
+      setComplaints(safeLoadedComplaints);
+      offlineSync.saveCachedData('public_complaints', safeLoadedComplaints);
 
-      setMaintenanceRequests(prev => {
-        const map = new Map<string, MaintenanceRequest>();
-        prev.forEach(m => { if (m && m.id) map.set(m.id, m); });
-        (loadedMaintenance || []).forEach(m => { if (m && m.id) map.set(m.id, m); });
-        const merged = Array.from(map.values()).sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
-        offlineSync.saveCachedData('maintenance', merged);
-        return merged;
-      });
+      if (loadedMaintenance) {
+        const sortedMaint = loadedMaintenance.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+        setMaintenanceRequests(sortedMaint);
+        offlineSync.saveCachedData('maintenance', sortedMaint);
+      }
 
-      setEvents(prev => {
-        const map = new Map<string, BuildingEvent>();
-        prev.forEach(ev => { if (ev && ev.id) map.set(ev.id, ev); });
-        (loadedEvents || []).forEach(ev => { if (ev && ev.id) map.set(ev.id, ev); });
-        const merged = Array.from(map.values()).sort((a, b) => (a.date || '').localeCompare(b.date || ''));
-        offlineSync.saveCachedData('events', merged);
-        return merged;
-      });
+      if (loadedEvents) {
+        const sortedEv = loadedEvents.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+        setEvents(sortedEv);
+        offlineSync.saveCachedData('events', sortedEv);
+      }
 
     } catch (err) {
       logError(err, 'refreshAllData');
@@ -2888,6 +2801,50 @@ export default function App() {
     }
   };
 
+  const handleSelectNotification = (notif: AppNotification) => {
+    // Mark notification as read
+    setNotifications((prev) =>
+      prev.map((n) => (n.id === notif.id ? { ...n, read: true } : n))
+    );
+
+    const titleMsg = ((notif.title || '') + ' ' + (notif.message || '')).toLowerCase();
+    const category = notif.category;
+
+    if (category === 'chat' || titleMsg.includes('دردشة') || titleMsg.includes('رسالة') || titleMsg.includes('رساله') || titleMsg.includes('محادثة')) {
+      setChatSubTab('room');
+      setActiveTab('chat');
+    } else if (titleMsg.includes('شكوى') || titleMsg.includes('شكاوى') || titleMsg.includes('مقترح')) {
+      setChatSubTab('complaints');
+      setActiveTab('chat');
+    } else if (titleMsg.includes('صيانة') || titleMsg.includes('طلب صيانة') || category === 'services') {
+      if (titleMsg.includes('صناعي') || titleMsg.includes('دليل') || titleMsg.includes('حرفي')) {
+        setMaintenanceSubTab('directory');
+      } else {
+        setMaintenanceSubTab('requests');
+      }
+      setActiveTab('maintenance');
+    } else if (titleMsg.includes('استبيان') || titleMsg.includes('استطلاع') || titleMsg.includes('تصويت')) {
+      setPollsSubTab('polls');
+      setActiveTab('polls');
+    } else if (titleMsg.includes('قرار') || titleMsg.includes('قرارات')) {
+      setPollsSubTab('decisions');
+      setActiveTab('polls');
+    } else if (titleMsg.includes('حدث') || titleMsg.includes('فعالية') || titleMsg.includes('تقويم') || titleMsg.includes('تاريخ')) {
+      setActiveTab('calendar');
+    } else if (category === 'registration' || titleMsg.includes('ساكن') || titleMsg.includes('انضمام') || titleMsg.includes('تسجيل')) {
+      setActiveTab('residents');
+    } else if (titleMsg.includes('تحصيل') || titleMsg.includes('إيصال') || titleMsg.includes('سداد') || titleMsg.includes('اشتراك') || titleMsg.includes('دفعة')) {
+      setActiveTab('payments');
+    } else if (titleMsg.includes('مصروف') || titleMsg.includes('فاتورة') || titleMsg.includes('صرف')) {
+      setActiveTab('expenses');
+    } else if (category === 'communication') {
+      setPollsSubTab('polls');
+      setActiveTab('polls');
+    } else {
+      setActiveTab('dashboard');
+    }
+  };
+
   // Authentication Gate:
   // 1. If actively checking/initializing auth on cold start, show graceful loading screen (never flash Login)
   if (isInitializingAuth) {
@@ -3983,6 +3940,7 @@ export default function App() {
           onDismiss={(id) => setNotifications((prev) => prev.filter((n) => n.id !== id))}
           onClearAll={() => setNotifications((prev) => role === 'ASSISTANT' ? prev.filter(n => n.category === 'chat' || n.category === 'communication') : [])}
           onClose={() => setShowNotifications(false)}
+          onSelectNotification={handleSelectNotification}
         />
       )}
 
