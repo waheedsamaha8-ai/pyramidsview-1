@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      (function() {
+        if (typeof window !== 'undefined') {
+          var origError = console.error;
+          console.error = function() {
+            var msg = arguments[0];
+            if (typeof msg === 'string' && (msg.indexOf('[vite]') !== -1 || msg.indexOf('websocket') !== -1 || msg.indexOf('WebSocket') !== -1)) {
+              return;
+            }
+            origError.apply(console, arguments);
+          };
+          var origWarn = console.warn;
+          console.warn = function() {
+            var msg = arguments[0];
+            if (typeof msg === 'string' && (msg.indexOf('[vite]') !== -1 || msg.indexOf('websocket') !== -1 || msg.indexOf('WebSocket') !== -1)) {
+              return;
+            }
+            origWarn.apply(console, arguments);
+          };
+        }
+      })();
+    </script>
+    <title>نظام إدارة اتحادات الملاك والعقارات السحابي</title>
+    <meta name="description" content="منظومة سحابية ذكية وشاملة لإدارة شؤون اتحادات الملاك والعقارات، متابعة الاشتراكات والتحصيلات، كشوف الحسابات، فواتير المصروفات، بلاغات الصيانة والنسخ الاحتياطي السحابي." />
+    
+    <!-- OpenGraph Metadata -->
+    <meta property="og:title" content="نظام إدارة اتحادات الملاك والعقارات السحابي" />
+    <meta property="og:description" content="منظومة سحابية ذكية وشاملة لإدارة شؤون اتحادات الملاك والعقارات، متابعة الاشتراكات والتحصيلات، كشوف الحسابات، فواتير المصروفات، بلاغات الصيانة والنسخ الاحتياطي السحابي." />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="./icon.svg" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <!-- PWA Headers -->
+    <meta name="theme-color" content="#1e3a8a" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="اتحاد الملاك" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+    
+    <!-- Google Fonts - Cairo -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  </head>
+  <body class="bg-slate-100 text-slate-900 font-sans antialiased select-none">
+    <div id="root"></div>
+    <script type="module" src="./src/main.tsx"></script>
+  </body>
+</html>

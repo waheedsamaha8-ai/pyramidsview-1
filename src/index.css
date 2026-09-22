@@ -1,0 +1,682 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Prevent jarring browser pull-to-refresh overscroll tears on mobile devices */
+html,
+body,
+#root {
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Light mode background - clean light gray */
+html:not(.dark),
+body:not(.dark) {
+  background-color: #f1f5f9;
+  color: #0f172a;
+}
+
+/* Professional Dark Mode Design System for Building Management */
+html.dark {
+  color-scheme: dark;
+}
+
+html.dark body {
+  background-color: #0b1329;
+  color: #f1f5f9;
+}
+
+.dark body {
+  background-color: #0b1329 !important;
+  color: #f1f5f9;
+}
+
+/* Main background containers */
+.dark .bg-slate-50 {
+  background-color: #0b1329;
+}
+
+.dark .bg-slate-100 {
+  background-color: #131d33;
+}
+
+.dark .bg-slate-200 {
+  background-color: #1e2e4a;
+}
+
+/* White cards and panels become sleek dark executive surfaces */
+.dark .bg-white {
+  background-color: #111a2e;
+}
+
+.dark .hover\:bg-slate-50:hover {
+  background-color: #16223b;
+}
+
+.dark .hover\:bg-slate-100:hover {
+  background-color: #1c2b48;
+}
+
+.dark .hover\:bg-white:hover {
+  background-color: #17243e;
+}
+
+/* Borders */
+.dark .border-slate-100 {
+  border-color: #1b2844;
+}
+
+.dark .border-slate-200 {
+  border-color: #233457;
+}
+
+.dark .border-slate-300 {
+  border-color: #2c416a;
+}
+
+/* ==========================================================================
+   DARK MODE CONTRAST SYSTEM
+   قاعدة التباين للوضع الليلي:
+   1. إذا كانت الخلفية داكنة (أسطح البطاقات، الحاويات، الجداول، المودال، الهيدر) -> الفونت يكون فاتحاً عالي التباين
+   2. إذا كانت الخلفية فاتحة (الشارات، الأوسمة، الأزرار ذات الخلفية الفاتحة) -> الفونت يكون غامقاً
+   ========================================================================== */
+
+/* 1. أسطح داكنة في الوضع الليلي -> خطوط فاتحة ومريحة */
+.dark .text-slate-950,
+.dark .text-slate-900 {
+  color: #f8fafc !important;
+}
+
+.dark .text-slate-800 {
+  color: #f1f5f9 !important;
+}
+
+.dark .text-slate-700 {
+  color: #e2e8f0 !important;
+}
+
+.dark .text-slate-600 {
+  color: #cbd5e1 !important;
+}
+
+.dark .text-slate-500 {
+  color: #94a3b8 !important;
+}
+
+.dark .text-slate-400 {
+  color: #94a3b8 !important;
+}
+
+.dark .text-blue-950,
+.dark .text-blue-900 {
+  color: #93c5fd !important;
+}
+
+.dark .text-blue-800,
+.dark .text-blue-700 {
+  color: #60a5fa !important;
+}
+
+.dark .text-indigo-950,
+.dark .text-indigo-900,
+.dark .text-indigo-800 {
+  color: #a5b4fc !important;
+}
+
+.dark .text-emerald-950,
+.dark .text-emerald-900,
+.dark .text-emerald-800 {
+  color: #6ee7b7 !important;
+}
+
+.dark .text-amber-950,
+.dark .text-amber-900,
+.dark .text-amber-800 {
+  color: #fde047 !important;
+}
+
+.dark .text-rose-950,
+.dark .text-rose-900,
+.dark .text-rose-800 {
+  color: #fda4af !important;
+}
+
+.dark .text-red-950,
+.dark .text-red-900,
+.dark .text-red-800 {
+  color: #fca5a5 !important;
+}
+
+/* 2. إذا كانت الخلفية فاتحة في الوضع الليلي -> الفونت يكون غامقاً (شارات، أوسمة، أزرار فاتحة) */
+.dark [class*="bg-amber-100"],
+.dark [class*="bg-amber-200"],
+.dark [class*="bg-amber-300"],
+.dark [class*="bg-amber-400"],
+.dark [class*="bg-yellow-100"],
+.dark [class*="bg-yellow-200"],
+.dark [class*="bg-yellow-300"],
+.dark [class*="bg-yellow-400"],
+.dark [class*="bg-amber-100"] *,
+.dark [class*="bg-amber-200"] *,
+.dark [class*="bg-amber-300"] *,
+.dark [class*="bg-amber-400"] *,
+.dark [class*="bg-yellow-100"] *,
+.dark [class*="bg-yellow-200"] *,
+.dark [class*="bg-yellow-300"] *,
+.dark [class*="bg-yellow-400"] * {
+  color: #78350f !important;
+}
+
+.dark [class*="bg-emerald-100"],
+.dark [class*="bg-emerald-200"],
+.dark [class*="bg-emerald-300"],
+.dark [class*="bg-green-100"],
+.dark [class*="bg-green-200"],
+.dark [class*="bg-green-300"],
+.dark [class*="bg-emerald-100"] *,
+.dark [class*="bg-emerald-200"] *,
+.dark [class*="bg-emerald-300"] *,
+.dark [class*="bg-green-100"] *,
+.dark [class*="bg-green-200"] *,
+.dark [class*="bg-green-300"] * {
+  color: #064e3b !important;
+}
+
+.dark [class*="bg-blue-100"],
+.dark [class*="bg-blue-200"],
+.dark [class*="bg-sky-100"],
+.dark [class*="bg-sky-200"],
+.dark [class*="bg-cyan-100"],
+.dark [class*="bg-cyan-200"],
+.dark [class*="bg-blue-100"] *,
+.dark [class*="bg-blue-200"] *,
+.dark [class*="bg-sky-100"] *,
+.dark [class*="bg-sky-200"] *,
+.dark [class*="bg-cyan-100"] *,
+.dark [class*="bg-cyan-200"] * {
+  color: #1e3a8a !important;
+}
+
+.dark [class*="bg-rose-100"],
+.dark [class*="bg-rose-200"],
+.dark [class*="bg-red-100"],
+.dark [class*="bg-red-200"],
+.dark [class*="bg-rose-100"] *,
+.dark [class*="bg-rose-200"] *,
+.dark [class*="bg-red-100"] *,
+.dark [class*="bg-red-200"] * {
+  color: #881337 !important;
+}
+
+.dark [class*="bg-purple-100"],
+.dark [class*="bg-purple-200"],
+.dark [class*="bg-purple-100"] *,
+.dark [class*="bg-purple-200"] * {
+  color: #581c87 !important;
+}
+
+/* أي عنصر محدد يحمل خلفية فاتحة أو بيضاء صريحة في الوضع الليلي */
+.dark .light-bg,
+.dark [data-bg="light"],
+.dark .bg-light,
+.dark span.bg-white:not([class*="dark:bg-"]),
+.dark span.bg-slate-100:not([class*="dark:bg-"]),
+.dark span.bg-slate-200:not([class*="dark:bg-"]),
+.dark button.bg-white:not([class*="dark:bg-"]),
+.dark .light-bg *,
+.dark [data-bg="light"] *,
+.dark .bg-light *,
+.dark span.bg-white:not([class*="dark:bg-"]) *,
+.dark span.bg-slate-100:not([class*="dark:bg-"]) *,
+.dark span.bg-slate-200:not([class*="dark:bg-"]) *,
+.dark button.bg-white:not([class*="dark:bg-"]) * {
+  color: #0f172a !important;
+}
+
+/* Primary buttons and actions */
+.dark .bg-blue-900,
+.dark button.bg-blue-900 {
+  background-color: #2563eb !important;
+  color: #ffffff !important;
+}
+
+.dark .bg-blue-900 *,
+.dark button.bg-blue-900 * {
+  color: #ffffff !important;
+}
+
+.dark .hover\:bg-blue-950:hover,
+.dark .hover\:bg-blue-900:hover {
+  background-color: #1d4ed8 !important;
+}
+
+/* Color badges with transparent luminous tones (Dark tinted background -> Light luminous font) */
+.dark .bg-blue-50 {
+  background-color: rgba(37, 99, 235, 0.22) !important;
+  color: #bfdbfe !important;
+}
+.dark .bg-blue-50 * {
+  color: inherit !important;
+}
+
+.dark .bg-emerald-50 {
+  background-color: rgba(16, 185, 129, 0.2) !important;
+  color: #a7f3d0 !important;
+}
+.dark .bg-emerald-50 * {
+  color: inherit !important;
+}
+
+.dark .bg-red-50 {
+  background-color: rgba(239, 68, 68, 0.2) !important;
+  color: #fecaca !important;
+}
+.dark .bg-red-50 * {
+  color: inherit !important;
+}
+
+.dark .bg-amber-50 {
+  background-color: rgba(245, 158, 11, 0.2) !important;
+  color: #fde68a !important;
+}
+.dark .bg-amber-50 * {
+  color: inherit !important;
+}
+
+.dark .bg-purple-50 {
+  background-color: rgba(168, 85, 247, 0.2) !important;
+  color: #e9d5ff !important;
+}
+.dark .bg-purple-50 * {
+  color: inherit !important;
+}
+
+.dark .bg-indigo-50 {
+  background-color: rgba(99, 102, 241, 0.2) !important;
+  color: #c7d2fe !important;
+}
+.dark .bg-indigo-50 * {
+  color: inherit !important;
+}
+
+.dark .bg-cyan-50 {
+  background-color: rgba(6, 182, 212, 0.2) !important;
+  color: #a5f3fc !important;
+}
+.dark .bg-cyan-50 * {
+  color: inherit !important;
+}
+
+.dark .bg-yellow-50 {
+  background-color: rgba(234, 179, 8, 0.2) !important;
+  color: #fef08a !important;
+}
+.dark .bg-yellow-50 * {
+  color: inherit !important;
+}
+
+/* Form controls in dark mode */
+.dark input:not([type="checkbox"]):not([type="radio"]),
+.dark select,
+.dark textarea {
+  background-color: #10192d !important;
+  color: #f8fafc !important;
+  border-color: #233457 !important;
+}
+
+.dark input:focus,
+.dark select:focus,
+.dark textarea:focus {
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25) !important;
+}
+
+/* Dark mode scrollbars */
+.dark ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.dark ::-webkit-scrollbar-track {
+  background: #0b1329;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #233457;
+  border-radius: 4px;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #334b79;
+}
+
+/* ==========================================================================
+   ENHANCED DARK MODE TABLE STYLING SYSTEM
+   Provides crisp visibility, high contrast, and executive aesthetic for tables
+   ========================================================================== */
+
+/* Table container card */
+.dark table {
+  background-color: #111a2e;
+}
+
+/* Table Header */
+.dark thead tr {
+  background-color: #16243f !important;
+  border-color: #233554 !important;
+}
+
+.dark thead th {
+  background-color: #16243f !important;
+  color: #e2e8f0 !important;
+  border-color: #233554 !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.01em;
+}
+
+.dark thead th span {
+  color: #cbd5e1 !important;
+}
+
+/* Table Body Rows */
+.dark tbody tr {
+  background-color: #111a2e;
+  border-color: #1c2b48 !important;
+  transition: background-color 0.15s ease;
+}
+
+.dark tbody tr:hover {
+  background-color: #182744 !important;
+}
+
+.dark tbody td {
+  border-color: #1c2b48 !important;
+  color: #f1f5f9;
+}
+
+/* Specific borders inside tables */
+.dark table .border-slate-50,
+.dark table .border-slate-100,
+.dark table .border-slate-200 {
+  border-color: #1e2f4f !important;
+}
+
+.dark table .divide-slate-100 > * + * {
+  border-color: #1e2f4f !important;
+}
+
+/* Sticky columns (e.g. pinned unit/resident column on horizontal scroll) */
+.dark th.sticky,
+.dark td.sticky {
+  background-color: #111a2e !important;
+  border-color: #233554 !important;
+  box-shadow: -4px 0 14px rgba(0, 0, 0, 0.45) !important;
+}
+
+.dark thead th.sticky {
+  background-color: #16243f !important;
+}
+
+.dark tbody tr:hover td.sticky {
+  background-color: #182744 !important;
+}
+
+/* Floor Dividers and Group Separators in Matrix Tables */
+.dark tr.bg-slate-100\/90,
+.dark tr.bg-slate-100\/80,
+.dark tr.bg-slate-100 {
+  background-color: #182947 !important;
+  border-color: #283e66 !important;
+}
+
+.dark td.bg-slate-100\/95 {
+  background-color: #182947 !important;
+}
+
+/* Matrix Table Paid and Unpaid Cells (Summaries.tsx) */
+.dark td.bg-emerald-50\/40 {
+  background-color: rgba(16, 185, 129, 0.18) !important;
+  color: #34d399 !important;
+}
+
+.dark td.hover\:bg-emerald-100\/50:hover {
+  background-color: rgba(16, 185, 129, 0.32) !important;
+}
+
+.dark td.bg-red-50\/40 {
+  background-color: rgba(239, 68, 68, 0.16) !important;
+  color: #f87171 !important;
+}
+
+.dark td.hover\:bg-red-100\/50:hover {
+  background-color: rgba(239, 68, 68, 0.3) !important;
+}
+
+.dark .text-red-400 {
+  color: #fca5a5 !important;
+}
+
+.dark td.bg-slate-50\/70,
+.dark td.bg-slate-100\/60,
+.dark td.bg-slate-50\/40,
+.dark td.bg-slate-50\/30 {
+  background-color: #15223a !important;
+  border-color: #213252 !important;
+}
+
+/* High-Contrast Numbers and Financial Amounts in Tables */
+.dark table .text-emerald-600,
+.dark table .text-emerald-700,
+.dark table .text-emerald-800,
+.dark table .text-emerald-900 {
+  color: #34d399 !important;
+}
+
+.dark table .text-red-500,
+.dark table .text-red-600,
+.dark table .text-red-700,
+.dark table .text-red-800,
+.dark table .text-red-900 {
+  color: #f87171 !important;
+}
+
+.dark table .text-rose-600,
+.dark table .text-rose-700 {
+  color: #fb7185 !important;
+}
+
+.dark table .text-blue-900,
+.dark table .text-blue-950 {
+  color: #93c5fd !important;
+}
+
+.dark table .text-amber-800,
+.dark table .text-amber-900,
+.dark table .text-amber-950 {
+  color: #fcd34d !important;
+}
+
+/* General Typography inside Tables */
+.dark table .text-slate-900,
+.dark table .text-slate-800 {
+  color: #f8fafc !important;
+}
+
+.dark table .text-slate-700,
+.dark table .text-slate-600 {
+  color: #cbd5e1 !important;
+}
+
+.dark table .text-slate-500,
+.dark table .text-slate-400 {
+  color: #94a3b8 !important;
+}
+
+.dark table .text-slate-300 {
+  color: #64748b !important;
+}
+
+/* Badges & Pills inside Tables */
+.dark table span.bg-blue-50 {
+  background-color: rgba(37, 99, 235, 0.28) !important;
+  color: #bfdbfe !important;
+  border: 1px solid rgba(59, 130, 246, 0.4) !important;
+}
+
+.dark table span.bg-emerald-50 {
+  background-color: rgba(16, 185, 129, 0.24) !important;
+  color: #a7f3d0 !important;
+  border: 1px solid rgba(16, 185, 129, 0.4) !important;
+}
+
+.dark table span.bg-amber-50 {
+  background-color: rgba(245, 158, 11, 0.24) !important;
+  color: #fde68a !important;
+  border: 1px solid rgba(245, 158, 11, 0.4) !important;
+}
+
+.dark table span.bg-rose-50 {
+  background-color: rgba(244, 63, 94, 0.24) !important;
+  color: #fda4af !important;
+  border: 1px solid rgba(244, 63, 94, 0.4) !important;
+}
+
+.dark table span.bg-slate-50,
+.dark table span.bg-slate-100 {
+  background-color: #1a2846 !important;
+  color: #e2e8f0 !important;
+  border: 1px solid #283e66 !important;
+}
+
+/* Action Buttons inside Table Rows */
+.dark table button {
+  color: #94a3b8;
+}
+
+.dark table button:hover {
+  background-color: #1e2f4f !important;
+  color: #f8fafc !important;
+}
+
+.dark table button.text-blue-600 {
+  color: #60a5fa !important;
+}
+
+.dark table button.text-red-500 {
+  color: #f87171 !important;
+}
+
+.dark table button.text-slate-500 {
+  color: #94a3b8 !important;
+}
+
+/* ==========================================================================
+   PRINT MEDIA STYLES - FOR BEAUTIFUL PDF & PAPER PRINTING
+   ========================================================================== */
+@media print {
+  /* Hide all normal page elements by default during print */
+  body * {
+    visibility: hidden !important;
+  }
+
+  /* Show dedicated printable areas */
+  #debts-printable-area,
+  #debts-printable-area *,
+  #statement-printable-area,
+  #statement-printable-area *,
+  #printable-area,
+  #printable-area *,
+  .printable-area,
+  .printable-area * {
+    visibility: visible !important;
+  }
+
+  /* Reset layout & force block display for printable areas */
+  #debts-printable-area,
+  #statement-printable-area,
+  #printable-area,
+  .printable-area {
+    display: block !important;
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 15px !important;
+    background-color: white !important;
+    color: black !important;
+    box-shadow: none !important;
+    direction: rtl !important;
+    z-index: 999999 !important;
+  }
+
+  /* Prevent overlapping if printing a specific section */
+  body.printing-debts #statement-printable-area {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  body.printing-statement #debts-printable-area {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  /* Optimize table styles for paper print */
+  .printable-area table,
+  #debts-printable-area table,
+  #statement-printable-area table,
+  #printable-area table {
+    border-collapse: collapse !important;
+    width: 100% !important;
+  }
+
+  .printable-area th, .printable-area td,
+  #debts-printable-area th, #debts-printable-area td,
+  #statement-printable-area th, #statement-printable-area td,
+  #printable-area th, #printable-area td {
+    border: 1px solid #334155 !important;
+    color: black !important;
+    background-color: transparent !important;
+    padding: 6px 8px !important;
+  }
+
+  .bg-slate-100 {
+    background-color: #f1f5f9 !important;
+  }
+
+  .bg-slate-200 {
+    background-color: #e2e8f0 !important;
+  }
+
+  .bg-red-50 {
+    background-color: #fef2f2 !important;
+  }
+
+  .bg-red-100 {
+    background-color: #fee2e2 !important;
+  }
+
+  .bg-emerald-50 {
+    background-color: #ecfdf5 !important;
+  }
+
+  /* Page setup */
+  @page {
+    size: A4 portrait;
+    margin: 1.2cm;
+  }
+}
+
+/* Phone number LTR display helper for Arabic RTL interfaces (mobile and desktop) */
+.phone-number-display {
+  direction: ltr !important;
+  unicode-bidi: isolate !important;
+  text-align: left !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  white-space: nowrap !important;
+}
+
+
+

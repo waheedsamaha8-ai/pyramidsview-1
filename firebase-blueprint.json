@@ -1,0 +1,264 @@
+{
+  "entities": {
+    "Resident": {
+      "title": "Resident",
+      "description": "Building resident and flat information",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "flatNumber": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "activityType": { "type": "string" },
+        "ownershipType": { "type": "string" },
+        "monthlyFee": { "type": "number" },
+        "initialBalance": { "type": "number" },
+        "notes": { "type": "string" },
+        "email": { "type": "string" },
+        "accountStatus": { "type": "string" },
+        "tenantName": { "type": "string" },
+        "tenantPhone": { "type": "string" },
+        "tenantEmail": { "type": "string" },
+        "tenantAccountStatus": { "type": "string" }
+      },
+      "required": ["id", "flatNumber", "name"]
+    },
+    "Payment": {
+      "title": "Payment",
+      "description": "Resident payment and dues transaction",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "year": { "type": "number" },
+        "month": { "type": "string" },
+        "residentId": { "type": "string" },
+        "residentName": { "type": "string" },
+        "flatNumber": { "type": "string" },
+        "paymentType": { "type": "string" },
+        "amount": { "type": "number" },
+        "receiptNumber": { "type": "string" },
+        "notes": { "type": "string" },
+        "fileId": { "type": "string" },
+        "fileUrl": { "type": "string" },
+        "date": { "type": "string" },
+        "isManuallyPaid": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "year", "month", "residentName", "amount", "date"]
+    },
+    "Expense": {
+      "title": "Expense",
+      "description": "Building operational or maintenance expense",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "year": { "type": "number" },
+        "month": { "type": "string" },
+        "expenseType": { "type": "string" },
+        "amount": { "type": "number" },
+        "notes": { "type": "string" },
+        "fileId": { "type": "string" },
+        "fileUrl": { "type": "string" },
+        "date": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "year", "month", "expenseType", "amount", "date"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "Community or targeted communication message",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "senderName": { "type": "string" },
+        "senderRole": { "type": "string" },
+        "flatNumber": { "type": "string" },
+        "channel": { "type": "string" },
+        "targetAudience": { "type": "string" },
+        "text": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "imageUrl": { "type": "string" }
+      },
+      "required": ["id", "senderName", "text", "timestamp"]
+    },
+    "PublicComplaint": {
+      "title": "PublicComplaint",
+      "description": "Resident complaint or suggestion",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "flatNumber": { "type": "string" },
+        "residentName": { "type": "string" },
+        "isAnonymous": { "type": "boolean" },
+        "imageUrl": { "type": "string" },
+        "date": { "type": "string" },
+        "comments": { "type": "string" }
+      },
+      "required": ["id", "title", "description", "date"]
+    },
+    "MaintenanceRequest": {
+      "title": "MaintenanceRequest",
+      "description": "Maintenance ticket and issue report",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "flatNumber": { "type": "string" },
+        "residentName": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "category": { "type": "string" },
+        "status": { "type": "string" },
+        "priority": { "type": "string" },
+        "date": { "type": "string" },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "title", "category", "status", "priority", "date"]
+    },
+    "Poll": {
+      "title": "Poll",
+      "description": "Resident decision poll",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "options": { "type": "string" },
+        "userVotes": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "endDate": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "title", "createdAt", "status"]
+    },
+    "AdminDecision": {
+      "title": "AdminDecision",
+      "description": "Official board resolution",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "decisionNumber": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "category": { "type": "string" },
+        "date": { "type": "string" },
+        "effectiveDate": { "type": "string" },
+        "issuedBy": { "type": "string" },
+        "status": { "type": "string" },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "decisionNumber", "title", "date", "status"]
+    },
+    "BuildingEvent": {
+      "title": "BuildingEvent",
+      "description": "Calendar building event",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "type": { "type": "string" },
+        "targetAudience": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "title", "date", "type", "status"]
+    },
+    "Craftsman": {
+      "title": "Craftsman",
+      "description": "Craftsman contact and service record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "specialty": { "type": "string" },
+        "phone": { "type": "string" },
+        "notes": { "type": "string" },
+        "addedBy": { "type": "string" }
+      },
+      "required": ["id", "name", "specialty", "phone"]
+    },
+    "JoinRequest": {
+      "title": "JoinRequest",
+      "description": "Application to join the union",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "flatNumber": { "type": "string" },
+        "residentType": { "type": "string" },
+        "ownerName": { "type": "string" },
+        "ownerPhone": { "type": "string" },
+        "tenantName": { "type": "string" },
+        "tenantPhone": { "type": "string" },
+        "email": { "type": "string" },
+        "password": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "flatNumber", "residentType", "email", "status", "createdAt"]
+    },
+    "AppNotification": {
+      "title": "AppNotification",
+      "description": "System or targeted notification",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string" },
+        "category": { "type": "string" },
+        "targetRole": { "type": "string" },
+        "targetFlat": { "type": "string" },
+        "senderName": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "read": { "type": "boolean" }
+      },
+      "required": ["id", "title", "message", "type", "timestamp"]
+    },
+    "AppConfig": {
+      "title": "AppConfig",
+      "description": "Building configuration and floor layouts",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "expenseTypes": { "type": "string" },
+        "paymentTypes": { "type": "string" },
+        "activityTypes": { "type": "string" },
+        "admins": { "type": "string" },
+        "managers": { "type": "string" },
+        "defaultMonthlyFee": { "type": "number" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id"]
+    },
+    "BuildingRules": {
+      "title": "BuildingRules",
+      "description": "Building association rules",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "rules": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id"]
+    }
+  },
+  "firestore": {
+    "/residents/{residentId}": { "schema": "Resident", "description": "Building residents records" },
+    "/payments/{paymentId}": { "schema": "Payment", "description": "Resident payment transactions" },
+    "/expenses/{expenseId}": { "schema": "Expense", "description": "Building expenses and invoices" },
+    "/chat_messages/{messageId}": { "schema": "ChatMessage", "description": "Community and role-based chat messages" },
+    "/public_complaints/{complaintId}": { "schema": "PublicComplaint", "description": "Resident complaints and suggestions" },
+    "/maintenance/{maintenanceId}": { "schema": "MaintenanceRequest", "description": "Maintenance tickets" },
+    "/polls/{pollId}": { "schema": "Poll", "description": "Voting polls and decisions" },
+    "/admin_decisions/{decisionId}": { "schema": "AdminDecision", "description": "Official board decisions" },
+    "/events/{eventId}": { "schema": "BuildingEvent", "description": "Calendar building events" },
+    "/craftsmen/{craftsmanId}": { "schema": "Craftsman", "description": "Directory of craftsmen and technicians" },
+    "/join_requests/{requestId}": { "schema": "JoinRequest", "description": "Resident membership join requests" },
+    "/notifications/{notificationId}": { "schema": "AppNotification", "description": "Directed and system notifications" },
+    "/config/{configId}": { "schema": "AppConfig", "description": "Building configuration" },
+    "/rules/{rulesId}": { "schema": "BuildingRules", "description": "Building association rules" }
+  }
+}

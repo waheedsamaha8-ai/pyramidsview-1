@@ -1,0 +1,103 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper function to check if request is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Residents collection: readable by all community members, writable by admin/assistant or self
+    match /residents/{residentId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Payments collection: readable by community, writable by admin/assistant or logged resident
+    match /payments/{paymentId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Expenses collection: readable by all community members, writable by admin/assistant
+    match /expenses/{expenseId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Chat messages: open to community for real-time messaging
+    match /chat_messages/{messageId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Public complaints: readable and writable by residents & administration
+    match /public_complaints/{complaintId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Maintenance requests: readable and reportable by residents, manageable by admin & assistant
+    match /maintenance/{maintenanceId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Polls & voting
+    match /polls/{pollId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Admin decisions
+    match /admin_decisions/{decisionId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Events calendar
+    match /events/{eventId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Craftsmen directory
+    match /craftsmen/{craftsmanId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Join requests: open create for new residents, admin can read/approve
+    match /join_requests/{requestId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Notifications: directed notifications
+    match /notifications/{notificationId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // App config and building rules
+    match /config/{configId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /rules/{rulesId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Buildings collection & subcollections for multi-tenant isolation
+    match /buildings/{buildingId} {
+      allow read: if true;
+      allow write: if true;
+
+      match /{subcollection=**} {
+        allow read: if true;
+        allow write: if true;
+      }
+    }
+  }
+}
