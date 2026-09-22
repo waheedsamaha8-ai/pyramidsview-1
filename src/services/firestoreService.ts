@@ -1065,3 +1065,40 @@ export function subscribeToFirestoreCollection<T>(
     return () => {};
   }
 }
+
+export function subscribeToComplaints(callback: (complaints: PublicComplaint[]) => void): () => void {
+  return subscribeToFirestoreCollection<PublicComplaint>('public_complaints', callback, (a, b) => (b.date || '').localeCompare(a.date || ''));
+}
+
+export function subscribeToMaintenance(callback: (maintenance: MaintenanceRequest[]) => void): () => void {
+  return subscribeToFirestoreCollection<MaintenanceRequest>('maintenance', callback, (a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+}
+
+export function subscribeToPolls(callback: (polls: Poll[]) => void): () => void {
+  return subscribeToFirestoreCollection<Poll>('polls', callback, (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+}
+
+export function subscribeToDecisions(callback: (decisions: AdminDecision[]) => void): () => void {
+  return subscribeToFirestoreCollection<AdminDecision>('admin_decisions', callback, (a, b) => (b.date || '').localeCompare(a.date || ''));
+}
+
+export function subscribeToEvents(callback: (events: BuildingEvent[]) => void): () => void {
+  return subscribeToFirestoreCollection<BuildingEvent>('events', callback, (a, b) => (a.date || '').localeCompare(b.date || ''));
+}
+
+export function subscribeToCraftsmen(callback: (craftsmen: Craftsman[]) => void): () => void {
+  return subscribeToFirestoreCollection<Craftsman>('craftsmen', callback);
+}
+
+export function subscribeToResidents(callback: (residents: Resident[]) => void): () => void {
+  return subscribeToFirestoreCollection<Resident>('residents', callback);
+}
+
+export function subscribeToPayments(callback: (payments: Payment[]) => void): () => void {
+  return subscribeToFirestoreCollection<Payment>('payments', callback);
+}
+
+export function subscribeToExpenses(callback: (expenses: Expense[]) => void): () => void {
+  return subscribeToFirestoreCollection<Expense>('expenses', callback);
+}
+

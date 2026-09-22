@@ -716,7 +716,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         {/* ========================================================================= */}
         {topTab === 'SIGN_IN' && (
           <div className="space-y-4">
-            {/* Building Switcher Dropdown & Management (Shown if buildings exist) */}
+            {/* Building Switcher Dropdown (Shown if buildings exist) */}
             {buildings.length > 0 ? (
               <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-2">
                 <div className="flex items-center justify-between">
@@ -727,22 +727,13 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                       ({buildings.length} مسجل)
                     </span>
                   </label>
-                  <button
-                    type="button"
-                    onClick={handleDeleteAllBuildingsClick}
-                    className="text-[10px] text-red-600 hover:text-red-700 dark:text-red-400 hover:underline font-black flex items-center gap-1 cursor-pointer"
-                    title="حذف جميع الاتحادات المسجلة نهائياً والبدء من جديد"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                    <span>حذف كل الاتحادات</span>
-                  </button>
                 </div>
 
                 <div className="flex items-center gap-2">
                   <select
                     value={selectedBuildingId}
                     onChange={(e) => handleSelectBuilding(e.target.value)}
-                    className="flex-1 py-2 px-3 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl font-black text-slate-800 dark:text-white focus:outline-none focus:border-blue-800"
+                    className="w-full py-2 px-3 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl font-black text-slate-800 dark:text-white focus:outline-none focus:border-blue-800"
                   >
                     {buildings.map((b) => (
                       <option key={b.id} value={b.id}>
@@ -750,17 +741,6 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                       </option>
                     ))}
                   </select>
-
-                  {selectedBuildingId && (
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteBuildingClick(selectedBuildingId)}
-                      className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-xl border border-red-200 dark:border-red-900/50 transition cursor-pointer flex-shrink-0"
-                      title="حذف هذا الاتحاد المحدد نهائياً"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  )}
                 </div>
               </div>
             ) : (

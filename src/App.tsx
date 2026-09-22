@@ -393,9 +393,9 @@ export default function App() {
     let isApiServerAvailable = typeof window !== 'undefined' && 
       (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
-    // Subscribe to Firestore for real-time multi-user chat (Works on GitHub Pages & Static hosting without backend server)
+    // Subscribe to Firestore collections for real-time multi-user sync across all roles
     const unsubChat = firestoreService.subscribeToChatMessages((firestoreMsgs) => {
-      if (!isMounted || !Array.isArray(firestoreMsgs) || firestoreMsgs.length === 0) return;
+      if (!isMounted || !Array.isArray(firestoreMsgs)) return;
       const deletedMsgIds = deletedMessageIdsRef.current;
       setMessages(prev => {
         const validMsgs = firestoreMsgs.filter(m => m && m.id && !deletedMsgIds.has(m.id));
@@ -406,6 +406,115 @@ export default function App() {
         validMsgs.forEach(m => map.set(m.id, m));
         const merged = Array.from(map.values()).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
         offlineSync.saveCachedData('chat_messages', merged);
+        return merged;
+      });
+    });
+
+    const unsubComplaints = firestoreService.subscribeToComplaints((items) => {
+      if (!isMounted || !Array.isArray(items)) return;
+      const delSet = deletedComplaintIdsRef.current;
+      setComplaints(prev => {
+        const map = new Map<string, PublicComplaint>();
+        prev.forEach(c => { if (c && c.id && !delSet.has(c.id)) map.set(c.id, c); });
+        items.forEach(c => { if (c && c.id && !delSet.has(c.id)) map.set(c.id, c); });
+        const merged = Array.from(map.values()).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+        offlineSync.saveCachedData('public_complaints', merged);
+        return merged;
+      });
+    });
+
+    const unsubMaintenance = firestoreService.subscribeToMaintenance((items) => {
+      if (!isMounted || !Array.isArray(items)) return;
+      setMaintenanceRequests(prev => {
+        const map = new Map<string, MaintenanceRequest>();
+        prev.forEach(m => { if (m && m.id) map.set(m.id, m); });
+        items.forEach(m => { if (m && m.id) map.set(m.id, m); });
+        const merged = Array.from(map.values()).sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+        offlineSync.saveCachedData('maintenance', merged);
+        return merged;
+      });
+    });
+
+    const unsubPolls = firestoreService.subscribeToPolls((items) => {
+      if (!isMounted || !Array.isArray(items)) return;
+      setPolls(prev => {
+        const map = new Map<string, Poll>();
+        prev.forEach(p => { if (p && p.id) map.set(p.id, p); });
+        items.forEach(p => { if (p && p.id) map.set(p.id, p); });
+        const merged = Array.from(map.values()).sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+        offlineSync.saveCachedData('polls', merged);
+        return merged;
+      });
+    });
+
+    const unsubDecisions = firestoreService.subscribeToDecisions((items) => {
+      if (!isMounted || !Array.isArray(items)) return;
+      setDecisions(prev => {
+        const map = new Map<string, AdminDecision>();
+        prev.forEach(d => { if (d && d.id) map.set(d.id, d); });
+        items.forEach(d => { if (d && d.id) map.set(d.id, d); });
+        const merged = Array.from(map.values()).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+        offlineSync.saveCachedData('admin_decisions', merged);
+        return merged;
+      });
+    });
+
+    const unsubEvents = firestoreService.subscribeToEvents((items) => {
+      if (!isMounted || !Array.isArray(items)) return;
+      setEvents(prev => {
+        const map = new Map<string, BuildingEvent>();
+        prev.forEach(ev => { if (ev && ev.id) map.set(ev.id, ev); });
+        items.forEach(ev => { if (ev && ev.id) map.set(ev.id, ev); });
+        const merged = Array.from(map.values()).sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+        offlineSync.saveCachedData('events', merged);
+        return merged;
+      });
+    });
+
+    const unsubCraftsmen = firestoreService.subscribeToCraftsmen((items) => {
+      if (!isMounted || !Array.isArray(items)) return;
+      setCraftsmen(prev => {
+        const map = new Map<string, Craftsman>();
+        prev.forEach(c => { if (c && c.id) map.set(c.id, c); });
+        items.forEach(c => { if (c && c.id) map.set(c.id, c); });
+        const merged = Array.from(map.values());
+        offlineSync.saveCachedData('craftsmen', merged);
+        return merged;
+      });
+    });
+
+    const unsubResidents = firestoreService.subscribeToResidents((items) => {
+      if (!isMounted || !Array.isArray(items)) return;
+      setResidents(prev => {
+        const map = new Map<string, Resident>();
+        prev.forEach(r => { if (r && r.id) map.set(r.id, r); });
+        items.forEach(r => { if (r && r.id) map.set(r.id, r); });
+        const merged = Array.from(map.values());
+        offlineSync.saveCachedData('residents', merged);
+        return merged;
+      });
+    });
+
+    const unsubPayments = firestoreService.subscribeToPayments((items) => {
+      if (!isMounted || !Array.isArray(items)) return;
+      setPayments(prev => {
+        const map = new Map<string, Payment>();
+        prev.forEach(p => { if (p && p.id) map.set(p.id, p); });
+        items.forEach(p => { if (p && p.id) map.set(p.id, p); });
+        const merged = Array.from(map.values());
+        offlineSync.saveCachedData('payments', merged);
+        return merged;
+      });
+    });
+
+    const unsubExpenses = firestoreService.subscribeToExpenses((items) => {
+      if (!isMounted || !Array.isArray(items)) return;
+      setExpenses(prev => {
+        const map = new Map<string, Expense>();
+        prev.forEach(e => { if (e && e.id) map.set(e.id, e); });
+        items.forEach(e => { if (e && e.id) map.set(e.id, e); });
+        const merged = Array.from(map.values());
+        offlineSync.saveCachedData('expenses', merged);
         return merged;
       });
     });
@@ -537,6 +646,15 @@ export default function App() {
     return () => {
       isMounted = false;
       unsubChat();
+      unsubComplaints();
+      unsubMaintenance();
+      unsubPolls();
+      unsubDecisions();
+      unsubEvents();
+      unsubCraftsmen();
+      unsubResidents();
+      unsubPayments();
+      unsubExpenses();
       if (interval) clearInterval(interval);
     };
   }, []);
@@ -1309,20 +1427,19 @@ export default function App() {
 
       const syncedResidents = await syncApprovedRequestsWithResidents(loadedResidents);
 
-      if (syncedResidents && syncedResidents.length > 0) {
-        setResidents(syncedResidents);
-      }
+      setResidents(prev => {
+        const map = new Map<string, Resident>();
+        prev.forEach(r => { if (r && r.id) map.set(String(r.id), r); });
+        (syncedResidents || []).forEach(r => { if (r && r.id) map.set(String(r.id), r); });
+        const merged = Array.from(map.values());
+        offlineSync.saveCachedData('residents', merged);
+        return merged;
+      });
 
       setPayments(prevPayments => {
         const map = new Map<string, Payment>();
-        if (loadedPayments && loadedPayments.length > 0) {
-          loadedPayments.forEach(p => map.set(String(p.id), p));
-        }
-        prevPayments.forEach(p => {
-          if (!map.has(String(p.id))) {
-            map.set(String(p.id), p);
-          }
-        });
+        prevPayments.forEach(p => { if (p && p.id) map.set(String(p.id), p); });
+        (loadedPayments || []).forEach(p => { if (p && p.id) map.set(String(p.id), p); });
         const merged = Array.from(map.values());
         offlineSync.saveCachedData('payments', merged);
         return merged;
@@ -1330,45 +1447,85 @@ export default function App() {
 
       setExpenses(prevExpenses => {
         const map = new Map<string, Expense>();
-        if (loadedExpenses && loadedExpenses.length > 0) {
-          loadedExpenses.forEach(e => map.set(String(e.id), e));
-        }
-        prevExpenses.forEach(e => {
-          if (!map.has(String(e.id))) {
-            map.set(String(e.id), e);
-          }
-        });
+        prevExpenses.forEach(e => { if (e && e.id) map.set(String(e.id), e); });
+        (loadedExpenses || []).forEach(e => { if (e && e.id) map.set(String(e.id), e); });
         const merged = Array.from(map.values());
         offlineSync.saveCachedData('expenses', merged);
         return merged;
       });
 
-      setRules(loadedRules);
-      setCraftsmen(loadedCraftsmen);
+      if (loadedRules && loadedRules.length > 0) {
+        setRules(loadedRules);
+        offlineSync.saveCachedData('rules', { rules: loadedRules });
+      }
+
+      setCraftsmen(prev => {
+        const map = new Map<string, Craftsman>();
+        prev.forEach(c => { if (c && c.id) map.set(c.id, c); });
+        (loadedCraftsmen || []).forEach(c => { if (c && c.id) map.set(c.id, c); });
+        const merged = Array.from(map.values());
+        offlineSync.saveCachedData('craftsmen', merged);
+        return merged;
+      });
+
       const delMsgIds = deletedMessageIdsRef.current;
       const delCompIds = deletedComplaintIdsRef.current;
       const safeLoadedMessages = loadedMessages ? loadedMessages.filter(m => !delMsgIds.has(m.id)) : [];
       const safeLoadedComplaints = loadedComplaints ? loadedComplaints.filter(c => !delCompIds.has(c.id)) : [];
 
-      if (loadedMessages) setMessages(safeLoadedMessages);
-      if (loadedDecisions) setDecisions(loadedDecisions);
-      if (loadedPolls) setPolls(loadedPolls);
-      if (loadedComplaints) setComplaints(safeLoadedComplaints);
-      if (loadedMaintenance) setMaintenanceRequests(loadedMaintenance);
-      if (loadedEvents) setEvents(loadedEvents);
+      setMessages(prev => {
+        const map = new Map<string, ChatMessage>();
+        prev.forEach(m => { if (m && m.id && !delMsgIds.has(m.id)) map.set(m.id, m); });
+        safeLoadedMessages.forEach(m => { if (m && m.id && !delMsgIds.has(m.id)) map.set(m.id, m); });
+        const merged = Array.from(map.values()).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+        offlineSync.saveCachedData('chat_messages', merged);
+        return merged;
+      });
 
-      // Save to offline storage
-      offlineSync.saveCachedData('residents', syncedResidents);
-      offlineSync.saveCachedData('payments', loadedPayments);
-      offlineSync.saveCachedData('expenses', loadedExpenses);
-      offlineSync.saveCachedData('rules', { rules: loadedRules });
-      offlineSync.saveCachedData('craftsmen', loadedCraftsmen);
-      if (loadedMessages) offlineSync.saveCachedData('chat_messages', safeLoadedMessages);
-      if (loadedDecisions) offlineSync.saveCachedData('admin_decisions', loadedDecisions);
-      if (loadedPolls) offlineSync.saveCachedData('polls', loadedPolls);
-      if (loadedComplaints) offlineSync.saveCachedData('public_complaints', safeLoadedComplaints);
-      if (loadedMaintenance) offlineSync.saveCachedData('maintenance', loadedMaintenance);
-      if (loadedEvents) offlineSync.saveCachedData('events', loadedEvents);
+      setDecisions(prev => {
+        const map = new Map<string, AdminDecision>();
+        prev.forEach(d => { if (d && d.id) map.set(d.id, d); });
+        (loadedDecisions || []).forEach(d => { if (d && d.id) map.set(d.id, d); });
+        const merged = Array.from(map.values()).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+        offlineSync.saveCachedData('admin_decisions', merged);
+        return merged;
+      });
+
+      setPolls(prev => {
+        const map = new Map<string, Poll>();
+        prev.forEach(p => { if (p && p.id) map.set(p.id, p); });
+        (loadedPolls || []).forEach(p => { if (p && p.id) map.set(p.id, p); });
+        const merged = Array.from(map.values()).sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+        offlineSync.saveCachedData('polls', merged);
+        return merged;
+      });
+
+      setComplaints(prev => {
+        const map = new Map<string, PublicComplaint>();
+        prev.forEach(c => { if (c && c.id && !delCompIds.has(c.id)) map.set(c.id, c); });
+        safeLoadedComplaints.forEach(c => { if (c && c.id && !delCompIds.has(c.id)) map.set(c.id, c); });
+        const merged = Array.from(map.values()).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+        offlineSync.saveCachedData('public_complaints', merged);
+        return merged;
+      });
+
+      setMaintenanceRequests(prev => {
+        const map = new Map<string, MaintenanceRequest>();
+        prev.forEach(m => { if (m && m.id) map.set(m.id, m); });
+        (loadedMaintenance || []).forEach(m => { if (m && m.id) map.set(m.id, m); });
+        const merged = Array.from(map.values()).sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+        offlineSync.saveCachedData('maintenance', merged);
+        return merged;
+      });
+
+      setEvents(prev => {
+        const map = new Map<string, BuildingEvent>();
+        prev.forEach(ev => { if (ev && ev.id) map.set(ev.id, ev); });
+        (loadedEvents || []).forEach(ev => { if (ev && ev.id) map.set(ev.id, ev); });
+        const merged = Array.from(map.values()).sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+        offlineSync.saveCachedData('events', merged);
+        return merged;
+      });
 
     } catch (err) {
       logError(err, 'refreshAllData');
