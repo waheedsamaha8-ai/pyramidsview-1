@@ -1,4 +1,5 @@
 // Unified Auth & Join Requests store with automatic fallback for static hosting (Netlify) and offline PWA
+import { getLocalBuildings } from './buildingStore';
 
 export interface StoredAdmin {
   id: string;
@@ -130,6 +131,18 @@ export async function loginWithEmail(emailInput: string, passwordInput: string):
       role: 'ADMIN',
       email: adminMatch.email,
       name: (adminMatch.name || 'رئيس الاتحاد').replace(/\s*\(رئيس الاتحاد\)/g, '').trim(),
+    };
+  }
+
+  // Check Registered Buildings for President Admin Account
+  const registeredBuildings = getLocalBuildings();
+  const buildingAdminMatch = registeredBuildings.find(b => b.presidentEmail && b.presidentEmail.toLowerCase().trim() === email);
+  if (buildingAdminMatch) {
+    return {
+      success: true,
+      role: 'ADMIN',
+      email: buildingAdminMatch.presidentEmail,
+      name: (buildingAdminMatch.presidentName || 'رئيس الاتحاد').replace(/\s*\(رئيس الاتحاد\)/g, '').trim(),
     };
   }
 
