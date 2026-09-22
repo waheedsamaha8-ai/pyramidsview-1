@@ -1346,7 +1346,7 @@ export default function App() {
       if (err?.code === 'auth/unauthorized-domain' || err?.message?.includes('unauthorized-domain')) {
         addNotification(
           'تفعيل نطاق Google مطلوب',
-          `نطاق موقعك (${domain}) غير مصرح به في Firebase Console. يرجى إضافته إلى Authorized Domains في إعدادات المشروع gen-lang-client-0491644540 ليتمكن Google من إتمام المزامنة السحابية.`,
+          `نطاق موقعك (${domain}) غير مصرح به في Firebase Console. يرجى إضافته إلى Authorized Domains في إعدادات المشروع gen-lang-client-0075821615 ليتمكن Google من إتمام المزامنة السحابية.`,
           'error'
         );
       } else {

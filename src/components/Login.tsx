@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { googleSignIn, logoutUser } from '../services/firebaseConfig';
+import firebaseConfig from '../../firebase-applet-config.json';
 import { 
   loginWithEmail, 
   registerAdmin, 
@@ -410,11 +411,12 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
       }
     } catch (err: any) {
       console.error('Google sign in error:', err);
-      if (err.message && (err.message.includes('auth/unauthorized-domain') || err.code === 'auth/unauthorized-domain')) {
-        const currentHostname = window.location.hostname;
+      const errMsg = String(err?.message || err?.code || err || '');
+      if (errMsg.includes('auth/unauthorized-domain') || errMsg.includes('unauthorized-domain')) {
+        const currentHostname = window.location.hostname || 'waheedsamaha8-ai.github.io';
         setUnauthorizedDomain(currentHostname);
       } else {
-        setError(err.message || 'فشل تسجيل الدخول بحساب Google. يمكنك استخدام كلمة المرور.');
+        setError(err?.message || 'فشل تسجيل الدخول بحساب Google. يمكنك استخدام كلمة المرور.');
       }
     } finally {
       setLoading(false);
@@ -886,13 +888,13 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                       <span>{copiedDomain ? 'تم النسخ بنجاح ✓' : 'نسخ النطاق'}</span>
                     </button>
                     <a
-                      href="https://console.firebase.google.com/project/gen-lang-client-0491644540/authentication/settings"
+                      href={`https://console.firebase.google.com/project/${firebaseConfig.projectId || 'gen-lang-client-0075821615'}/authentication/settings`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs"
                     >
                       <ExternalLink className="w-3.5 h-3.5" />
-                      <span>فتح إعدادات Firebase</span>
+                      <span>فتح إعدادات Firebase للمشروع ({firebaseConfig.projectId || 'gen-lang-client-0075821615'})</span>
                     </a>
                   </div>
                 </div>
