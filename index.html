@@ -5,24 +5,30 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <script>
       (function() {
-        if (typeof window !== 'undefined') {
-          var origError = console.error;
-          console.error = function() {
-            var msg = arguments[0];
-            if (typeof msg === 'string' && (msg.indexOf('[vite]') !== -1 || msg.indexOf('websocket') !== -1 || msg.indexOf('WebSocket') !== -1)) {
-              return;
-            }
-            origError.apply(console, arguments);
-          };
-          var origWarn = console.warn;
-          console.warn = function() {
-            var msg = arguments[0];
-            if (typeof msg === 'string' && (msg.indexOf('[vite]') !== -1 || msg.indexOf('websocket') !== -1 || msg.indexOf('WebSocket') !== -1)) {
-              return;
-            }
-            origWarn.apply(console, arguments);
-          };
-        }
+        try {
+          if (typeof window !== 'undefined') {
+            var origError = console.error;
+            console.error = function() {
+              try {
+                var msg = arguments && arguments[0];
+                if (typeof msg === 'string' && (msg.indexOf('[vite]') !== -1 || msg.indexOf('websocket') !== -1 || msg.indexOf('WebSocket') !== -1)) {
+                  return;
+                }
+              } catch (e) {}
+              if (origError) origError.apply(console, arguments);
+            };
+            var origWarn = console.warn;
+            console.warn = function() {
+              try {
+                var msg = arguments && arguments[0];
+                if (typeof msg === 'string' && (msg.indexOf('[vite]') !== -1 || msg.indexOf('websocket') !== -1 || msg.indexOf('WebSocket') !== -1)) {
+                  return;
+                }
+              } catch (e) {}
+              if (origWarn) origWarn.apply(console, arguments);
+            };
+          }
+        } catch (e) {}
       })();
     </script>
     <title>نظام إدارة اتحادات الملاك والعقارات السحابي</title>
@@ -50,7 +56,18 @@
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
   </head>
   <body class="bg-slate-100 text-slate-900 font-sans antialiased select-none">
-    <div id="root"></div>
+    <div id="root">
+      <div style="min-height: 100vh; background-color: #f8fafc; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center; font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;" dir="rtl">
+        <div style="background-color: white; padding: 32px; border-radius: 24px; border: 1px solid #e2e8f0; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05); max-width: 360px; width: 100%;">
+          <div style="width: 56px; height: 56px; background: linear-gradient(135deg, #1e3a8a, #312e81); color: white; border-radius: 16px; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px auto; font-size: 28px; font-weight: bold;">🏢</div>
+          <h2 style="font-size: 16px; font-weight: 800; color: #0f172a; margin: 0 0 8px 0;">نظام اتحاد الملاك والعقارات</h2>
+          <p style="font-size: 12px; color: #64748b; margin: 0 0 16px 0; font-weight: 600;">جاري فتح واستجابة التطبيق...</p>
+          <div style="display: flex; align-items: center; justify-content: center; gap: 8px; background-color: #f1f5f9; padding: 10px 16px; border-radius: 12px; font-size: 11px; font-weight: 700; color: #1e3a8a;">
+            يرجى الانتظار لحظة...
+          </div>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

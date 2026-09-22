@@ -74,7 +74,11 @@ export const initAuth = (
       if (cachedAccessToken) {
         if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
       } else if (!isSigningIn) {
-        cachedAccessToken = localStorage.getItem('google_access_token');
+        try {
+          cachedAccessToken = localStorage.getItem('google_access_token');
+        } catch {
+          cachedAccessToken = null;
+        }
         if (cachedAccessToken) {
           if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
         } else {
@@ -84,7 +88,9 @@ export const initAuth = (
       }
     } else {
       cachedAccessToken = null;
-      localStorage.removeItem('google_access_token');
+      try {
+        localStorage.removeItem('google_access_token');
+      } catch {}
       if (onAuthFailure) onAuthFailure();
     }
   });

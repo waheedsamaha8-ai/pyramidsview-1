@@ -109,7 +109,11 @@ const getInitialSavedSession = (): User | null => {
 };
 
 const getInitialSavedToken = (): string | null => {
-  return localStorage.getItem('google_access_token') || (localStorage.getItem('custom_user_session') ? 'local-token' : null);
+  try {
+    return localStorage.getItem('google_access_token') || (localStorage.getItem('custom_user_session') ? 'local-token' : null);
+  } catch {
+    return null;
+  }
 };
 
 const getInitialRole = (initialUser: User | null): UserRole => {
@@ -120,13 +124,15 @@ const getInitialRole = (initialUser: User | null): UserRole => {
     }
   } catch {}
   if (!initialUser) return 'ADMIN';
-  if ((initialUser as any).role && ['ADMIN', 'MANAGER', 'ASSISTANT', 'RESIDENT'].includes((initialUser as any).role)) {
-    return (initialUser as any).role as UserRole;
-  }
-  const email = initialUser.email?.toLowerCase().trim();
-  const activeB = getActiveBuilding();
-  if (email && activeB?.presidentEmail && email === activeB.presidentEmail.toLowerCase().trim()) return 'ADMIN';
-  if (email === 'assistant@pyramids.com' || email === 'assistant') return 'ASSISTANT';
+  try {
+    if ((initialUser as any).role && ['ADMIN', 'MANAGER', 'ASSISTANT', 'RESIDENT'].includes((initialUser as any).role)) {
+      return (initialUser as any).role as UserRole;
+    }
+    const email = initialUser.email?.toLowerCase().trim();
+    const activeB = getActiveBuilding();
+    if (email && activeB?.presidentEmail && email === activeB.presidentEmail.toLowerCase().trim()) return 'ADMIN';
+    if (email === 'assistant@pyramids.com' || email === 'assistant') return 'ASSISTANT';
+  } catch {}
   return 'RESIDENT';
 };
 
@@ -217,7 +223,7 @@ export default function App() {
       const raw = offlineSync.getCachedData<Resident[]>('residents');
       if (raw && Array.isArray(raw)) {
         return raw
-          .filter(r => !['1', '2', '3'].includes(String(r.id)) || (r.name !== 'محمد أحمد' && r.name !== 'خالد مصطفى' && r.name !== 'سمير عبد الله'))
+          .filter(r => r && r.id && (!['1', '2', '3'].includes(String(r.id)) || (r.name !== 'محمد أحمد' && r.name !== 'خالد مصطفى' && r.name !== 'سمير عبد الله')))
           .map(r => ({
             ...r,
             notes: (r.notes || '').includes('توليد تلقائي') ? '' : (r.notes || '')
@@ -230,7 +236,7 @@ export default function App() {
   const [payments, setPayments] = useState<Payment[]>(() => {
     try {
       const raw = offlineSync.getCachedData<Payment[]>('payments');
-      return raw && Array.isArray(raw) ? raw.filter(p => p.id !== 'p1') : [];
+      return raw && Array.isArray(raw) ? raw.filter(p => p && p.id && p.id !== 'p1') : [];
     } catch {
       return [];
     }
@@ -239,7 +245,7 @@ export default function App() {
   const [expenses, setExpenses] = useState<Expense[]>(() => {
     try {
       const raw = offlineSync.getCachedData<Expense[]>('expenses');
-      return raw && Array.isArray(raw) ? raw.filter(e => e.id !== 'e1') : [];
+      return raw && Array.isArray(raw) ? raw.filter(e => e && e.id && e.id !== 'e1') : [];
     } catch {
       return [];
     }
@@ -249,7 +255,7 @@ export default function App() {
   const [maintenanceRequests, setMaintenanceRequests] = useState<MaintenanceRequest[]>(() => {
     try {
       const raw = offlineSync.getCachedData<MaintenanceRequest[]>('maintenance');
-      return raw && Array.isArray(raw) ? raw.filter(m => !m.id.startsWith('req_seed_')) : [];
+      return raw && Array.isArray(raw) ? raw.filter(m => m && m.id && typeof m.id === 'string' && !m.id.startsWith('req_seed_')) : [];
     } catch {
       return [];
     }
@@ -257,7 +263,8 @@ export default function App() {
 
   const [craftsmen, setCraftsmen] = useState<Craftsman[]>(() => {
     try {
-      return offlineSync.getCachedData<Craftsman[]>('craftsmen') || [];
+      const raw = offlineSync.getCachedData<Craftsman[]>('craftsmen');
+      return raw && Array.isArray(raw) ? raw.filter(c => c && c.id) : [];
     } catch {
       return [];
     }
@@ -266,7 +273,7 @@ export default function App() {
   const [polls, setPolls] = useState<Poll[]>(() => {
     try {
       const raw = offlineSync.getCachedData<Poll[]>('polls');
-      return raw && Array.isArray(raw) ? raw.filter(p => !p.id.startsWith('poll_seed_')) : [];
+      return raw && Array.isArray(raw) ? raw.filter(p => p && p.id && typeof p.id === 'string' && !p.id.startsWith('poll_seed_')) : [];
     } catch {
       return [];
     }
@@ -275,7 +282,7 @@ export default function App() {
   const [decisions, setDecisions] = useState<AdminDecision[]>(() => {
     try {
       const raw = offlineSync.getCachedData<AdminDecision[]>('admin_decisions');
-      return raw && Array.isArray(raw) ? raw.filter(d => !d.id.startsWith('dec_seed_')) : [];
+      return raw && Array.isArray(raw) ? raw.filter(d => d && d.id && typeof d.id === 'string' && !d.id.startsWith('dec_seed_')) : [];
     } catch {
       return [];
     }
@@ -284,7 +291,7 @@ export default function App() {
   const [events, setEvents] = useState<BuildingEvent[]>(() => {
     try {
       const raw = offlineSync.getCachedData<BuildingEvent[]>('events');
-      return raw && Array.isArray(raw) ? raw.filter(e => !e.id.startsWith('ev_seed_')) : [];
+      return raw && Array.isArray(raw) ? raw.filter(e => e && e.id && typeof e.id === 'string' && !e.id.startsWith('ev_seed_')) : [];
     } catch {
       return [];
     }
@@ -334,7 +341,7 @@ export default function App() {
     try {
       const raw = offlineSync.getCachedData<ChatMessage[]>('chat_messages');
       const delSet = getDeletedMessageIds();
-      return raw && Array.isArray(raw) ? raw.filter(m => !m.id.startsWith('msg_seed_') && !delSet.has(m.id)) : [];
+      return raw && Array.isArray(raw) ? raw.filter(m => m && m.id && typeof m.id === 'string' && !m.id.startsWith('msg_seed_') && !delSet.has(m.id)) : [];
     } catch {
       return [];
     }
@@ -344,7 +351,7 @@ export default function App() {
     try {
       const raw = offlineSync.getCachedData<PublicComplaint[]>('public_complaints');
       const delSet = getDeletedComplaintIds();
-      return raw && Array.isArray(raw) ? raw.filter(c => !c.id.startsWith('comp_seed_') && !delSet.has(c.id)) : [];
+      return raw && Array.isArray(raw) ? raw.filter(c => c && c.id && typeof c.id === 'string' && !c.id.startsWith('comp_seed_') && !delSet.has(c.id)) : [];
     } catch {
       return [];
     }
@@ -917,21 +924,21 @@ export default function App() {
 
     if (rawResidents) {
       const cleaned = rawResidents
-        .filter(r => !['1', '2', '3'].includes(String(r.id)) || (r.name !== 'محمد أحمد' && r.name !== 'خالد مصطفى' && r.name !== 'سمير عبد الله'))
+        .filter(r => r && r.id && (!['1', '2', '3'].includes(String(r.id)) || (r.name !== 'محمد أحمد' && r.name !== 'خالد مصطفى' && r.name !== 'سمير عبد الله')))
         .map(r => ({
           ...r,
           notes: (r.notes || '').includes('توليد تلقائي') ? '' : (r.notes || '')
         }));
       setResidents(cleaned);
-      syncApprovedRequestsWithResidents(cleaned).then(res => setResidents(res));
+      syncApprovedRequestsWithResidents(cleaned).then(res => setResidents(res)).catch(() => {});
     } else {
-      syncApprovedRequestsWithResidents([]).then(res => setResidents(res));
+      syncApprovedRequestsWithResidents([]).then(res => setResidents(res)).catch(() => {});
     }
     if (rawPayments) {
-      setPayments(rawPayments.filter(p => p.id !== 'p1'));
+      setPayments(rawPayments.filter(p => p && p.id && p.id !== 'p1'));
     }
     if (rawExpenses) {
-      setExpenses(rawExpenses.filter(e => e.id !== 'e1'));
+      setExpenses(rawExpenses.filter(e => e && e.id && e.id !== 'e1'));
     }
     if (localConfig) {
       setConfig({
@@ -943,33 +950,33 @@ export default function App() {
           : ['سكني', 'سكني مغلق', 'مفروش', 'إداري', 'تجاري', 'بدون تشطيب'],
       });
     }
-    if (localRules) setRules(localRules.rules);
+    if (localRules && localRules.rules) setRules(localRules.rules);
     if (localLayout) setBuildingLayout(localLayout);
 
     // Maintenance requests (clean - no seed data)
     if (rawMaintenance) {
-      setMaintenanceRequests(rawMaintenance.filter(m => !m.id.startsWith('req_seed_')));
+      setMaintenanceRequests(rawMaintenance.filter(m => m && m.id && typeof m.id === 'string' && !m.id.startsWith('req_seed_')));
     } else {
       setMaintenanceRequests([]);
     }
 
     // Polls (clean - no seed data)
     if (rawPolls) {
-      setPolls(rawPolls.filter(p => !p.id.startsWith('poll_seed_')));
+      setPolls(rawPolls.filter(p => p && p.id && typeof p.id === 'string' && !p.id.startsWith('poll_seed_')));
     } else {
       setPolls([]);
     }
 
     // Admin decisions (clean - no seed data)
     if (rawDecisions) {
-      setDecisions(rawDecisions.filter(d => !d.id.startsWith('dec_seed_')));
+      setDecisions(rawDecisions.filter(d => d && d.id && typeof d.id === 'string' && !d.id.startsWith('dec_seed_')));
     } else {
       setDecisions([]);
     }
 
     // Events (clean - no seed data)
     if (rawEvents) {
-      setEvents(rawEvents.filter(e => !e.id.startsWith('ev_seed_')));
+      setEvents(rawEvents.filter(e => e && e.id && typeof e.id === 'string' && !e.id.startsWith('ev_seed_')));
     } else {
       setEvents([]);
     }
@@ -979,13 +986,13 @@ export default function App() {
     const rawComplaints = offlineSync.getCachedData<PublicComplaint[]>('public_complaints');
 
     if (rawMessages) {
-      setMessages(rawMessages.filter(m => !m.id.startsWith('msg_seed_')));
+      setMessages(rawMessages.filter(m => m && m.id && typeof m.id === 'string' && !m.id.startsWith('msg_seed_')));
     } else {
       setMessages([]);
     }
 
     if (rawComplaints) {
-      setComplaints(rawComplaints.filter(c => !c.id.startsWith('comp_seed_')));
+      setComplaints(rawComplaints.filter(c => c && c.id && typeof c.id === 'string' && !c.id.startsWith('comp_seed_')));
     } else {
       setComplaints([]);
     }
