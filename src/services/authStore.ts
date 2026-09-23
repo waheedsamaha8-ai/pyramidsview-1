@@ -1,5 +1,7 @@
 // Unified Auth & Join Requests store with automatic fallback for static hosting (Netlify) and offline PWA
 import { getLocalBuildings } from './buildingStore';
+import { db } from './firebaseConfig';
+import { collection, getDocs } from 'firebase/firestore';
 
 export interface StoredAdmin {
   id: string;
@@ -147,10 +149,29 @@ export async function loginWithEmail(emailInput: string, passwordInput: string):
   }
 
   // Check Registered Buildings for President Admin Account
-  const registeredBuildings = getLocalBuildings();
-  const buildingAdminMatch = registeredBuildings.find(b => b.presidentEmail && b.presidentEmail.toLowerCase().trim() === email);
+  let registeredBuildings = getLocalBuildings();
+  let buildingAdminMatch = registeredBuildings.find(b => b.presidentEmail && b.presidentEmail.toLowerCase().trim() === email);
+  
+  if (!buildingAdminMatch) {
+    try {
+      const colRef = collection(db, 'buildings');
+      const snapshot = await getDocs(colRef);
+      snapshot.forEach(docSnap => {
+        if (docSnap.exists()) {
+          const data = docSnap.data() as any;
+          if (data && data.presidentEmail && data.presidentEmail.toLowerCase().trim() === email) {
+            buildingAdminMatch = data;
+          }
+        }
+      });
+    } catch (e) {
+      console.warn('Error fetching buildings from Firestore in authStore:', e);
+    }
+  }
+
   if (buildingAdminMatch) {
     const isPassCorrect = (buildingAdminMatch.adminPassword && buildingAdminMatch.adminPassword === password) ||
+                          (adminMatch && adminMatch.password === password) ||
                           password === 'pyr111' || password === 'admin123' || password === '123456';
     if (isPassCorrect) {
       return {

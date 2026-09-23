@@ -179,6 +179,7 @@ export async function registerNewUnionBuilding(params: {
     presidentName: cleanPresName,
     presidentEmail: cleanEmail,
     presidentPhone: cleanPhone,
+    adminPassword: params.adminPassword,
     createdAt: new Date().toISOString(),
     status: 'ACTIVE',
     googleDriveBackupEmail: cleanEmail,
