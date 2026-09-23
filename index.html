@@ -68,6 +68,23 @@
         </div>
       </div>
     </div>
-    <script type="module" src="/src/main.tsx"></script>
+    <script>
+      // Automatic recovery if PWA ServiceWorker serves stale cached index.html or script fails
+      window.addEventListener('error', function(e) {
+        var src = (e.target && e.target.src) || '';
+        if (src.indexOf('main.tsx') !== -1 || src.indexOf('.js') !== -1) {
+          console.warn('Script loading error detected, clearing stale ServiceWorkers...');
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function(registrations) {
+              for (var reg of registrations) {
+                reg.unregister();
+              }
+              window.location.reload(true);
+            });
+          }
+        }
+      }, true);
+    </script>
+    <script type="module" src="./src/main.tsx"></script>
   </body>
 </html>
