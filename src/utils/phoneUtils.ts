@@ -36,8 +36,8 @@ const INTERNATIONAL_COUNTRY_CODES = [
 
 /**
  * Formats a phone number cleanly.
- * - If international (e.g. +966539313467, 00966539313467, 966539313467), formats as: "+966539313467"
- * - If Egyptian (+2010..., 002010..., 1007911777), formats as: "01007911777"
+ * - Supports and preserves international format (e.g. +966539313467, 00966539313467, +201007911777, 00201007911777).
+ * - Converts Egyptian local missing zero (e.g. 1007911777) to "01007911777".
  * - Cleans Arabic-Indic numerals, spaces, hyphens, and Excel/Sheets escape apostrophes.
  */
 export function formatMobileNumber(phone: string | number | null | undefined): string {
@@ -64,7 +64,7 @@ export function formatMobileNumber(phone: string | number | null | undefined): s
   // 1. Convert Arabic-Indic (٠-٩) and Persian (۰-۹) numerals to Western digits (0-9)
   str = str
     .replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d).toString())
-    .replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d).toString());
+    .replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶٧٨٩'.indexOf(d).toString());
 
   // 2. Check if original string explicitly starts with '+' or '00'
   const trimmed = str.replace(/[\s\-()]/g, '');
@@ -75,28 +75,15 @@ export function formatMobileNumber(phone: string | number | null | undefined): s
   const allDigits = trimmed.replace(/\D/g, '');
   if (!allDigits) return '';
 
-  // 3. Handle Egyptian numbers with international prefix: +20, 0020, or 20 followed by 1
-  if (trimmed.startsWith('+201') || trimmed.startsWith('00201')) {
-    const local = allDigits.substring(allDigits.startsWith('00201') ? 4 : 2);
-    return '0' + local;
-  }
-  if (allDigits.startsWith('201') && allDigits.length === 12) {
-    return '0' + allDigits.substring(2);
-  }
-
-  // 4. Handle International numbers:
-  // If explicitly started with '+' (and not Egyptian +20):
+  // 3. Handle explicit country key preservation:
   if (hasPlus) {
     return '+' + allDigits;
   }
-
-  // If started with '00' (international call prefix) and not Egyptian 0020:
-  if (hasDoubleZero && allDigits.length > 4) {
-    return '+' + allDigits.substring(2);
+  if (hasDoubleZero) {
+    return '00' + allDigits.substring(2);
   }
 
-  // 5. Check if it's an Egyptian local mobile number:
-  // Egyptian mobile numbers are 11 digits starting with 010, 011, 012, 015
+  // 4. Default Egyptian local formats if no country key is specified:
   if (allDigits.startsWith('01') && allDigits.length === 11) {
     return allDigits;
   }
@@ -107,7 +94,6 @@ export function formatMobileNumber(phone: string | number | null | undefined): s
   }
 
   // Saudi local mobile number (10 digits starting with 05, e.g. 0539313467):
-  // Convert directly to international format: +966539313467
   if (allDigits.startsWith('05') && allDigits.length === 10) {
     return '+966' + allDigits.substring(1);
   }
@@ -117,8 +103,7 @@ export function formatMobileNumber(phone: string | number | null | undefined): s
     return '+965' + allDigits;
   }
 
-  // 6. Check if it starts with an international country code without '+'
-  // E.g., user entered or imported "966539313467" (12 digits, starts with 966)
+  // 5. Check if it starts with an international country code without '+' or '00', e.g., "966539313467" or "201007911777"
   for (const code of INTERNATIONAL_COUNTRY_CODES) {
     if (allDigits.startsWith(code) && allDigits.length >= code.length + 7) {
       return '+' + allDigits;
@@ -135,8 +120,7 @@ export function formatMobileNumber(phone: string | number | null | undefined): s
 
 /**
  * Sanitizes and normalizes phone input while typing or pasting into text fields.
- * - Allows typing '+' at the start for international numbers.
- * - Converts '00' international prefix into '+'.
+ * - Allows typing '+' or '00' at the start for international numbers.
  * - Converts Arabic-Indic numerals in real-time.
  * - Auto-prepends '0' for 10-digit Egyptian numbers missing leading zero.
  */
@@ -146,32 +130,23 @@ export function normalizePhoneInput(input: string): string {
   // 1. Convert Arabic-Indic & Persian digits
   let str = input
     .replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d).toString())
-    .replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d).toString());
+    .replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶٧٨٩'.indexOf(d).toString());
 
   // Remove leading Excel/Sheets text apostrophe
   str = str.replace(/^['"]+/, '').trim();
 
-  // If user pasted/typed '00' at start (e.g. 00966...), convert to '+'
-  if (str.startsWith('00')) {
-    const rawDigits = str.replace(/\D/g, '');
-    if (rawDigits.startsWith('00201') && rawDigits.length >= 14) {
-      return '0' + rawDigits.substring(4);
-    } else if (!rawDigits.startsWith('0020')) {
-      str = '+' + str.substring(2);
-    }
-  }
-
+  // Determine if it has + or 00
   const startsWithPlus = str.startsWith('+');
+  const startsWithDoubleZero = str.startsWith('00');
+  
+  // Extract digits
   const digits = str.replace(/\D/g, '');
 
-  // If starts with +201... (Egypt with +20) and complete:
-  if (startsWithPlus && digits.startsWith('201') && digits.length >= 12) {
-    return '0' + digits.substring(2);
-  }
-
-  // If starts with +, keep + followed by digits
   if (startsWithPlus) {
     return '+' + digits;
+  }
+  if (startsWithDoubleZero) {
+    return '00' + digits.substring(2);
   }
 
   // If user typed 10 digits starting with 1 (e.g. 1007911777), prepend '0'
@@ -217,12 +192,12 @@ export function toWhatsAppNumber(phone: string | number | null | undefined): str
 
 /**
  * Formats a phone number for inclusion in RTL text messages (e.g. WhatsApp / Reports).
- * Adds a Left-to-Right Mark (\u200E) before '+' so RTL engines don't flip the '+' to the right.
+ * Adds a Left-to-Right Mark (\u200E) before '+' or '00' so RTL engines don't flip it.
  */
 export function formatPhoneForText(phone: string | number | null | undefined): string {
   const formatted = formatMobileNumber(phone);
   if (!formatted) return '';
-  if (formatted.startsWith('+')) {
+  if (formatted.startsWith('+') || formatted.startsWith('00')) {
     return '\u200E' + formatted;
   }
   return formatted;
@@ -231,13 +206,13 @@ export function formatPhoneForText(phone: string | number | null | undefined): s
 /**
  * Formats a phone number for visual display in RTL Arabic user interfaces.
  * Wraps the formatted number with Left-to-Right Embedding (\u202A) and Pop Directional Formatting (\u202C)
- * so that '+' always visually stays on the extreme left in both mobile and desktop browsers,
+ * so that the number and its symbols (+ / 00) always visually stay in correct order in both mobile and desktop browsers,
  * regardless of parent RTL context or font rendering quirks.
  */
 export function formatPhoneForDisplay(phone: string | number | null | undefined): string {
   const formatted = formatMobileNumber(phone);
   if (!formatted) return '';
-  if (formatted.startsWith('+')) {
+  if (formatted.startsWith('+') || formatted.startsWith('00') || formatted.match(/^\d+$/)) {
     return '\u202A' + formatted + '\u202C';
   }
   return formatted;
