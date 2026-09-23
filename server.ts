@@ -14,6 +14,14 @@ async function startServer() {
   // Support JSON bodies up to 10MB (for data sync)
   app.use(express.json({ limit: '10mb' }));
 
+  // Set correct MIME type for TS/TSX files to satisfy strict browser MIME checking
+  app.use((req, res, next) => {
+    if (req.path.endsWith('.ts') || req.path.endsWith('.tsx')) {
+      res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+    }
+    next();
+  });
+
   const JOIN_REQUESTS_FILE = path.join(process.cwd(), 'join_requests.json');
   const ADMINS_FILE = path.join(process.cwd(), 'admins.json');
   const CONFIG_FILE = path.join(process.cwd(), 'app_config.json');
