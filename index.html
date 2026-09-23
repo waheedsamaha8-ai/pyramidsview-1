@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      (function() {
+        try {
+          if (typeof window !== 'undefined') {
+            var origError = console.error;
+            console.error = function() {
+              try {
+                var msg = arguments && arguments[0];
+                if (typeof msg === 'string' && (msg.indexOf('[vite]') !== -1 || msg.indexOf('websocket') !== -1 || msg.indexOf('WebSocket') !== -1)) {
+                  return;
+                }
+              } catch (e) {}
+              if (origError) origError.apply(console, arguments);
+            };
+            var origWarn = console.warn;
+            console.warn = function() {
+              try {
+                var msg = arguments && arguments[0];
+                if (typeof msg === 'string' && (msg.indexOf('[vite]') !== -1 || msg.indexOf('websocket') !== -1 || msg.indexOf('WebSocket') !== -1)) {
+                  return;
+                }
+              } catch (e) {}
+              if (origWarn) origWarn.apply(console, arguments);
+            };
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <title>نظام إدارة اتحادات الملاك والعقارات السحابي</title>
+    <meta name="description" content="منظومة سحابية ذكية وشاملة لإدارة شؤون اتحادات الملاك والعقارات، متابعة الاشتراكات والتحصيلات، كشوف الحسابات، فواتير المصروفات، بلاغات الصيانة والنسخ الاحتياطي السحابي." />
+    
+    <!-- OpenGraph Metadata -->
+    <meta property="og:title" content="نظام إدارة اتحادات الملاك والعقارات السحابي" />
+    <meta property="og:description" content="منظومة سحابية ذكية وشاملة لإدارة شؤون اتحادات الملاك والعقارات، متابعة الاشتراكات والتحصيلات، كشوف الحسابات، فواتير المصروفات، بلاغات الصيانة والنسخ الاحتياطي السحابي." />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="./icon.svg" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <!-- PWA Headers -->
+    <meta name="theme-color" content="#1e3a8a" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="العمارة" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+    
+    <!-- Google Fonts - Cairo -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <script type="module" crossorigin src="./assets/index-TCH8XGrV.js"></script>
+    <link rel="modulepreload" crossorigin href="./assets/icons-BTFAnBr_.js">
+    <link rel="modulepreload" crossorigin href="./assets/vendor-CNUMsIgK.js">
+    <link rel="modulepreload" crossorigin href="./assets/firebase-DnMGMosq.js">
+    <link rel="stylesheet" crossorigin href="./assets/index-D6VtrMie.css">
+  <link rel="manifest" href="./manifest.webmanifest"><script id="vite-plugin-pwa:register-sw" src="./registerSW.js"></script></head>
+  <body class="bg-slate-100 text-slate-900 font-sans antialiased select-none">
+    <div id="root">
+      <div style="min-height: 100vh; background-color: #f8fafc; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center; font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;" dir="rtl">
+        <div style="background-color: white; padding: 32px; border-radius: 24px; border: 1px solid #e2e8f0; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05); max-width: 360px; width: 100%;">
+          <div style="width: 56px; height: 56px; background: linear-gradient(135deg, #1e3a8a, #312e81); color: white; border-radius: 16px; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px auto; font-size: 28px; font-weight: bold;">🏢</div>
+          <h2 style="font-size: 16px; font-weight: 800; color: #0f172a; margin: 0 0 8px 0;">نظام اتحاد الملاك والعقارات</h2>
+          <p style="font-size: 12px; color: #64748b; margin: 0 0 16px 0; font-weight: 600;">جاري فتح واستجابة التطبيق...</p>
+          <div style="display: flex; align-items: center; justify-content: center; gap: 8px; background-color: #f1f5f9; padding: 10px 16px; border-radius: 12px; font-size: 11px; font-weight: 700; color: #1e3a8a;">
+            يرجى الانتظار لحظة...
+          </div>
+        </div>
+      </div>
+    </div>
+    <script>
+      // Automatic recovery if PWA ServiceWorker serves stale cached index.html or script fails
+      window.addEventListener('error', function(e) {
+        var src = (e.target && e.target.src) || '';
+        if (src.indexOf('main.tsx') !== -1 || src.indexOf('.js') !== -1) {
+          console.warn('Script loading error detected, checking ServiceWorker cache...');
+          var recoveryDone = sessionStorage.getItem('sw_recovery_attempted');
+          if (!recoveryDone && 'serviceWorker' in navigator) {
+            sessionStorage.setItem('sw_recovery_attempted', '1');
+            navigator.serviceWorker.getRegistrations().then(function(registrations) {
+              for (var reg of registrations) {
+                reg.unregister();
+              }
+              window.location.reload();
+            });
+          } else if (src.indexOf('main.tsx') !== -1) {
+            var rootEl = document.getElementById('root');
+            if (rootEl) {
+              rootEl.innerHTML = '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;font-family:system-ui,sans-serif;text-align:center;direction:rtl;background:#f8fafc;"><div style="max-width:480px;background:#fff;padding:28px;border-radius:20px;box-shadow:0 10px 25px rgba(0,0,0,0.08);border:1px solid #e2e8f0;"><div style="font-size:36px;margin-bottom:12px;">🚀</div><h2 style="color:#0f172a;font-size:17px;font-weight:800;margin-bottom:10px;">إعداد نشر GitHub Pages بنجاح</h2><p style="color:#475569;font-size:13px;line-height:1.7;margin-bottom:16px;">المتصفحات تتطلب النسخة المجمعة المترجمة من الكود (الموجودة في مجلد dist). لتفعيل التشغيل التلقائي:<br><br>1. ادخل على مستودعك على GitHub ➔ <b>Settings</b>.<br>2. اختر <b>Pages</b> من القائمة الجانبية.<br>3. تحت <b>Build and deployment</b> وفي خانة <b>Source</b>: اختر <b>GitHub Actions</b>.<br><br>سيقوم GitHub بالبناء والنشر التلقائي فوراً خلال دقيقة واحدة!</p></div></div>';
+            }
+          }
+        }
+      }, true);
+    </script>
+  </body>
+</html>
