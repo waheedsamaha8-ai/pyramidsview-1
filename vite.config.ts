@@ -118,6 +118,9 @@ export default defineConfig(({ mode }) => {
       port: 3000,
       host: '0.0.0.0',
       hmr: false,
+      headers: {
+        'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
+      },
     },
   };
 });

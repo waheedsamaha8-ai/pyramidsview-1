@@ -14,8 +14,9 @@ async function startServer() {
   // Support JSON bodies up to 10MB (for data sync)
   app.use(express.json({ limit: '10mb' }));
 
-  // Set correct MIME type for TS/TSX files to satisfy strict browser MIME checking
+  // Set Cross-Origin-Opener-Policy to allow authentication popups to interact with opener
   app.use((req, res, next) => {
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
     if (req.path.endsWith('.ts') || req.path.endsWith('.tsx')) {
       res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
     }

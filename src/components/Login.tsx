@@ -480,11 +480,20 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         }
       }
 
-      // If portal mode is PRESIDENT or user is logging in as president and there's 1 registered building, adopt that building if presidentEmail wasn't set yet
-      if (!matchedBuilding && allBuildingsList.length === 1 && portalMode === 'PRESIDENT') {
-        matchedBuilding = allBuildingsList[0];
-        matchedBuilding.presidentEmail = email;
-        setActiveBuilding(matchedBuilding);
+      // If portal mode is PRESIDENT, adopt selected building or single building
+      if (!matchedBuilding && portalMode === 'PRESIDENT') {
+        const selected = allBuildingsList.find(b => b.id === selectedBuildingId) || buildings.find(b => b.id === selectedBuildingId);
+        if (selected) {
+          matchedBuilding = selected;
+          if (!matchedBuilding.presidentEmail) {
+            matchedBuilding.presidentEmail = email;
+          }
+          setActiveBuilding(matchedBuilding);
+        } else if (allBuildingsList.length === 1) {
+          matchedBuilding = allBuildingsList[0];
+          matchedBuilding.presidentEmail = email;
+          setActiveBuilding(matchedBuilding);
+        }
       }
 
       if (matchedBuilding) {
@@ -580,6 +589,8 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
       const result = await googleSignIn();
       if (result) {
         await processGoogleUserSession(result.user, result.accessToken);
+      } else {
+        setSuccessMessage('جاري تحويلك لصفحة تسجيل الدخول بحساب Google الآمنة...');
       }
     } catch (err: any) {
       console.error('Google sign in error:', err);
@@ -587,11 +598,16 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
       if (errMsg.includes('auth/unauthorized-domain') || errMsg.includes('unauthorized-domain')) {
         const currentHostname = window.location.hostname || 'waheedsamaha8-ai.github.io';
         setUnauthorizedDomain(currentHostname);
+      } else if (errMsg.includes('POPUP_COOP_TIMEOUT') || errMsg.includes('Cross-Origin') || errMsg.includes('popup') || errMsg.includes('closed')) {
+        setError('حظر المتصفح نافذة تسجيل الدخول المنبثقة أو سياسة COOP. يمكنك تسجيل الدخول المباشر فوراً باستخدام البريد الإلكتروني وكلمة المرور الإدارية أدناه.');
       } else {
-        setError(err?.message || 'فشل تسجيل الدخول بحساب Google. يمكنك استخدام كلمة المرور.');
+        setError(err?.message || 'فشل تسجيل الدخول بحساب Google. يمكنك استخدام البريد وكلمة المرور الإدارية أدناه.');
       }
     } finally {
-      setLoading(false);
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      if (!isMobile) {
+        setLoading(false);
+      }
     }
   };
 

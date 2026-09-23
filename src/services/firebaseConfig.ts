@@ -180,28 +180,41 @@ export const checkRedirectResult = async (): Promise<{ user: User; accessToken: 
 export const googleSignIn = async (): Promise<{ user: User; accessToken: string } | null> => {
   try {
     isSigningIn = true;
-    let result = null;
+    let result: any = null;
     const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
+    // On mobile devices, directly use redirect flow to avoid popup blockers and COOP severance
+    if (isMobileDevice) {
+      await signInWithRedirect(auth, googleProvider);
+      return null;
+    }
+
     try {
-      result = await signInWithPopup(auth, googleProvider);
+      // Race popup with 12s timeout to prevent infinite hang if browser COOP blocks window.closed
+      const popupPromise = signInWithPopup(auth, googleProvider);
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('POPUP_COOP_TIMEOUT')), 12000)
+      );
+      result = await Promise.race([popupPromise, timeoutPromise]);
     } catch (popupErr: any) {
       console.warn('signInWithPopup notice:', popupErr);
       const code = String(popupErr?.code || popupErr?.message || '');
       if (
-        isMobileDevice ||
+        code.includes('POPUP_COOP_TIMEOUT') ||
         code.includes('popup-blocked') ||
         code.includes('popup-closed-by-user') ||
-        code.includes('cancelled-popup-request')
+        code.includes('cancelled-popup-request') ||
+        code.includes('Cross-Origin')
       ) {
-        // Fallback to redirect flow for mobile web
+        // Fallback to redirect flow for browser environments with popup or COOP restrictions
+        console.info('Switching to redirect flow due to popup/COOP restriction...');
         await signInWithRedirect(auth, googleProvider);
         return null;
       }
       throw popupErr;
     }
 
-    if (!result) return null;
+    if (!result || !result.user) return null;
 
     const credential = GoogleAuthProvider.credentialFromResult(result);
     const token = credential?.accessToken || (await result.user.getIdToken());
@@ -219,7 +232,17 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
 
 export const requestGoogleDriveToken = async (): Promise<string | null> => {
   try {
-    const result = await signInWithPopup(auth, googleDriveProvider);
+    const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    if (isMobileDevice) {
+      await signInWithRedirect(auth, googleDriveProvider);
+      return null;
+    }
+
+    const popupPromise = signInWithPopup(auth, googleDriveProvider);
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('POPUP_COOP_TIMEOUT')), 12000)
+    );
+    const result: any = await Promise.race([popupPromise, timeoutPromise]);
     const credential = GoogleAuthProvider.credentialFromResult(result);
     if (credential?.accessToken) {
       cachedAccessToken = credential.accessToken;
@@ -235,8 +258,8 @@ export const requestGoogleDriveToken = async (): Promise<string | null> => {
     if (msg.includes('access-denied') || msg.includes('access_denied') || msg.includes('403') || msg.includes('unauthorized')) {
       throw new Error('الحساب الإلكتروني المختار ليس مضافاً كـ (مستخدم اختبار) في مشروع Google. يرجى اختيار البريد الإلكتروني الرئيسي المعتمد (waheedsamaha8@gmail.com) أو استخدام خيار تنزيل النسخة الاحتياطية المباشرة (ملف JSON).');
     }
-    if (msg.includes('popup-closed-by-user') || msg.includes('cancelled')) {
-      throw new Error('تم إلغاء نافذة تسجيل الدخول من قبل المستخدم.');
+    if (msg.includes('popup-closed-by-user') || msg.includes('cancelled') || msg.includes('timeout')) {
+      throw new Error('تم إلغاء أو تعذر نافذة تسجيل الدخول من قبل المتصفح.');
     }
     throw error;
   }

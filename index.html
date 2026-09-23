@@ -73,14 +73,21 @@
       window.addEventListener('error', function(e) {
         var src = (e.target && e.target.src) || '';
         if (src.indexOf('main.tsx') !== -1 || src.indexOf('.js') !== -1) {
-          console.warn('Script loading error detected, clearing stale ServiceWorkers...');
-          if ('serviceWorker' in navigator) {
+          console.warn('Script loading error detected, checking ServiceWorker cache...');
+          var recoveryDone = sessionStorage.getItem('sw_recovery_attempted');
+          if (!recoveryDone && 'serviceWorker' in navigator) {
+            sessionStorage.setItem('sw_recovery_attempted', '1');
             navigator.serviceWorker.getRegistrations().then(function(registrations) {
               for (var reg of registrations) {
                 reg.unregister();
               }
-              window.location.reload(true);
+              window.location.reload();
             });
+          } else if (src.indexOf('main.tsx') !== -1) {
+            var rootEl = document.getElementById('root');
+            if (rootEl) {
+              rootEl.innerHTML = '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;font-family:system-ui,sans-serif;text-align:center;direction:rtl;background:#f8fafc;"><div style="max-width:480px;background:#fff;padding:28px;border-radius:20px;box-shadow:0 10px 25px rgba(0,0,0,0.08);border:1px solid #e2e8f0;"><div style="font-size:36px;margin-bottom:12px;">🚀</div><h2 style="color:#0f172a;font-size:17px;font-weight:800;margin-bottom:10px;">إعداد نشر GitHub Pages بنجاح</h2><p style="color:#475569;font-size:13px;line-height:1.7;margin-bottom:16px;">المتصفحات تتطلب النسخة المجمعة المترجمة من الكود (الموجودة في مجلد dist). لتفعيل التشغيل التلقائي:<br><br>1. ادخل على مستودعك على GitHub ➔ <b>Settings</b>.<br>2. اختر <b>Pages</b> من القائمة الجانبية.<br>3. تحت <b>Build and deployment</b> وفي خانة <b>Source</b>: اختر <b>GitHub Actions</b>.<br><br>سيقوم GitHub بالبناء والنشر التلقائي فوراً خلال دقيقة واحدة!</p></div></div>';
+            }
           }
         }
       }, true);
