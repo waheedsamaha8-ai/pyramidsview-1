@@ -633,7 +633,7 @@ export default function App() {
       unsubRules();
       if (interval) clearInterval(interval);
     };
-  }, []);
+  }, [user?.email, (user as any)?.buildingId, role]);
 
   const [selectedActivityModal, setSelectedActivityModal] = useState<string | null>(null);
   const [maintenanceSubTab, setMaintenanceSubTab] = useState<'requests' | 'directory'>('requests');
@@ -1181,7 +1181,7 @@ export default function App() {
         setSyncStatusText(msg);
       });
       if (syncedCount > 0) {
-        addNotification('تمت المزامنة بنجاح', `تم دمج ومزامنة عدد ${syncedCount} من العمليات بنجاح مع Google Sheets!`, 'success');
+        addNotification('تمت المزامنة بنجاح', `تم دمج ومزامنة عدد ${syncedCount} من العمليات بنجاح مع Firebase Firestore!`, 'success');
         // Refresh local lists from sheets after sync
         await refreshAllData();
       }
@@ -1227,72 +1227,67 @@ export default function App() {
     }
   };
 
-  // Setup/Bootstrap app database
-  const bootstrapApp = async (currentUser: User, accessToken: string, isBackground = false) => {
+  // Setup/Bootstrap app database instantly without loading screen delays
+  const bootstrapApp = async (currentUser: User, accessToken: string, _isBackground = false) => {
     if (accessToken) {
       googleApi.setAccessToken(accessToken);
     }
-    if (!isBackground) {
-      setIsInitializingAuth(true);
-    } else {
-      setIsBackgroundSyncing(true);
-    }
+    
     try {
+      // 1. Immediately hydrate local state from local storage for instant 0ms entry across all roles
+      const cachedConfig = offlineSync.getCachedData<AppConfig>('config');
+      if (cachedConfig) setConfig(cachedConfig);
+      const cachedLayout = offlineSync.getCachedData<any[]>('building_layout');
+      if (cachedLayout) setBuildingLayout(cachedLayout);
+      const cachedResidents = offlineSync.getCachedData<Resident[]>('residents');
+      if (cachedResidents) setResidents(cachedResidents);
+      const cachedPayments = offlineSync.getCachedData<Payment[]>('payments');
+      if (cachedPayments) setPayments(cachedPayments);
+      const cachedExpenses = offlineSync.getCachedData<Expense[]>('expenses');
+      if (cachedExpenses) setExpenses(cachedExpenses);
+      const cachedCraftsmen = offlineSync.getCachedData<Craftsman[]>('craftsmen');
+      if (cachedCraftsmen) setCraftsmen(cachedCraftsmen);
+      const cachedMessages = offlineSync.getCachedData<ChatMessage[]>('chat_messages');
+      if (cachedMessages) setMessages(cachedMessages);
+      const cachedDecisions = offlineSync.getCachedData<AdminDecision[]>('admin_decisions');
+      if (cachedDecisions) setDecisions(cachedDecisions);
+      const cachedPolls = offlineSync.getCachedData<Poll[]>('polls');
+      if (cachedPolls) setPolls(cachedPolls);
+      const cachedComplaints = offlineSync.getCachedData<PublicComplaint[]>('public_complaints');
+      if (cachedComplaints) setComplaints(cachedComplaints);
+      const cachedMaintenance = offlineSync.getCachedData<MaintenanceRequest[]>('maintenance');
+      if (cachedMaintenance) setMaintenanceRequests(cachedMaintenance);
+
       if (!currentUser) {
-        const cachedConfig = offlineSync.getCachedData<AppConfig>('config');
-        if (cachedConfig) setConfig(cachedConfig);
-        const cachedLayout = offlineSync.getCachedData<any[]>('building_layout');
-        if (cachedLayout) setBuildingLayout(cachedLayout);
+        setIsInitializingAuth(false);
         return;
       }
 
-      // Load configurations from Firestore (Primary Cloud Store)
-      let appConfig = await firestoreService.getConfigFromFirestore();
-      if (!appConfig) {
-        const cached = offlineSync.getCachedData<AppConfig>('config');
-        const activeB = getActiveBuilding();
-        appConfig = cached || {
-          admins: activeB.presidentEmail ? [activeB.presidentEmail] : [],
-          managers: [],
-          expenseTypes: ['صيانة مصاعد', 'نظافة', 'كهرباء خدمات', 'حراسة وأمن', 'صيانة مياه ومضخات', 'أخرى'],
-          paymentTypes: ['تحصيل شهري', 'مساهمة طارئة', 'تبرع', 'أخرى'],
-          activityTypes: ['سكني', 'سكني مغلق', 'مفروش', 'إداري', 'تجاري', 'بدون تشطيب'],
-          defaultMonthlyFee: 400,
-          accountingStartDate: '2026-01-01',
-          buildingLayout: [],
-        };
-      }
-      setConfig(appConfig);
-      if (appConfig.buildingLayout && appConfig.buildingLayout.length > 0) {
-        setBuildingLayout(appConfig.buildingLayout);
-        offlineSync.saveCachedData('building_layout', appConfig.buildingLayout);
-      }
-      offlineSync.saveCachedData('config', appConfig);
-
+      // 2. Detect user role instantly
       const email = currentUser.email?.toLowerCase().trim() || '';
       let detectedRole: UserRole = role;
 
-      const savedRole = localStorage.getItem('user_role') || localStorage.getItem('app_user_role');
-      if (savedRole && ['ADMIN', 'MANAGER', 'ASSISTANT', 'RESIDENT'].includes(savedRole)) {
-        detectedRole = savedRole as UserRole;
-      } else if ((currentUser as any).role && ['ADMIN', 'MANAGER', 'ASSISTANT', 'RESIDENT'].includes((currentUser as any).role)) {
+      if ((currentUser as any).role && ['ADMIN', 'MANAGER', 'ASSISTANT', 'RESIDENT'].includes((currentUser as any).role)) {
         detectedRole = (currentUser as any).role as UserRole;
       } else {
-        const activeB = getActiveBuilding();
-        const isPresident = (activeB.presidentEmail && email === activeB.presidentEmail.toLowerCase().trim()) || appConfig.admins.some(a => a.toLowerCase().trim() === email);
-
-        if (
-          (appConfig.assistantConfig && appConfig.assistantConfig.email?.toLowerCase().trim() === email) ||
-          email === 'assistant@pyramids.com' ||
-          email === 'assistant'
-        ) {
-          detectedRole = 'ASSISTANT';
-        } else if (isPresident) {
-          detectedRole = 'ADMIN';
-        } else if (appConfig.managers.some(m => m.toLowerCase().trim() === email)) {
-          detectedRole = 'MANAGER';
+        const savedRole = localStorage.getItem('user_role') || localStorage.getItem('app_user_role');
+        if (savedRole && ['ADMIN', 'MANAGER', 'ASSISTANT', 'RESIDENT'].includes(savedRole)) {
+          detectedRole = savedRole as UserRole;
         } else {
-          detectedRole = 'RESIDENT';
+          const activeB = getActiveBuilding();
+          const isPresident = (activeB.presidentEmail && email === activeB.presidentEmail.toLowerCase().trim()) || (cachedConfig?.admins || []).some(a => a.toLowerCase().trim() === email);
+
+          if (
+            (cachedConfig?.assistantConfig && cachedConfig.assistantConfig.email?.toLowerCase().trim() === email) ||
+            email === 'assistant@pyramids.com' ||
+            email === 'assistant'
+          ) {
+            detectedRole = 'ASSISTANT';
+          } else if (isPresident) {
+            detectedRole = 'ADMIN';
+          } else {
+            detectedRole = 'RESIDENT';
+          }
         }
       }
 
@@ -1304,28 +1299,23 @@ export default function App() {
       if (cachedFlat) {
         setFlatNumber(String(cachedFlat));
       } else if (detectedRole === 'ADMIN') {
-        const adminFlat = appConfig.adminResidentProfile?.flatNumber || 207;
+        const adminFlat = cachedConfig?.adminResidentProfile?.flatNumber || 207;
         setFlatNumber(adminFlat);
         localStorage.setItem('resident_flat_number', String(adminFlat));
       }
 
-      // Finish auth initialization immediately so page renders fast from local cache
+      // 3. Complete auth initialization IMMEDIATELY so login and switching are instant (0 seconds delay)
       setIsInitializingAuth(false);
+      setIsBackgroundSyncing(false);
 
-      // Trigger data refresh silently in background without blocking screen render
+      // 4. Trigger data refresh silently in background from Firestore
       refreshAllData().catch(err => console.warn('Background refresh warning:', err));
 
     } catch (err: any) {
-      if (err?.message?.includes('لم يتم تسجيل الدخول') || err?.message?.includes('الجلسة') || err?.message?.includes('Session expired')) {
-        console.warn('Bootstrap skipped due to session status:', err.message);
-      } else {
-        logError(err, 'bootstrapApp');
-      }
+      logError(err, 'bootstrapApp');
     } finally {
       setIsInitializingAuth(false);
       setIsBackgroundSyncing(false);
-      // Run background sync for any queued offline items
-      triggerBackgroundSync();
     }
   };
 
@@ -1557,21 +1547,23 @@ export default function App() {
     addNotification('تسجيل ساكن جديد', `تمت إضافة الساكن ${resident.name} وحدة ${resident.flatNumber} بنجاح.`, 'success', 'registration');
   };
 
-  const setAllResidents = (newResidents: Resident[]) => {
+  const setAllResidents = async (newResidents: Resident[]) => {
     if (role === 'RESIDENT') return;
+    const previousResidents = [...residents];
     setResidents(newResidents);
     offlineSync.saveCachedData('residents', newResidents);
     
     // Proactively clear any pending individual resident actions from the queue
     offlineSync.clearResidentActionsFromQueue();
     
-    firestoreService.saveBatchResidentsToFirestore(newResidents)
-      .catch(err => {
-        logError(err, 'setAllResidents');
-      });
+    try {
+      await firestoreService.saveBatchResidentsToFirestore(newResidents, previousResidents);
+    } catch (err) {
+      logError(err, 'setAllResidents');
+    }
   };
 
-  const updateBuildingLayout = (layout: FloorConfig[]) => {
+  const updateBuildingLayout = async (layout: FloorConfig[]) => {
     if (role === 'RESIDENT') return;
     setBuildingLayout(layout);
     offlineSync.saveCachedData('building_layout', layout);
@@ -1580,8 +1572,11 @@ export default function App() {
     setConfig(updatedConfig);
     offlineSync.saveCachedData('config', updatedConfig);
 
-    firestoreService.saveConfigToFirestore(updatedConfig)
-      .catch(err => logError(err, 'saveBuildingLayout'));
+    try {
+      await firestoreService.saveConfigToFirestore(updatedConfig);
+    } catch (err) {
+      logError(err, 'saveBuildingLayout');
+    }
   };
 
   const editResident = (resident: Resident) => {
@@ -3272,42 +3267,7 @@ export default function App() {
           </div>
         )}
 
-        {/* Google Drive & Sheets Integration Alert for Union President if in local mode */}
-        {role === 'ADMIN' && (token === 'local-token' || !token) && (
-          <div className="bg-gradient-to-r from-blue-950 via-slate-900 to-indigo-950 text-white p-3.5 sm:p-4 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between border-2 border-blue-500/50 shadow-lg gap-3">
-            <div className="text-right space-y-1">
-              <h3 className="font-black text-xs sm:text-sm flex items-center gap-1.5 text-blue-200">
-                <CloudLightning className="w-4 h-4 text-amber-400" />
-                <span>تنبيه رئيس الاتحاد: تفعيل المزامنة السحابية ومجلدات Google Drive</span>
-              </h3>
-              <p className="text-[11px] sm:text-xs text-slate-300 font-bold leading-relaxed">
-                أنت الآن متصل بالنظام المحلي. لمزامنة مجلدات Google Drive تلقائياً (الصور، الإيصالات، الفواتير، الشكاوى) وتصدير الجداول سحابياً بحسابك المعتمد {user?.email ? (<strong className="text-amber-300">({user.email})</strong>) : null}:
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={handleConnectGoogleDrive}
-              disabled={isConnectingGoogle}
-              className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-black rounded-xl text-xs flex items-center gap-2 shadow-md transition active:scale-95 cursor-pointer whitespace-nowrap shrink-0 self-stretch sm:self-auto justify-center disabled:opacity-50"
-            >
-              {isConnectingGoogle ? (
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-              ) : (
-                <>
-                  <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" width="24" height="24" xmlns="http://www.w3.org/2000/svg">
-                    <g transform="matrix(1, 0, 0, 1, 0, 0)">
-                      <path fill="#EA4335" d="M20.64 12.2c0-.7-.06-1.36-.18-2H12v3.78h4.84c-.2.11-.2.22-.3.43-.54 1.45-1.8 2.5-3.32 2.5a5.18 5.18 0 0 1-4.85-3.6l-2.63 2.03A10.3 10.3 0 0 0 12 22.36c5.73 0 10.55-1.9 14.07-5.18l-5.43-4.98z" />
-                      <path fill="#4285F4" d="M12 22.36c3.24 0 5.95-1.07 7.93-2.91l-5.43-4.98c-1.5.11-3.04-.15-4.21-.86a5.18 5.18 0 0 1-3.3-3.6L4.35 12.04a10.3 10.3 0 0 0 7.65 10.32z" />
-                      <path fill="#FBBC05" d="M4.35 12.04c-.25-.75-.4-1.55-.4-2.38s.15-1.63.4-2.38L1.72 5.25A10.3 10.3 0 0 0 0 9.66c0 1.63.3 3.19.85 4.63l3.5-3.25z" />
-                      <path fill="#34A853" d="M12 4.14c1.76 0 3.3.61 4.54 1.8l3.4-3.15C17.9 1.07 15.24 0 12 0 7.34 0 3.3 2.7 1.25 6.64l3.5 3.25A5.18 5.18 0 0 1 12 4.14z" />
-                    </g>
-                  </svg>
-                  <span>ربط Google Drive السحابي الآن</span>
-                </>
-              )}
-            </button>
-          </div>
-        )}
+
 
         {/* Dashboard Tab */}
         {activeTab === 'dashboard' && (
@@ -3934,8 +3894,6 @@ export default function App() {
             onDeleteRule={handleDeleteRule}
             onOpenEditRulesModal={() => setShowRulesEditModal(true)}
             onRefreshAllData={refreshAllData}
-            onConnectGoogleDrive={handleConnectGoogleDrive}
-            isConnectingGoogle={isConnectingGoogle}
           />
         )}
 

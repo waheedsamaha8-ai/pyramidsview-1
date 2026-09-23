@@ -160,39 +160,61 @@ export async function loginWithEmail(emailInput: string, passwordInput: string):
 
   // Check Assistant Config from local storage cache + Default assistant credentials
   try {
-    let assistantEmail = 'assistant@pyramids.com';
-    let assistantPassword = 'assistant123';
+    let customAssistantEmail = '';
+    let customAssistantPassword = '';
     let assistantName = 'المساعد الفني';
+    let hasCustomAssistant = false;
 
     const rawConfig = localStorage.getItem('cache_config') || localStorage.getItem('config');
     if (rawConfig) {
       const parsedConfig = JSON.parse(rawConfig);
-      if (parsedConfig.assistantConfig) {
-        if (parsedConfig.assistantConfig.email) assistantEmail = parsedConfig.assistantConfig.email.toLowerCase().trim();
-        if (parsedConfig.assistantConfig.password) assistantPassword = parsedConfig.assistantConfig.password;
-        if (parsedConfig.assistantConfig.name) assistantName = parsedConfig.assistantConfig.name;
+      if (parsedConfig.assistantConfig && parsedConfig.assistantConfig.email && parsedConfig.assistantConfig.email.trim() !== '') {
+        customAssistantEmail = parsedConfig.assistantConfig.email.toLowerCase().trim();
+        customAssistantPassword = parsedConfig.assistantConfig.password || '';
+        assistantName = parsedConfig.assistantConfig.name || 'المساعد الفني';
+        hasCustomAssistant = true;
       }
     }
 
     const defaultAssistantEmails = ['assistant@pyramids.com', 'assistant'];
     const defaultAssistantPasswords = ['assistant123', '123456', '123', 'assistant'];
 
-    const isAssistantEmailMatch = email === assistantEmail || defaultAssistantEmails.includes(email);
-    if (isAssistantEmailMatch) {
-      const isPasswordCorrect = password === assistantPassword || defaultAssistantPasswords.includes(password);
-      if (isPasswordCorrect) {
-        return {
-          success: true,
-          role: 'ASSISTANT',
-          email: assistantEmail,
-          name: assistantName,
-        };
-      } else {
-        throw new Error('كلمة المرور الخاصة بالمساعد الفني غير صحيحة.');
+    if (hasCustomAssistant) {
+      // 1. A custom Assistant email is saved in settings!
+      // Block default email login if it doesn't match the custom email
+      if (defaultAssistantEmails.includes(email) && email !== customAssistantEmail) {
+        throw new Error('تم مسح وإستبدال الحساب الافتراضي بعد تسجيل بريد إلكتروني خاص بالمساعد الفني في الإعدادات. يرجى استخدام البريد المخصص للمساعد الفني.');
+      }
+
+      if (email === customAssistantEmail) {
+        if (password === customAssistantPassword) {
+          return {
+            success: true,
+            role: 'ASSISTANT',
+            email: customAssistantEmail,
+            name: assistantName,
+          };
+        } else {
+          throw new Error('كلمة المرور الخاصة بالمساعد الفني غير صحيحة.');
+        }
+      }
+    } else {
+      // 2. No custom Assistant email registered -> Allow default assistant credentials
+      if (defaultAssistantEmails.includes(email)) {
+        if (defaultAssistantPasswords.includes(password)) {
+          return {
+            success: true,
+            role: 'ASSISTANT',
+            email: 'assistant@pyramids.com',
+            name: 'المساعد الفني',
+          };
+        } else {
+          throw new Error('كلمة المرور الافتراضية للمساعد الفني غير صحيحة.');
+        }
       }
     }
   } catch (err: any) {
-    if (err.message && err.message.includes('المساعد الفني')) {
+    if (err.message && (err.message.includes('المساعد الفني') || err.message.includes('كلمة المرور'))) {
       throw err;
     }
     console.error('Error checking assistant config in local fallback:', err);

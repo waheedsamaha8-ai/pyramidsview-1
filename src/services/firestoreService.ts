@@ -53,27 +53,16 @@ export function getActiveBuildingId(): string {
 }
 
 export function getBuildingCacheKey(key: string): string {
-  const bId = getActiveBuildingId();
-  if (!bId || bId === DEFAULT_BUILDING_ID) {
-    return key;
-  }
-  return `${key}_${bId}`;
+  // Delegate cache key names directly to offlineSync's single unified getBuildingCacheKey
+  return key;
 }
 
 export function getBuildingColRef(colName: string) {
-  const bId = getActiveBuildingId();
-  if (!bId || bId === DEFAULT_BUILDING_ID) {
-    return collection(db, colName);
-  }
-  return collection(db, 'buildings', bId, colName);
+  return collection(db, colName);
 }
 
 export function getBuildingDocRef(colName: string, docId: string) {
-  const bId = getActiveBuildingId();
-  if (!bId || bId === DEFAULT_BUILDING_ID) {
-    return doc(db, colName, docId);
-  }
-  return doc(db, 'buildings', bId, colName, docId);
+  return doc(db, colName, docId);
 }
 
 // ----------------------------------------------------
@@ -187,23 +176,60 @@ export async function deleteResidentFromFirestore(id: string): Promise<void> {
   offlineSync.saveCachedData(cacheKey, list);
 }
 
-export async function saveBatchResidentsToFirestore(residents: Resident[]): Promise<void> {
+export async function saveBatchResidentsToFirestore(residents: Resident[], oldResidents?: Resident[]): Promise<void> {
+  const cacheKey = getBuildingCacheKey('residents');
+  // Update local cache immediately for instant UI feedback
+  offlineSync.saveCachedData(cacheKey, residents);
+
   try {
-    const batch = writeBatch(db);
-    residents.forEach(res => {
+    const newIdsSet = new Set(residents.map(r => String(r.id)));
+    const newFlatsSet = new Set(residents.map(r => String(r.flatNumber).trim()));
+
+    // 1. Collect deleted units in memory from oldResidents diff
+    const deleteDocRefs: any[] = [];
+    if (oldResidents && oldResidents.length > 0) {
+      oldResidents.forEach(oldRes => {
+        const oldId = String(oldRes.id);
+        const oldFlat = String(oldRes.flatNumber).trim();
+        if (!newIdsSet.has(oldId) && !newFlatsSet.has(oldFlat)) {
+          deleteDocRefs.push(getBuildingDocRef('residents', oldId));
+        }
+      });
+    }
+
+    // 2. Prepare set operations
+    const setOps = residents.map(res => {
       const cleanId = String(res.id || `res_${res.flatNumber}`);
-      const docRef = getBuildingDocRef('residents', cleanId);
-      batch.set(docRef, sanitizeForFirestore({ ...res, id: cleanId }), { merge: true });
+      return {
+        ref: getBuildingDocRef('residents', cleanId),
+        data: sanitizeForFirestore({ ...res, id: cleanId })
+      };
     });
-    await batch.commit();
+
+    // 3. Process commits in small chunk sizes (150 ops max per batch)
+    const CHUNK_SIZE = 150;
+
+    // Process deletes
+    for (let i = 0; i < deleteDocRefs.length; i += CHUNK_SIZE) {
+      const batch = writeBatch(db);
+      const chunk = deleteDocRefs.slice(i, i + CHUNK_SIZE);
+      chunk.forEach(ref => batch.delete(ref));
+      await batch.commit().catch(err => console.warn('Delete batch commit warning:', err));
+    }
+
+    // Process sets
+    for (let i = 0; i < setOps.length; i += CHUNK_SIZE) {
+      const batch = writeBatch(db);
+      const chunk = setOps.slice(i, i + CHUNK_SIZE);
+      chunk.forEach(op => batch.set(op.ref, op.data, { merge: true }));
+      await batch.commit().catch(err => console.warn('Set batch commit warning:', err));
+    }
   } catch (error) {
     handleFirestoreError(error, {
       operation: OperationType.CREATE,
       path: 'residents'
     });
   }
-  const cacheKey = getBuildingCacheKey('residents');
-  offlineSync.saveCachedData(cacheKey, residents);
 }
 
 // ----------------------------------------------------

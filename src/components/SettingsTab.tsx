@@ -4,13 +4,11 @@ import {
   Settings, Shield, Plus, Trash2, Check, X, Users, CreditCard, DollarSign, 
   Briefcase, Pencil, BookOpen, Edit3, Calendar, Calculator, CheckCircle2, 
   Moon, Sun, Palette, Sparkles, Home, UserCheck, Phone, BadgeCheck,
-  Folder, FolderOpen, HardDrive, ExternalLink, FileSpreadsheet, Database, 
-  RefreshCw, Cloud, Image as ImageIcon, Download, Upload, AlertCircle, Server,
-  Building2, AlertTriangle
+  HardDrive, FileSpreadsheet, Database, Cloud,
+  Download, Upload, Server, Building2, AlertTriangle
 } from 'lucide-react';
-import * as googleApi from '../services/googleApi';
 import * as backupService from '../services/backupService';
-import { requestGoogleDriveToken } from '../services/firebaseConfig';
+import * as firestoreService from '../services/firestoreService';
 import { getActiveBuilding, getAllBuildings, deleteBuilding, deleteAllBuildings } from '../services/buildingStore';
 
 interface SettingsTabProps {
@@ -26,8 +24,6 @@ interface SettingsTabProps {
   isDarkMode?: boolean;
   onToggleTheme?: (isDark: boolean) => void;
   onRefreshAllData?: () => void;
-  onConnectGoogleDrive?: () => void;
-  isConnectingGoogle?: boolean;
 }
 
 export const SettingsTab: React.FC<SettingsTabProps> = ({
@@ -43,27 +39,10 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   isDarkMode = false,
   onToggleTheme,
   onRefreshAllData,
-  onConnectGoogleDrive,
-  isConnectingGoogle = false,
 }) => {
   const isAdmin = role === 'ADMIN';
   const activeUserEmail = userEmail || config.presidentEmail || 'الحساب المعتمد حالياً';
 
-  const getAuthUserUrl = (rawUrl?: string) => {
-    if (!rawUrl || rawUrl === '#' || rawUrl === 'https://drive.google.com/' || rawUrl === 'https://docs.google.com/spreadsheets') {
-      return rawUrl || 'https://drive.google.com/';
-    }
-    const email = activeUserEmail && activeUserEmail.includes('@') ? activeUserEmail : '';
-    if (!email) return rawUrl;
-    try {
-      const url = new URL(rawUrl);
-      url.searchParams.set('authuser', email);
-      return url.toString();
-    } catch {
-      if (rawUrl.includes('authuser=')) return rawUrl;
-      return rawUrl.includes('?') ? `${rawUrl}&authuser=${encodeURIComponent(email)}` : `${rawUrl}?authuser=${encodeURIComponent(email)}`;
-    }
-  };
   const [activeSubTab, setActiveSubTab] = useState<'settings' | 'storage' | 'permissions' | 'types'>('settings');
   const [newRuleInput, setNewRuleInput] = useState('');
 
@@ -73,26 +52,40 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
       setActiveSubTab('settings');
     }
   }, [isAdmin, activeSubTab]);
-  
-  // Google Drive & Sheets Integration State
-  const [driveFolders, setDriveFolders] = useState<googleApi.DriveFoldersMap | null>(() => googleApi.getCachedDriveFolders());
-  const [isCheckingFolders, setIsCheckingFolders] = useState(false);
-  const [folderSyncMessage, setFolderSyncMessage] = useState<string | null>(null);
 
-  // Cloud & Local Backup States
-  const [isBackingUpGoogle, setIsBackingUpGoogle] = useState(false);
-  const [backupGoogleProgress, setBackupGoogleProgress] = useState<backupService.BackupProgress | null>(null);
-  const [lastBackupInfo, setLastBackupInfo] = useState<any>(() => {
-    try {
-      const cached = localStorage.getItem('pyramids_last_google_backup');
-      return cached ? JSON.parse(cached) : null;
-    } catch {
-      return null;
-    }
-  });
+  // Local Restore States
   const [isRestoring, setIsRestoring] = useState(false);
   const [restoreStatus, setRestoreStatus] = useState<string | null>(null);
   const restoreFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Monthly Excel Backup States
+  const [selectedExcelYear, setSelectedExcelYear] = useState<number>(new Date().getFullYear());
+  const [selectedExcelMonth, setSelectedExcelMonth] = useState<number>(new Date().getMonth() + 1);
+  const [isExportingExcel, setIsExportingExcel] = useState(false);
+
+  const handleExportMonthlyExcel = async () => {
+    setIsExportingExcel(true);
+    try {
+      const [residents, payments, expenses] = await Promise.all([
+        firestoreService.getResidentsFromFirestore(),
+        firestoreService.getPaymentsFromFirestore(),
+        firestoreService.getExpensesFromFirestore(),
+      ]);
+      const fileName = backupService.exportMonthlyExcelBackup(
+        selectedExcelYear,
+        selectedExcelMonth,
+        residents,
+        payments,
+        expenses,
+        config
+      );
+      onNotification?.('تم تصدير الإكسل بنجاح 📊', `تم إنشاء وتنزيل ملف "${fileName}" بنجاح على جهازك.`, 'success');
+    } catch (err: any) {
+      onNotification?.('خطأ التصدير', 'تعذر تصدير ملف الإكسل: ' + (err.message || ''), 'error');
+    } finally {
+      setIsExportingExcel(false);
+    }
+  };
 
   // Building Management Delete State (Admin Permissions Tab)
   const [buildingDeleteModal, setBuildingDeleteModal] = useState<{
@@ -130,76 +123,6 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
     }
   };
 
-  const handlePerformGoogleBackup = async () => {
-    setIsBackingUpGoogle(true);
-    setBackupGoogleProgress({
-      status: 'syncing',
-      message: 'جاري التحقق من ربط Google Drive...',
-      step: 1,
-      totalSteps: 6,
-    });
-    try {
-      let token = googleApi.getAccessToken();
-      if (!token || token === 'local-token') {
-        setBackupGoogleProgress({
-          status: 'syncing',
-          message: 'جاري فتح نافذة مصادقة Google للحصول على التصريح...',
-          step: 1,
-          totalSteps: 6,
-        });
-        token = await requestGoogleDriveToken();
-        if (token) {
-          googleApi.setAccessToken(token);
-        } else {
-          throw new Error('لم يتم منح التصريح للوصول لـ Google Drive.');
-        }
-      }
-
-      await backupService.performGoogleBackup((prog) => {
-        setBackupGoogleProgress(prog);
-      });
-      const cached = localStorage.getItem('pyramids_last_google_backup');
-      if (cached) setLastBackupInfo(JSON.parse(cached));
-      onNotification?.('نسخ احتياطي ناجح', 'تم نسخ كافة الجداول والبيانات والصور إلى Google Drive و Sheets بنجاح.', 'success');
-    } catch (err: any) {
-      const errStr = (err?.message || '').toLowerCase();
-      // If token expired or missing scope (and not access_denied / unverified user), retry once with fresh consent popup
-      if (!errStr.includes('مستخدم اختبار') && !errStr.includes('access_denied') && !errStr.includes('access-denied') && (errStr.includes('scope') || errStr.includes('insufficient') || errStr.includes('permission') || errStr.includes('403') || errStr.includes('401') || errStr.includes('تسجيل الدخول'))) {
-        try {
-          setBackupGoogleProgress({
-            status: 'syncing',
-            message: 'تحديث تصريح Google Drive...',
-            step: 1,
-            totalSteps: 6,
-          });
-          const freshToken = await requestGoogleDriveToken();
-          if (freshToken) {
-            googleApi.setAccessToken(freshToken);
-            await backupService.performGoogleBackup((prog) => {
-              setBackupGoogleProgress(prog);
-            });
-            const cached = localStorage.getItem('pyramids_last_google_backup');
-            if (cached) setLastBackupInfo(JSON.parse(cached));
-            onNotification?.('نسخ احتياطي ناجح', 'تم نسخ كافة الجداول والبيانات والصور إلى Google Drive و Sheets بنجاح.', 'success');
-            return;
-          }
-        } catch (retryErr: any) {
-          err = retryErr;
-        }
-      }
-
-      setBackupGoogleProgress({
-        status: 'error',
-        message: err.message || 'حدث خطأ أثناء إجراء النسخ الاحتياطي',
-        step: 0,
-        totalSteps: 6,
-      });
-      onNotification?.('خطأ في النسخ الاحتياطي', err.message || 'تعذر إتمام العملية', 'error');
-    } finally {
-      setIsBackingUpGoogle(false);
-    }
-  };
-
   const handleDownloadLocalBackup = async () => {
     try {
       await backupService.downloadLocalJsonBackup();
@@ -232,28 +155,6 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
       if (restoreFileInputRef.current) {
         restoreFileInputRef.current.value = '';
       }
-    }
-  };
-
-  useEffect(() => {
-    const cached = googleApi.getCachedDriveFolders();
-    if (cached) {
-      setDriveFolders(cached);
-    }
-  }, []);
-
-  const handleSyncDriveFolders = async () => {
-    setIsCheckingFolders(true);
-    setFolderSyncMessage(null);
-    try {
-      const updated = await googleApi.ensureDriveFoldersStructure(true);
-      setDriveFolders(updated);
-      setFolderSyncMessage('تم فحص ومزامنة كافة مجلدات Google Drive وجداول Google Sheets المرتبطة بحساب رئيس الاتحاد بنجاح!');
-      setTimeout(() => setFolderSyncMessage(null), 5000);
-    } catch (err: any) {
-      setFolderSyncMessage('تعذر فحص المجلدات حالياً: ' + (err.message || 'حدث خطأ في الاتصال'));
-    } finally {
-      setIsCheckingFolders(false);
     }
   };
 
@@ -830,358 +731,128 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
         </div>
       )}
 
-      {/* SUBTAB: GOOGLE DRIVE & GOOGLE SHEETS STORAGE */}
+      {/* SUBTAB: FIREBASE CLOUD DATABASE & EXCEL / JSON BACKUP */}
       {isAdmin && activeSubTab === 'storage' && (
         <div className="space-y-4 text-right">
-          {/* Header Card */}
-          <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-100 shadow-xs space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 pb-3 gap-3">
-              <div className="text-right">
-                <div className="flex items-center gap-2">
-                  <span className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center">
-                    <Cloud className="w-5 h-5" />
-                  </span>
-                  <div>
-                    <h3 className="text-sm font-black text-slate-900 flex items-center gap-2">
-                      <span>سحابة التخزين وقواعد البيانات (Google Drive & Google Sheets)</span>
-                    </h3>
-                    <p className="text-xs text-slate-500 font-bold mt-0.5">
-                      النظام مرتبط ومؤمن بحساب Google المسجل والمفعل للنظام ({activeUserEmail}).
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Status Badge */}
-              <div className="flex items-center gap-2 bg-emerald-50 text-emerald-800 px-3.5 py-1.5 rounded-xl border border-emerald-200/80 text-xs font-black self-start sm:self-auto">
-                <BadgeCheck className="w-4 h-4 text-emerald-600" />
-                <span>الحساب المرتبط: {activeUserEmail}</span>
-              </div>
-            </div>
-
-            {folderSyncMessage && (
-              <div className="p-3 bg-blue-50 text-blue-900 rounded-xl border border-blue-200 text-xs font-black flex items-center gap-2 animate-fade-in">
-                <CheckCircle2 className="w-4 h-4 text-blue-700 shrink-0" />
-                <span>{folderSyncMessage}</span>
-              </div>
-            )}
-
-            {/* Main Drive & Sheets Quick Access */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-              {/* Main Drive Folder Card */}
-              <div className="p-4 bg-gradient-to-br from-blue-50/80 to-slate-50 rounded-2xl border border-blue-100 flex flex-col justify-between gap-3">
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="w-7 h-7 rounded-lg bg-blue-600 text-white flex items-center justify-center">
-                      <Folder className="w-4 h-4" />
-                    </span>
-                    <span className="text-[10px] font-black px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full">
-                      المجلد الجذري
-                    </span>
-                  </div>
-                  <h4 className="text-xs font-black text-slate-900">مجلد اتحاد الملاك الرئيسي (Google Drive)</h4>
-                  <p className="text-[11px] text-slate-500 font-bold leading-relaxed">
-                    المجلد الأساسي الذي يضم جدول البيانات المركزي وكافة مجلدات الصور والإيصالات المصنفة تلقائياً.
-                  </p>
-                </div>
-
-                <a
-                  href={getAuthUserUrl(driveFolders?.rootFolderUrl)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full py-2 px-3 bg-blue-900 hover:bg-blue-950 text-white text-xs font-black rounded-xl transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" />
-                  <span>فتح المجلد في Google Drive</span>
-                </a>
-              </div>
-
-              {/* Main Google Spreadsheet Card */}
-              <div className="p-4 bg-gradient-to-br from-emerald-50/80 to-slate-50 rounded-2xl border border-emerald-100 flex flex-col justify-between gap-3">
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="w-7 h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center">
-                      <FileSpreadsheet className="w-4 h-4" />
-                    </span>
-                    <span className="text-[10px] font-black px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full">
-                      جدول البيانات
-                    </span>
-                  </div>
-                  <h4 className="text-xs font-black text-slate-900">جدول البيانات المركزي (Google Sheets)</h4>
-                  <p className="text-[11px] text-slate-500 font-bold leading-relaxed">
-                    ملف شيت الإدارة المركزي "Pyramids View 1 - Management Database" المحفوظ على حسابك ({activeUserEmail}).
-                  </p>
-                </div>
-
-                <a
-                  href={getAuthUserUrl(driveFolders?.spreadsheetUrl)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full py-2 px-3 bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-black rounded-xl transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" />
-                  <span>فتح قاعدة البيانات في Google Sheets</span>
-                </a>
-              </div>
-            </div>
-
-            {/* Sync / Re-auth Buttons */}
-            {isAdmin && (
-              <div className="pt-2 flex flex-wrap items-center justify-end gap-2">
-                {onConnectGoogleDrive && (
-                  <button
-                    type="button"
-                    onClick={onConnectGoogleDrive}
-                    disabled={isConnectingGoogle}
-                    className="px-4 py-2 bg-blue-900 hover:bg-blue-950 text-white rounded-xl text-xs font-black transition flex items-center gap-2 cursor-pointer disabled:opacity-50 shadow-2xs"
-                  >
-                    <Cloud className={`w-3.5 h-3.5 ${isConnectingGoogle ? 'animate-spin' : ''}`} />
-                    <span>{isConnectingGoogle ? 'جاري الربط...' : 'ربط أو تغيير حساب Google Drive 🔗'}</span>
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={handleSyncDriveFolders}
-                  disabled={isCheckingFolders}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-black transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isCheckingFolders ? 'animate-spin' : ''}`} />
-                  <span>{isCheckingFolders ? 'جاري فحص وتحديث المجلدات...' : 'إعادة فحص ومزامنة المجلدات 🔄'}</span>
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Subfolders Grid Card */}
-          <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-100 shadow-xs space-y-4">
-            <div className="border-b border-slate-100 pb-2.5">
-              <h3 className="text-xs font-black text-slate-900 flex items-center gap-1.5">
-                <FolderOpen className="w-4 h-4 text-blue-900" />
-                <span>فولدرات تصنيف وحفظ الصور والبيانات تلقائياً</span>
-              </h3>
-              <p className="text-[11px] text-slate-500 font-bold mt-1">
-                يقوم النظام تلقائياً بتوجيه وتخزين كل صورة أو مستند في الفولدر الخاص به داخل Google Drive فور التقاطها أو رفعها:
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {/* 1. Sheets Folder */}
-              <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-xl flex flex-col justify-between gap-2.5">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="w-6 h-6 rounded bg-emerald-100 text-emerald-800 flex items-center justify-center">
-                      <Database className="w-3.5 h-3.5" />
-                    </span>
-                    <span className="text-xs font-black text-slate-900">قواعد البيانات والجداول</span>
-                  </div>
-                  <p className="text-[10px] text-slate-500 font-medium">يضم ملف قاعدة بيانات النظام الرئيسي</p>
-                </div>
-                <a
-                  href={getAuthUserUrl(driveFolders?.sheetsFolderUrl || driveFolders?.rootFolderUrl)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-2.5 py-1.5 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-[11px] font-bold text-slate-800 flex items-center justify-between cursor-pointer"
-                >
-                  <span>عرض المجلد</span>
-                  <ExternalLink className="w-3 h-3 text-slate-400" />
-                </a>
-              </div>
-
-              {/* 2. Receipts Folder */}
-              <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-xl flex flex-col justify-between gap-2.5">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="w-6 h-6 rounded bg-blue-100 text-blue-800 flex items-center justify-center">
-                      <ImageIcon className="w-3.5 h-3.5" />
-                    </span>
-                    <span className="text-xs font-black text-slate-900">صور إيصالات السداد</span>
-                  </div>
-                  <p className="text-[10px] text-slate-500 font-medium">تخزين صور إيصالات التحصيل وسندات القبض</p>
-                </div>
-                <a
-                  href={getAuthUserUrl(driveFolders?.receiptsFolderUrl || driveFolders?.rootFolderUrl)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-2.5 py-1.5 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-[11px] font-bold text-slate-800 flex items-center justify-between cursor-pointer"
-                >
-                  <span>عرض المجلد</span>
-                  <ExternalLink className="w-3 h-3 text-slate-400" />
-                </a>
-              </div>
-
-              {/* 3. Expenses Folder */}
-              <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-xl flex flex-col justify-between gap-2.5">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="w-6 h-6 rounded bg-amber-100 text-amber-800 flex items-center justify-center">
-                      <CreditCard className="w-3.5 h-3.5" />
-                    </span>
-                    <span className="text-xs font-black text-slate-900">صور فواتير المصروفات</span>
-                  </div>
-                  <p className="text-[10px] text-slate-500 font-medium">فواتير الكهرباء والمياه وقطع الغيار والصيانة</p>
-                </div>
-                <a
-                  href={getAuthUserUrl(driveFolders?.expensesFolderUrl || driveFolders?.rootFolderUrl)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-2.5 py-1.5 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-[11px] font-bold text-slate-800 flex items-center justify-between cursor-pointer"
-                >
-                  <span>عرض المجلد</span>
-                  <ExternalLink className="w-3 h-3 text-slate-400" />
-                </a>
-              </div>
-
-              {/* 4. Complaints Folder */}
-              <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-xl flex flex-col justify-between gap-2.5">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="w-6 h-6 rounded bg-rose-100 text-rose-800 flex items-center justify-center">
-                      <Shield className="w-3.5 h-3.5" />
-                    </span>
-                    <span className="text-xs font-black text-slate-900">صور الشكاوى والصيانة</span>
-                  </div>
-                  <p className="text-[10px] text-slate-500 font-medium">صور بلاغات الأعطال وشكاوى السكان المرفوعة</p>
-                </div>
-                <a
-                  href={getAuthUserUrl(driveFolders?.complaintsFolderUrl || driveFolders?.rootFolderUrl)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-2.5 py-1.5 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-[11px] font-bold text-slate-800 flex items-center justify-between cursor-pointer"
-                >
-                  <span>عرض المجلد</span>
-                  <ExternalLink className="w-3 h-3 text-slate-400" />
-                </a>
-              </div>
-
-              {/* 5. Chat Attachments Folder */}
-              <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-xl flex flex-col justify-between gap-2.5">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="w-6 h-6 rounded bg-purple-100 text-purple-800 flex items-center justify-center">
-                      <Folder className="w-3.5 h-3.5" />
-                    </span>
-                    <span className="text-xs font-black text-slate-900">صور ومرفقات المحادثات</span>
-                  </div>
-                  <p className="text-[10px] text-slate-500 font-medium">المرفقات والصور المتبادلة في غرفة المحادثة</p>
-                </div>
-                <a
-                  href={getAuthUserUrl(driveFolders?.chatFolderUrl || driveFolders?.rootFolderUrl)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-2.5 py-1.5 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-[11px] font-bold text-slate-800 flex items-center justify-between cursor-pointer"
-                >
-                  <span>عرض المجلد</span>
-                  <ExternalLink className="w-3 h-3 text-slate-400" />
-                </a>
-              </div>
-            </div>
-          </div>
-
           {/* Real-time Firebase Firestore Status Card */}
-          <div className="p-4 bg-gradient-to-r from-blue-900 to-indigo-950 text-white rounded-2xl shadow-sm space-y-2.5">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-blue-800/80 pb-2">
-              <div className="flex items-center gap-2">
-                <span className="w-8 h-8 rounded-xl bg-white/10 text-amber-300 flex items-center justify-center">
-                  <Server className="w-4 h-4" />
+          <div className="p-4 sm:p-5 bg-gradient-to-r from-blue-900 to-indigo-950 text-white rounded-2xl shadow-sm space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-blue-800/80 pb-3">
+              <div className="flex items-center gap-2.5">
+                <span className="w-9 h-9 rounded-xl bg-white/10 text-amber-300 flex items-center justify-center">
+                  <Server className="w-5 h-5" />
                 </span>
                 <div>
                   <h4 className="text-xs sm:text-sm font-black flex items-center gap-1.5">
                     <span>قاعدة بيانات Firebase Firestore السحابية</span>
-                    <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
                   </h4>
-                  <p className="text-[11px] text-blue-200 font-bold">
-                    نظام التخزين السحابي الفوري المجاني - متصل ويعمل بنشاط
+                  <p className="text-[11px] text-blue-200 font-bold mt-0.5">
+                    نظام التخزين السحابي الفوري الآمن - متصل ويغطي 100% من بيانات التطبيق
                   </p>
                 </div>
               </div>
 
-              <span className="px-2.5 py-1 bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 rounded-xl text-[11px] font-black self-start sm:self-auto">
+              <span className="px-3 py-1 bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 rounded-xl text-[11px] font-black self-start sm:self-auto">
                 مزامنة فورية حية (Realtime)
               </span>
             </div>
 
             <p className="text-[11px] text-blue-100 font-medium leading-relaxed">
-              جميع التعديلات والتحصيلات والمصروفات والرسائل تسجل فوراً في السحابة المجانية لـ Firebase، مع إمكانية استخدام زر النسخ الاحتياطي أدناه لحفظ نسخة مستقلة إضافية في Google Drive و Google Sheets.
+              جميع العمليات السكنية والتحصيلات والمصروفات والرسائل تُسجل وتُزامن فوراً في قاعدة بيانات Firebase Firestore السحابية بشكل آمن ودائم دون الحاجة لأي حسابات خارجية أو إعدادات إضافية.
             </p>
           </div>
 
-          {/* Backup & Restore Controls (Google Drive & Local JSON) */}
+          {/* Backup & Export Suite (Monthly Excel & JSON Backup) */}
           <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-100 shadow-xs space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 pb-3 gap-2">
               <div>
                 <h3 className="text-xs sm:text-sm font-black text-slate-900 flex items-center gap-2">
                   <HardDrive className="w-4 h-4 text-blue-900" />
-                  <span>النسخ الاحتياطي وحفظ البيانات (Google Backup & Local Backup)</span>
+                  <span>النسخ الاحتياطي وتصدير التقارير (Excel & JSON)</span>
                 </h3>
                 <p className="text-[11px] text-slate-500 font-bold mt-0.5">
-                  حفظ نسخة من الجداول والبيانات والصور على حساب جوجل درايف وشيتس أو تنزيل ملف JSON محلي.
+                  حفظ نسخة إكسل شهرية شاملة للجداول الماليـة وتنزيل ملفات الـ JSON للاحتفاظ المستقل.
                 </p>
               </div>
 
-              {lastBackupInfo && (
-                <span className="text-[10px] text-slate-500 font-bold bg-slate-100 px-2.5 py-1 rounded-lg">
-                  آخر بيك اب سحابي: {new Date(lastBackupInfo.lastBackupDate).toLocaleDateString('ar-EG')} - {new Date(lastBackupInfo.lastBackupDate).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
-                </span>
-              )}
+              <span className="text-[10px] text-emerald-800 font-extrabold bg-emerald-50 px-3 py-1 rounded-lg border border-emerald-200">
+                قاعدة البيانات: Firebase Firestore (سحابية 100%)
+              </span>
             </div>
 
-            {/* Google Drive / Sheets Cloud Backup Action */}
-            <div className="p-3.5 bg-blue-50/70 border border-blue-200/80 rounded-xl space-y-3">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            {/* 1. Monthly Excel Backup Section */}
+            <div className="p-4 bg-emerald-50/60 border border-emerald-200 rounded-2xl space-y-3">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
                 <div className="space-y-1">
-                  <h4 className="text-xs font-black text-blue-950 flex items-center gap-1.5">
-                    <Cloud className="w-4 h-4 text-blue-700" />
-                    <span>نسخ احتياطي سحابي كامل إلى Google Drive & Google Sheets</span>
+                  <h4 className="text-xs font-black text-emerald-950 flex items-center gap-2">
+                    <FileSpreadsheet className="w-4.5 h-4.5 text-emerald-700" />
+                    <span>تصدير النسخة الاحتياطية الشهرية بصيغة إكسل (Excel) 📊</span>
                   </h4>
                   <p className="text-[11px] text-slate-600 font-medium">
-                    يقوم بحفظ وتحديث كافة كشوفات السكان، التحصيلات، فواتير المصروفات، وبلاغات الصيانة في جداول Sheets، ورفع كافة صور المستندات والإيصالات إلى Google Drive.
+                    يتضمن التقرير أربعة جداول مستقلة (الملخص المالي، تحصيلات الشهر، مصروفات الشهر، وكشف مديونيات السكان).
                   </p>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={handlePerformGoogleBackup}
-                  disabled={isBackingUpGoogle}
-                  className="px-4 py-2.5 bg-blue-900 hover:bg-blue-950 text-white rounded-xl text-xs font-black transition flex items-center justify-center gap-2 cursor-pointer shadow-xs shrink-0 disabled:opacity-50"
-                >
-                  <RefreshCw className={`w-4 h-4 ${isBackingUpGoogle ? 'animate-spin' : ''}`} />
-                  <span>{isBackingUpGoogle ? 'جاري عمل النسخة الاحتياطية...' : 'أخذ نسخة احتياطية سحابية الآن ☁️'}</span>
-                </button>
-              </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Select Year */}
+                  <select
+                    value={selectedExcelYear}
+                    onChange={(e) => setSelectedExcelYear(Number(e.target.value))}
+                    className="px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl text-xs font-bold outline-none cursor-pointer"
+                  >
+                    {[2024, 2025, 2026, 2027].map(y => (
+                      <option key={y} value={y}>{y}</option>
+                    ))}
+                  </select>
 
-              {/* Progress message */}
-              {backupGoogleProgress && (
-                <div className={`p-3 rounded-xl border text-xs font-bold flex items-center gap-2 ${
-                  backupGoogleProgress.status === 'success'
-                    ? 'bg-emerald-50 text-emerald-900 border-emerald-300'
-                    : backupGoogleProgress.status === 'error'
-                    ? 'bg-red-50 text-red-900 border-red-300'
-                    : 'bg-white text-blue-900 border-blue-300 animate-pulse'
-                }`}>
-                  {backupGoogleProgress.status === 'success' && <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />}
-                  {backupGoogleProgress.status === 'error' && <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />}
-                  {backupGoogleProgress.status === 'syncing' && <RefreshCw className="w-4 h-4 text-blue-600 animate-spin shrink-0" />}
-                  <div className="flex-1">
-                    <div>{backupGoogleProgress.message}</div>
-                    {backupGoogleProgress.details && (
-                      <div className="text-[10px] text-slate-600 font-normal mt-0.5">{backupGoogleProgress.details}</div>
-                    )}
-                  </div>
+                  {/* Select Month */}
+                  <select
+                    value={selectedExcelMonth}
+                    onChange={(e) => setSelectedExcelMonth(Number(e.target.value))}
+                    className="px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl text-xs font-bold outline-none cursor-pointer"
+                  >
+                    {[
+                      { id: 1, name: 'يناير' },
+                      { id: 2, name: 'فبراير' },
+                      { id: 3, name: 'مارس' },
+                      { id: 4, name: 'أبريل' },
+                      { id: 5, name: 'مايو' },
+                      { id: 6, name: 'يونيو' },
+                      { id: 7, name: 'يوليو' },
+                      { id: 8, name: 'أغسطس' },
+                      { id: 9, name: 'سبتمبر' },
+                      { id: 10, name: 'أكتوبر' },
+                      { id: 11, name: 'نوفمبر' },
+                      { id: 12, name: 'ديسمبر' },
+                    ].map(m => (
+                      <option key={m.id} value={m.id}>{m.name}</option>
+                    ))}
+                  </select>
+
+                  <button
+                    type="button"
+                    onClick={handleExportMonthlyExcel}
+                    disabled={isExportingExcel}
+                    className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-black transition flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
+                  >
+                    <FileSpreadsheet className="w-4 h-4" />
+                    <span>{isExportingExcel ? 'جاري التصدير...' : 'تنزيل إكسل الشهر 📊'}</span>
+                  </button>
                 </div>
-              )}
+              </div>
             </div>
 
-            {/* Local JSON Backup & Restore Actions */}
+            {/* 2. On-Demand Local JSON Backup & Restore Actions */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
               {/* Download JSON file */}
               <div className="p-3.5 bg-slate-50 border border-slate-200/80 rounded-xl flex flex-col justify-between gap-3">
                 <div className="space-y-1">
                   <h4 className="text-xs font-black text-slate-900 flex items-center gap-1.5">
                     <Download className="w-4 h-4 text-slate-700" />
-                    <span>تنزيل نسخة احتياطية (ملف JSON محلي)</span>
+                    <span>تنزيل نسخة احتياطية (ملف JSON شامل)</span>
                   </h4>
                   <p className="text-[10px] text-slate-500 font-medium">
-                    تنزيل ملف كامل لكافة بيانات العقار والسجلات والرسائل والإعدادات لحفظه بأمان على هاتفك أو حاسوبك الشخصي.
+                    تنزيل ملف كامـل يحتوي على جميع بيانات وقواعد وسجلات ورسائل الاتحاد لحفظه محلياً على جهازك.
                   </p>
                 </div>
 
@@ -1203,7 +874,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                     <span>استرجاع البيانات من نسخة احتياطية</span>
                   </h4>
                   <p className="text-[10px] text-slate-500 font-medium">
-                    استيراد ملف JSON نسخة احتياطية سابقة وكتابة البيانات مباشرة إلى قاعدة بيانات Firebase السحابية.
+                    رفع ملف JSON واستعادة كافة السجلات مباشرة إلى قاعدة بيانات Firebase السحابية.
                   </p>
                 </div>
 
@@ -1222,7 +893,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                   className="w-full py-2 px-3 bg-white hover:bg-slate-100 border border-slate-300 text-slate-800 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs disabled:opacity-50"
                 >
                   <Upload className="w-3.5 h-3.5 text-emerald-700" />
-                  <span>{isRestoring ? 'جاري الاسترجاع...' : 'اختيار ملف النسخة الاحتياطية واسترجاعه 📥'}</span>
+                  <span>{isRestoring ? 'جاري الاسترجاع...' : 'اختيار ملف النسخة واسترجاعه 📥'}</span>
                 </button>
               </div>
             </div>
@@ -1243,7 +914,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
               <span>ضمان استمرارية وأمان البيانات</span>
             </div>
             <p>
-              يتم حفظ ومزامنة كافة السجلات في قواعد البيانات السحابية وجدول Google Sheets المرتبط بالحساب المسجل ({activeUserEmail}). هذا يضمن حفظ كافة البيانات في حسابك بشكل مستقل ودائم، مع إمكانية الوصول للملفات وتصديرها أو مشاركتها في أي وقت من هاتفك أو حاسوبك عبر تطبيقات Google الرسمية.
+              تتم حفظ ومزامنة كافة السجلات بأمان التام على سحابة Firebase Firestore المعتمدة. يمكنك احتفاظ بملفات إكسل شهرية أو ملفات JSON احتياطية بشكل مستقل ومباشر على أي جهاز.
             </p>
           </div>
         </div>

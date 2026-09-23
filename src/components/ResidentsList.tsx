@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Resident, UserRole, FloorConfig, Payment, AppConfig, JoinRequest } from '../types';
-import { Search, Phone, Edit, Trash2, Home, AlertCircle, LayoutGrid, List, Settings2, Plus, X, Building2, Save, User, KeyRound, Wallet, ArrowDownRight, ArrowUpRight, CheckCircle2, UserCheck, UserX, Clock, Share2 } from 'lucide-react';
+import { Search, Phone, Edit, Trash2, Home, AlertCircle, LayoutGrid, List, Settings2, Plus, X, Building2, Save, User, KeyRound, Wallet, ArrowDownRight, ArrowUpRight, CheckCircle2, UserCheck, UserX, Clock, Share2, RefreshCw } from 'lucide-react';
 import { deriveFloorConfigsFromResidents, floorTypeLabels, getFloorName, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber, parseFlatNumber } from '../utils/buildingStructure';
 import * as googleApi from '../services/googleApi';
 import { 
@@ -71,6 +71,7 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
   const [localFloorConfigs, setLocalFloorConfigs] = useState<FloorConfig[]>([]);
   const [newUnitInputs, setNewUnitInputs] = useState<Record<string, string>>({});
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
 
   const [subTab, setSubTab] = useState<'residents' | 'join-requests'>('residents');
   const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([]);
@@ -583,116 +584,122 @@ ${appUrl}
     setNewUnitInputs(prev => ({ ...prev, [floorId]: '' }));
   };
 
-  // Generate residents from structure AND save structure simultaneously, with alert confirmation
-  const handleGenerateBuilding = () => {
+  // Generate residents from structure AND save structure simultaneously, with instant Firebase persistence & automatic cleanup
+  const handleGenerateBuilding = async () => {
     if (localFloorConfigs.length === 0) {
       alert('الرجاء إضافة أدوار أولاً لتوليد الوحدات.');
       return;
     }
 
-    const newResidents: Resident[] = [];
-    const presidentProfile = config?.adminResidentProfile;
-    const presFlat = presidentProfile?.flatNumber || 207;
-    let presidentAssigned = false;
+    setIsGenerating(true);
+    try {
+      const newResidents: Resident[] = [];
+      const presidentProfile = config?.adminResidentProfile;
+      const presFlat = presidentProfile?.flatNumber || 207;
+      let presidentAssigned = false;
 
-    // Existing residents map to preserve user-customized occupant names & phones if they exist
-    const existingMap = new Map<string, Resident>();
-    residents.forEach(r => existingMap.set(String(r.flatNumber).trim(), r));
+      // Existing residents map to preserve user-customized occupant names & phones if they exist
+      const existingMap = new Map<string, Resident>();
+      residents.forEach(r => existingMap.set(String(r.flatNumber).trim(), r));
 
-    localFloorConfigs.forEach((configItem, floorIndex) => {
-      const unitFee = getDefaultFeeForActivity(configItem.activityType);
-      const floorUnits = Array.isArray(configItem.unitNumbers) ? configItem.unitNumbers : getUnitNumbersForFloor(configItem, residents);
-      
-      floorUnits.forEach((unitId, j) => {
-        const isPresidentUnit = isSameFlatNumber(unitId, presFlat);
-        const unitStr = String(unitId).trim();
+      localFloorConfigs.forEach((configItem, floorIndex) => {
+        const unitFee = getDefaultFeeForActivity(configItem.activityType);
+        const floorUnits = Array.isArray(configItem.unitNumbers) ? configItem.unitNumbers : getUnitNumbersForFloor(configItem, residents);
+        
+        floorUnits.forEach((unitId, j) => {
+          const isPresidentUnit = isSameFlatNumber(unitId, presFlat);
+          const unitStr = String(unitId).trim();
 
-        if (isPresidentUnit && presidentProfile) {
-          presidentAssigned = true;
-          newResidents.push({
-            id: existingMap.get(unitStr)?.id || `res_president_${unitId}_${Date.now()}`,
-            flatNumber: unitId,
-            name: (presidentProfile.name || 'وحيد سماحة').replace(/\s*\(رئيس الاتحاد\)/g, '').trim(),
-            activityType: presidentProfile.activityType || configItem.activityType,
-            phone: presidentProfile.phone || existingMap.get(unitStr)?.phone || '',
-            notes: presidentProfile.notes || 'رئيس اتحاد الملاك',
-            ownershipType: presidentProfile.ownershipType || 'تمليك',
-            tenantName: existingMap.get(unitStr)?.tenantName || '',
-            tenantPhone: existingMap.get(unitStr)?.tenantPhone || '',
-            monthlyFee: presidentProfile.monthlyFee !== undefined && Number(presidentProfile.monthlyFee) > 0 
-              ? Number(presidentProfile.monthlyFee) 
-              : unitFee,
-            initialBalance: presidentProfile.initialBalance !== undefined ? Number(presidentProfile.initialBalance) : (existingMap.get(unitStr)?.initialBalance || 0),
-          });
-        } else if (existingMap.has(unitStr)) {
-          const existing = existingMap.get(unitStr)!;
-          newResidents.push({
-            ...existing,
-            flatNumber: unitId,
-            monthlyFee: existing.monthlyFee || unitFee,
-          });
-        } else {
-          const matchedResident = residents.find(r => isSameFlatNumber(r.flatNumber, unitId));
-          if (matchedResident) {
+          if (isPresidentUnit && presidentProfile) {
+            presidentAssigned = true;
             newResidents.push({
-              ...matchedResident,
+              id: existingMap.get(unitStr)?.id || `res_president_${unitId}_${Date.now()}`,
               flatNumber: unitId,
-              monthlyFee: matchedResident.monthlyFee || unitFee,
+              name: (presidentProfile.name || 'وحيد سماحة').replace(/\s*\(رئيس الاتحاد\)/g, '').trim(),
+              activityType: presidentProfile.activityType || configItem.activityType,
+              phone: presidentProfile.phone || existingMap.get(unitStr)?.phone || '',
+              notes: presidentProfile.notes || 'رئيس اتحاد الملاك',
+              ownershipType: presidentProfile.ownershipType || 'تمليك',
+              tenantName: existingMap.get(unitStr)?.tenantName || '',
+              tenantPhone: existingMap.get(unitStr)?.tenantPhone || '',
+              monthlyFee: presidentProfile.monthlyFee !== undefined && Number(presidentProfile.monthlyFee) > 0 
+                ? Number(presidentProfile.monthlyFee) 
+                : unitFee,
+              initialBalance: presidentProfile.initialBalance !== undefined ? Number(presidentProfile.initialBalance) : (existingMap.get(unitStr)?.initialBalance || 0),
+            });
+          } else if (existingMap.has(unitStr)) {
+            const existing = existingMap.get(unitStr)!;
+            newResidents.push({
+              ...existing,
+              flatNumber: unitId,
+              monthlyFee: existing.monthlyFee || unitFee,
             });
           } else {
-            newResidents.push({
-              id: `res_gen_${unitId}_${Date.now()}_${floorIndex}_${j}`,
-              flatNumber: unitId,
-              name: `شاغل ${configItem.activityType} ${unitId}`,
-              activityType: configItem.activityType,
-              phone: '',
-              notes: '',
-              ownershipType: 'تمليك',
-              tenantName: '',
-              tenantPhone: '',
-              monthlyFee: unitFee,
-              initialBalance: 0,
-            });
+            const matchedResident = residents.find(r => isSameFlatNumber(r.flatNumber, unitId));
+            if (matchedResident) {
+              newResidents.push({
+                ...matchedResident,
+                flatNumber: unitId,
+                monthlyFee: matchedResident.monthlyFee || unitFee,
+              });
+            } else {
+              newResidents.push({
+                id: `res_gen_${unitId}_${Date.now()}_${floorIndex}_${j}`,
+                flatNumber: unitId,
+                name: `شاغل ${configItem.activityType} ${unitId}`,
+                activityType: configItem.activityType,
+                phone: '',
+                notes: '',
+                ownershipType: 'تمليك',
+                tenantName: '',
+                tenantPhone: '',
+                monthlyFee: unitFee,
+                initialBalance: 0,
+              });
+            }
           }
-        }
+        });
       });
-    });
 
-    // If president unit was not within generated standard loops, explicitly add their unit (e.g. 207)
-    if (presidentProfile && !presidentAssigned) {
-      const presStr = String(presFlat).trim();
-      newResidents.push({
-        id: existingMap.get(presStr)?.id || `res_president_${presFlat}_${Date.now()}`,
-        flatNumber: presFlat,
-        name: (presidentProfile.name || 'وحيد سماحة').replace(/\s*\(رئيس الاتحاد\)/g, '').trim(),
-        activityType: presidentProfile.activityType || 'سكني',
-        phone: presidentProfile.phone || existingMap.get(presStr)?.phone || '',
-        notes: presidentProfile.notes || 'رئيس اتحاد الملاك',
-        ownershipType: presidentProfile.ownershipType || 'تمليك',
-        tenantName: existingMap.get(presStr)?.tenantName || '',
-        tenantPhone: existingMap.get(presStr)?.tenantPhone || '',
-        monthlyFee: presidentProfile.monthlyFee !== undefined && Number(presidentProfile.monthlyFee) > 0
-          ? Number(presidentProfile.monthlyFee)
-          : getDefaultFeeForActivity(presidentProfile.activityType || 'سكني'),
-        initialBalance: presidentProfile.initialBalance !== undefined ? Number(presidentProfile.initialBalance) : (existingMap.get(presStr)?.initialBalance || 0),
-      });
-      newResidents.sort((a, b) => compareFlatNumbers(a.flatNumber, b.flatNumber));
+      // If president unit was not within generated standard loops, explicitly add their unit (e.g. 207)
+      if (presidentProfile && !presidentAssigned) {
+        const presStr = String(presFlat).trim();
+        newResidents.push({
+          id: existingMap.get(presStr)?.id || `res_president_${presFlat}_${Date.now()}`,
+          flatNumber: presFlat,
+          name: (presidentProfile.name || 'وحيد سماحة').replace(/\s*\(رئيس الاتحاد\)/g, '').trim(),
+          activityType: presidentProfile.activityType || 'سكني',
+          phone: presidentProfile.phone || existingMap.get(presStr)?.phone || '',
+          notes: presidentProfile.notes || 'رئيس اتحاد الملاك',
+          ownershipType: presidentProfile.ownershipType || 'تمليك',
+          tenantName: existingMap.get(presStr)?.tenantName || '',
+          tenantPhone: existingMap.get(presStr)?.tenantPhone || '',
+          monthlyFee: presidentProfile.monthlyFee !== undefined && Number(presidentProfile.monthlyFee) > 0
+            ? Number(presidentProfile.monthlyFee)
+            : getDefaultFeeForActivity(presidentProfile.activityType || 'سكني'),
+          initialBalance: presidentProfile.initialBalance !== undefined ? Number(presidentProfile.initialBalance) : (existingMap.get(presStr)?.initialBalance || 0),
+        });
+        newResidents.sort((a, b) => compareFlatNumbers(a.flatNumber, b.flatNumber));
+      }
+
+      // 1. Instantly update building structure in React state and local cache
+      onSetFloorConfigs(localFloorConfigs);
+
+      // 2. Instantly update generated residents list in React state and local cache
+      onSetAll(newResidents);
+
+      // 3. Immediately close modal and reset state so UI responds instantly (0s wait time)
+      setShowConfigModal(false);
+      setIsGenerating(false);
+
+      // 4. Toast notification confirming instant generation and background sync
+      setToastMsg(`تم توليد وتحديث كشف الوحدات (${newResidents.length} وحدة) بنجاح مع الحفظ الفوري! 🔥`);
+      setTimeout(() => setToastMsg(null), 8000);
+    } catch (err: any) {
+      alert('حدث خطأ أثناء التوليد: ' + (err?.message || 'خطأ غير معروف'));
+    } finally {
+      setIsGenerating(false);
     }
-
-    // 1. Save building structure directly
-    onSetFloorConfigs(localFloorConfigs);
-
-    // 2. Generate and update all residents
-    onSetAll(newResidents);
-
-    // 3. Close the modal
-    setShowConfigModal(false);
-
-    // 4. Alert user & toast notification confirming saving and generation
-    const confirmMsg = `تم الحفظ وتوليد الوحدات بنجاح!\nتم اعتماد هيكل العمارة وتوليد كشف الوحدات بإجمالي (${newResidents.length}) وحدة سكنية.`;
-    setToastMsg(`تم الحفظ وتوليد الوحدات بنجاح! تم اعتماد هيكل العمارة وتحديث كشف الوحدات بإجمالي (${newResidents.length}) وحدة.`);
-    setTimeout(() => setToastMsg(null), 8000);
-    alert(confirmMsg);
   };
 
   return (
@@ -2033,12 +2040,22 @@ ${appUrl}
 
               <button 
                 type="button"
+                disabled={isGenerating}
                 onClick={handleGenerateBuilding}
-                className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2.5 bg-blue-900 text-white hover:bg-blue-950 rounded-xl font-black text-xs transition shadow-md active:scale-[0.98] cursor-pointer"
-                title="حفظ هيكل العمارة وتوليد كشف الوحدات والسكان معاً"
+                className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2.5 bg-blue-900 text-white hover:bg-blue-950 disabled:opacity-50 rounded-xl font-black text-xs transition shadow-md active:scale-[0.98] cursor-pointer"
+                title="حفظ هيكل العمارة وتوليد كشف الوحدات والسكان معاً مع الحفظ الفوري والتنظيف على Firebase"
               >
-                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                <span>توليد كشف وحدات</span>
+                {isGenerating ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 text-amber-300 animate-spin" />
+                    <span>جاري التوليد والحفظ في Firebase...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                    <span>توليد كشف وحدات (حفظ فوري)</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
@@ -2072,14 +2089,14 @@ ${appUrl}
                 تراجع وإلغاء
               </button>
               <button
-                onClick={() => {
+                onClick={async () => {
                   if (confirmData.type === 'delete' && confirmData.deleteId) {
                     onDelete(confirmData.deleteId);
                   } else if (confirmData.type === 'generate' && confirmData.generatedResidents) {
                     if (confirmData.structureToSave) {
-                      onSetFloorConfigs(confirmData.structureToSave);
+                      await onSetFloorConfigs(confirmData.structureToSave);
                     }
-                    onSetAll(confirmData.generatedResidents);
+                    await onSetAll(confirmData.generatedResidents);
                     setShowConfigModal(false);
                   } else if (confirmData.residentData) {
                     if (confirmData.type === 'edit') {

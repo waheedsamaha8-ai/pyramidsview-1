@@ -280,15 +280,7 @@ function normalizeKeyAliases(key: string): string[] {
 }
 
 function getBuildingCacheKey(k: string): string {
-  try {
-    const bId = localStorage.getItem('active_building_id') || 'pyramids_view_1';
-    if (bId === 'pyramids_view_1') {
-      return `cache_${k}`;
-    }
-    return `cache_${bId}_${k}`;
-  } catch {
-    return `cache_${k}`;
-  }
+  return `cache_${k}`;
 }
 
 // Standard getters and setters for local cache with automatic key alias synchronization

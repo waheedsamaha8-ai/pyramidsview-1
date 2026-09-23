@@ -2498,3 +2498,61 @@ export async function deleteJoinRequestSheet(id: string): Promise<void> {
   await deleteSheetRow('JoinRequests', sheetRowNumber);
 }
 
+// Upload JSON Backup file directly to Google Drive
+export async function uploadJsonBackupToDrive(jsonString: string, fileName?: string): Promise<string> {
+  checkAuth();
+  const dateStr = new Date().toISOString().split('T')[0];
+  const activeBName = (typeof window !== 'undefined' && (localStorage.getItem('active_building_name') || localStorage.getItem('building_name') || 'Pyramids_View_1')) || 'Pyramids_View_1';
+  const cleanBName = activeBName.replace(/\s+/g, '_');
+  const finalFileName = fileName || `${cleanBName}_Full_Backup_${dateStr}.json`;
+
+  let parentFolderId: string | undefined = undefined;
+  try {
+    const folders = await getCachedOrEnsureDriveFolders();
+    if (folders && folders.rootFolderId && !folders.rootFolderId.startsWith('local-')) {
+      parentFolderId = folders.rootFolderId;
+    }
+  } catch (e) {
+    console.warn('Could not resolve root Drive folder for JSON backup, uploading to Drive root:', e);
+  }
+
+  const metadata: any = {
+    name: finalFileName,
+    mimeType: 'application/json',
+  };
+  if (parentFolderId) {
+    metadata.parents = [parentFolderId];
+  }
+
+  const boundary = '-------314159265358979323846';
+  const delimiter = "\r\n--" + boundary + "\r\n";
+  const close_delim = "\r\n--" + boundary + "--";
+
+  const multipartRequestBody =
+    delimiter +
+    'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+    JSON.stringify(metadata) +
+    delimiter +
+    'Content-Type: application/json\r\n\r\n' +
+    jsonString +
+    close_delim;
+
+  const url = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${getAccessToken()}`,
+      'Content-Type': `multipart/related; boundary="${boundary}"`,
+    },
+    body: multipartRequestBody,
+  });
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Failed to upload JSON backup to Google Drive: ${errText || res.statusText}`);
+  }
+
+  const data = await res.json();
+  return data.id;
+}
+

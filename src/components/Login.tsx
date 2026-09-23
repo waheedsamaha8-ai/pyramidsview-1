@@ -312,6 +312,11 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                               buildings.find(b => b.id === selectedBuildingId);
       if (matchedBuilding) {
         setActiveBuilding(matchedBuilding);
+      } else {
+        const currentActive = getActiveBuilding();
+        if (currentActive) {
+          setActiveBuilding(currentActive);
+        }
       }
 
       const data = await loginWithEmail(loginEmail, loginPassword);
