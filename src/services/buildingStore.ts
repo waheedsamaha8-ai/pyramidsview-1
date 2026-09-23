@@ -127,8 +127,9 @@ export async function getAllBuildings(): Promise<Building[]> {
       return firestoreList;
     };
 
+    const timeoutMs = localList.length === 0 ? 8000 : 3500;
     const timeoutPromise = new Promise<Building[]>((_, reject) => 
-      setTimeout(() => reject(new Error('Firestore timeout')), 1200)
+      setTimeout(() => reject(new Error('Firestore timeout')), timeoutMs)
     );
 
     const firestoreList = await Promise.race([fetchPromise(), timeoutPromise]);
