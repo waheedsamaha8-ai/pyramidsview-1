@@ -59,12 +59,14 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('table');
   const [confirmData, setConfirmData] = useState<{ 
-    type: 'add' | 'edit' | 'delete' | 'generate' | 'save_structure'; 
+    type: 'add' | 'edit' | 'delete' | 'generate' | 'save_structure' | 'delete_floor'; 
     residentData?: Resident; 
     deleteId?: string; 
     deleteName?: string; 
     generatedResidents?: Resident[];
     structureToSave?: FloorConfig[];
+    floorToDeleteId?: string;
+    floorToDeleteLabel?: string;
   } | null>(null);
 
   // Local draft of floor configs inside the structure modal
@@ -509,88 +511,14 @@ ${appUrl}
     setEditingFloorId(newId);
   };
 
-  const removeFloorConfig = (id: string) => {
-    setLocalFloorConfigs(prev => prev.filter(f => f.id !== id));
-  };
-
-  const updateFloorConfig = (id: string, updates: Partial<FloorConfig>) => {
-    setLocalFloorConfigs(prev => prev.map(f => {
-      if (f.id !== id) return f;
-      const updated = { ...f, ...updates } as FloorConfig;
-      // If unitsCount or startUnitNumber changed directly without explicit unitNumbers update, regenerate units
-      if (updates.unitsCount !== undefined || updates.startUnitNumber !== undefined) {
-        const count = updates.unitsCount !== undefined ? Math.max(1, updates.unitsCount) : f.unitsCount;
-        const start = updates.startUnitNumber !== undefined ? updates.startUnitNumber : (f.startUnitNumber || 101);
-        const startParsed = parseFlatNumber(start);
-        const autoUnits: (number | string)[] = [];
-        for (let i = 0; i < count; i++) {
-          autoUnits.push(startParsed.main + i);
-        }
-        updated.unitNumbers = autoUnits;
-        updated.unitsCount = autoUnits.length;
-      }
-      return updated;
-    }));
-  };
-
-  // Surgically remove a single unit from a floor within the modal
-  const removeUnitFromFloorConfig = (floorId: string, unitNum: number | string) => {
-    setLocalFloorConfigs(prev => prev.map(f => {
-      if (f.id !== floorId) return f;
-      const currentUnits = Array.isArray(f.unitNumbers) ? f.unitNumbers : getUnitNumbersForFloor(f, residents);
-      const filtered = currentUnits.filter(u => !isSameFlatNumber(u, unitNum) && String(u).trim() !== String(unitNum).trim());
-      return {
-        ...f,
-        unitNumbers: filtered,
-        unitsCount: filtered.length,
-        startUnitNumber: filtered.length > 0 ? filtered[0] : f.startUnitNumber,
-      };
-    }));
-  };
-
-  // Surgically add a single unit to a floor within the modal (accepts numbers, 502-2, 502/2, etc.)
-  const addUnitToFloorConfig = (floorId: string, inputRaw: number | string) => {
-    if (inputRaw === undefined || inputRaw === null) return;
-    let str = String(inputRaw).trim();
-    if (!str) return;
-
-    // Normalize Eastern Arabic numerals:
-    const standardDigits: Record<string, string> = {
-      '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4', '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9',
-      '۰': '0', '۱': '1', '۲': '2', '۳': '3', '۴': '4', '۵': '5', '۶': '6', '۷': '7', '۸': '8', '۹': '9'
-    };
-    str = str.replace(/[٠-٩۰-۹]/g, (char) => standardDigits[char] || char);
-
-    const cleanUnit: number | string = /^\d+$/.test(str) ? parseInt(str, 10) : str;
-
-    setLocalFloorConfigs(prev => prev.map(f => {
-      if (f.id !== floorId) return f;
-      const currentUnits = Array.isArray(f.unitNumbers) ? f.unitNumbers : getUnitNumbersForFloor(f, residents);
-      if (currentUnits.some(u => isSameFlatNumber(u, cleanUnit) || String(u).trim() === String(cleanUnit).trim())) {
-        alert(`الوحدة "${cleanUnit}" مسجلة بالفعل في هذا الدور`);
-        return f;
-      }
-      const merged = [...currentUnits, cleanUnit].sort(compareFlatNumbers);
-      return {
-        ...f,
-        unitNumbers: merged,
-        unitsCount: merged.length,
-        startUnitNumber: merged[0],
-      };
-    }));
-    setNewUnitInputs(prev => ({ ...prev, [floorId]: '' }));
-  };
-
-  // Generate missing units from structure AND save structure simultaneously, with complete merging and preservation of all existing residents
-  const handleGenerateBuilding = async () => {
+  const persistFloorChange = async (targetLayout: FloorConfig[]) => {
     setIsGenerating(true);
     try {
-      if (localFloorConfigs.length === 0) {
-        onSetFloorConfigs([]);
-        onSetAll([]);
-        setShowConfigModal(false);
-        setIsGenerating(false);
+      if (targetLayout.length === 0) {
+        await onSetFloorConfigs([]);
+        await onSetAll([]);
         setToastMsg('تم إخلاء وتصميم هيكل العمارة بنجاح.');
+        setTimeout(() => setToastMsg(null), 5000);
         return;
       }
 
@@ -599,8 +527,9 @@ ${appUrl}
       const presFlat = presidentProfile?.flatNumber || 207;
       let presidentAssigned = false;
 
-      // Track processed IDs so no duplicate slots are generated
+      // Track processed IDs and flat numbers so no duplicate slots are generated
       const processedIds = new Set<string>();
+      const processedFlats = new Set<string>();
 
       // Existing residents lookup map
       const existingMap = new Map<string, Resident>();
@@ -610,13 +539,21 @@ ${appUrl}
         }
       });
 
-      localFloorConfigs.forEach((configItem, floorIndex) => {
+      targetLayout.forEach((configItem, floorIndex) => {
         const unitFee = getDefaultFeeForActivity(configItem.activityType);
+        // Ensure we compute unit numbers dynamically if not set
         const floorUnits = Array.isArray(configItem.unitNumbers) ? configItem.unitNumbers : getUnitNumbersForFloor(configItem, residents);
         
         floorUnits.forEach((unitId, j) => {
           const isPresidentUnit = isSameFlatNumber(unitId, presFlat);
           const unitStr = String(unitId).trim();
+          
+          if (processedFlats.has(unitStr)) {
+            // Already generated or mapped this flat, skip to prevent duplication
+            return;
+          }
+          processedFlats.add(unitStr);
+
           const existingRes = existingMap.get(unitStr) || residents.find(r => isSameFlatNumber(r.flatNumber, unitId));
 
           if (isPresidentUnit && presidentProfile) {
@@ -675,9 +612,10 @@ ${appUrl}
       // Explicitly add president profile if not assigned
       if (presidentProfile && !presidentAssigned) {
         const presStr = String(presFlat).trim();
-        const existingPres = existingMap.get(presStr) || residents.find(r => isSameFlatNumber(r.flatNumber, presFlat));
-        const presId = existingPres?.id || `res_president_${presFlat}_${Date.now()}`;
-        if (!processedIds.has(presId)) {
+        if (!processedFlats.has(presStr)) {
+          processedFlats.add(presStr);
+          const existingPres = existingMap.get(presStr) || residents.find(r => isSameFlatNumber(r.flatNumber, presFlat));
+          const presId = existingPres?.id || `res_president_${presFlat}_${Date.now()}`;
           processedIds.add(presId);
           newResidents.push({
             ...(existingPres || {}),
@@ -700,22 +638,104 @@ ${appUrl}
 
       newResidents.sort((a, b) => compareFlatNumbers(a.flatNumber, b.flatNumber));
 
-      // 1. Instantly update building structure in React state and local cache
-      onSetFloorConfigs(localFloorConfigs);
+      // Dedup pass to make 1000% sure we don't have duplicate flat numbers
+      const finalUniqueResidents: Resident[] = [];
+      const finalSeenFlats = new Set<string>();
+      newResidents.forEach(res => {
+        const fStr = String(res.flatNumber).trim();
+        if (!finalSeenFlats.has(fStr)) {
+          finalSeenFlats.add(fStr);
+          finalUniqueResidents.push(res);
+        }
+      });
 
-      // 2. Instantly update merged residents list (any omitted residents will be removed/deleted)
-      onSetAll(newResidents);
+      // Save both structures and resident list directly to Firestore/state
+      await onSetFloorConfigs(targetLayout);
+      await onSetAll(finalUniqueResidents);
 
-      setShowConfigModal(false);
-      setIsGenerating(false);
-
-      setToastMsg(`تم حفظ وتوليد هيكل العمارة بنجاح مع دمج الوحدات وتأكيد الحذف والتعديلات المطلوبة بنجاح! 🔥`);
-      setTimeout(() => setToastMsg(null), 8000);
+      setToastMsg('تم حفظ وتحديث هيكل العمارة وتوليد الشقق بنجاح دون أي تكرار! 🔥');
+      setTimeout(() => setToastMsg(null), 5000);
     } catch (err: any) {
-      alert('حدث خطأ أثناء التوليد: ' + (err?.message || 'خطأ غير معروف'));
+      alert('حدث خطأ أثناء الحفظ والمعالجة: ' + (err?.message || 'خطأ غير معروف'));
     } finally {
       setIsGenerating(false);
     }
+  };
+
+  const removeFloorConfig = async (id: string) => {
+    const updated = localFloorConfigs.filter(f => f.id !== id);
+    setLocalFloorConfigs(updated);
+    await persistFloorChange(updated);
+  };
+
+  const updateFloorConfig = (id: string, updates: Partial<FloorConfig>) => {
+    setLocalFloorConfigs(prev => prev.map(f => {
+      if (f.id !== id) return f;
+      const updated = { ...f, ...updates } as FloorConfig;
+      // If unitsCount or startUnitNumber changed directly without explicit unitNumbers update, regenerate units
+      if (updates.unitsCount !== undefined || updates.startUnitNumber !== undefined) {
+        const count = updates.unitsCount !== undefined ? Math.max(1, updates.unitsCount) : f.unitsCount;
+        const start = updates.startUnitNumber !== undefined ? updates.startUnitNumber : (f.startUnitNumber || 101);
+        const startParsed = parseFlatNumber(start);
+        const autoUnits: (number | string)[] = [];
+        for (let i = 0; i < count; i++) {
+          autoUnits.push(startParsed.main + i);
+        }
+        updated.unitNumbers = autoUnits;
+        updated.unitsCount = autoUnits.length;
+      }
+      return updated;
+    }));
+  };
+
+  // Surgically remove a single unit from a floor within the modal
+  const removeUnitFromFloorConfig = (floorId: string, unitNum: number | string) => {
+    setLocalFloorConfigs(prev => prev.map(f => {
+      if (f.id !== floorId) return f;
+      const currentUnits = Array.isArray(f.unitNumbers) ? f.unitNumbers : getUnitNumbersForFloor(f, residents);
+      const filtered = currentUnits.filter(u => !isSameFlatNumber(u, unitNum) && String(u).trim() !== String(unitNum).trim());
+      return {
+        ...f,
+        unitNumbers: filtered,
+        unitsCount: filtered.length,
+        startUnitNumber: filtered.length > 0 ? filtered[0] : f.startUnitNumber,
+      };
+    }));
+  };
+
+  // Surgically add a single unit to a floor within the modal (accepts numbers, 502-2, 502/2, etc.)
+  const addUnitToFloorConfig = (floorId: string, inputRaw: number | string) => {
+    if (inputRaw === undefined || inputRaw === null) return;
+    let str = String(inputRaw).trim();
+    if (!str) return;
+
+    // Normalize Eastern Arabic numerals:
+    const standardDigits: Record<string, string> = {
+      '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4', '٥': '5', '٦': '6', '٧': '7', '٨': '8',
+      '۰': '0', '۱': '1', '۲': '2', '۳': '3', '۴': '4', '۵': '5', '۶': '6', '۷': '7', '۸': '8'
+    };
+    standardDigits['\u0669'] = '9';
+    standardDigits['\u06f9'] = '9';
+    str = str.replace(/[٠-٩۰-۹]/g, (char) => standardDigits[char] || char);
+
+    const cleanUnit: number | string = /^\d+$/.test(str) ? parseInt(str, 10) : str;
+
+    setLocalFloorConfigs(prev => prev.map(f => {
+      if (f.id !== floorId) return f;
+      const currentUnits = Array.isArray(f.unitNumbers) ? f.unitNumbers : getUnitNumbersForFloor(f, residents);
+      if (currentUnits.some(u => isSameFlatNumber(u, cleanUnit) || String(u).trim() === String(cleanUnit).trim())) {
+        alert(`الوحدة "${cleanUnit}" مسجلة بالفعل في هذا الدور`);
+        return f;
+      }
+      const merged = [...currentUnits, cleanUnit].sort(compareFlatNumbers);
+      return {
+        ...f,
+        unitNumbers: merged,
+        unitsCount: merged.length,
+        startUnitNumber: merged[0],
+      };
+    }));
+    setNewUnitInputs(prev => ({ ...prev, [floorId]: '' }));
   };
 
   return (
@@ -1894,9 +1914,23 @@ ${appUrl}
             </div>
 
             <div className="flex-1 overflow-y-auto pr-1 space-y-4 mb-4">
+              {toastMsg && (
+                <div className="p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-2xl text-xs font-bold flex items-start gap-2 animate-fade-in shadow-xs">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  <div className="flex-1 leading-relaxed">{toastMsg}</div>
+                  <button 
+                    type="button"
+                    onClick={() => setToastMsg(null)} 
+                    className="text-emerald-700 hover:text-emerald-900 text-xs font-bold px-1 cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
+
               <div className="bg-blue-50/60 p-3.5 rounded-2xl border border-blue-100/60">
                 <p className="text-[11px] text-blue-950 font-bold leading-relaxed">
-                  يمكنك تصميم أدوار العمارة وإدارتها بسهولة. اضغط على زر «إضافة دور جديد لهيكل العمارة» للبدء، ثم قم بتعديل تفاصيل كل دور وحفظه، وعند الانتهاء اضغط على «توليد ودمج وحفظ الهيكل» بالأسفل للتأكيد.
+                  يمكنك إضافة وتعديل الأدوار بسهولة. اضغط على زر حفظ بجانب الدور لتأكيد حفظه فوراً في الهيكل، أو تعديل لتغيير وحداته ونشاطه، أو حذف لإزالته نهائياً.
                 </p>
               </div>
 
@@ -1926,7 +1960,7 @@ ${appUrl}
                   </div>
                 ) : (
                   localFloorConfigs.map((floor) => {
-                    const floorUnits = getUnitNumbersForFloor(floor, residents);
+                    const floorUnits = Array.isArray(floor.unitNumbers) ? floor.unitNumbers : [];
                     const currentInputVal = newUnitInputs[floor.id] || '';
                     const isEditing = floor.id === editingFloorId;
 
@@ -2048,31 +2082,40 @@ ${appUrl}
                             </div>
                           </div>
 
-                          {/* Save / Delete action buttons for this floor */}
-                          <div className="pt-2 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2">
+                           {/* Save and Cancel action buttons for this floor */}
+                          <div className="pt-2 border-t border-slate-200 flex flex-wrap items-center justify-end gap-2">
                             <button
                               type="button"
                               onClick={() => {
-                                if (confirm(`هل أنت متأكد من حذف ${floor.floorLabel} بالكامل من هيكل العمارة؟`)) {
-                                  removeFloorConfig(floor.id);
-                                  setEditingFloorId(null);
-                                }
+                                setEditingFloorId(null);
+                                const base = (floorConfigs && floorConfigs.length > 0) ? floorConfigs : [];
+                                const initialized = base.map(f => {
+                                  const units = getUnitNumbersForFloor(f, residents);
+                                  return {
+                                    ...f,
+                                    unitNumbers: units,
+                                    unitsCount: units.length,
+                                    startUnitNumber: units.length > 0 ? units[0] : (f.startUnitNumber || 101),
+                                  };
+                                });
+                                setLocalFloorConfigs(initialized);
                               }}
-                              className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-[11px] font-black flex items-center gap-1 transition cursor-pointer"
-                              title="حذف الدور بالكامل مع وحداته"
+                              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-xl text-xs font-black flex items-center gap-1 transition cursor-pointer"
+                              title="إلغاء التعديلات والعودة للهيكل المحفوظ"
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
-                              <span>حذف الدور بالكامل</span>
+                              <span>إلغاء</span>
                             </button>
-
                             <button
                               type="button"
-                              onClick={() => setEditingFloorId(null)}
-                              className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[11px] font-black flex items-center gap-1.5 transition cursor-pointer shadow-xs"
-                              title="حفظ التعديلات الحالية لهذا الدور وإغلاق نموذج التحرير"
+                              onClick={async () => {
+                                setEditingFloorId(null);
+                                await persistFloorChange(localFloorConfigs);
+                              }}
+                              className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black flex items-center gap-1.5 transition cursor-pointer shadow-xs"
+                              title="حفظ التعديلات الحالية لهذا الدور فورياً"
                             >
-                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-100" />
-                              <span>حفظ وإغلاق التعديل</span>
+                              <CheckCircle2 className="w-4 h-4 text-emerald-100" />
+                              <span>حفظ الدور وإغلاق التعديل</span>
                             </button>
                           </div>
                         </div>
@@ -2104,26 +2147,40 @@ ${appUrl}
                           <div className="flex items-center gap-1.5 self-end sm:self-center">
                             <button
                               type="button"
+                              onClick={async () => {
+                                await persistFloorChange(localFloorConfigs);
+                              }}
+                              className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-black flex items-center gap-1 transition cursor-pointer"
+                              title="حفظ هيكل هذا الدور فورياً وتوليد شققه في قاعدة البيانات"
+                            >
+                              <Save className="w-3.5 h-3.5 text-emerald-600" />
+                              <span>حفظ الدور</span>
+                            </button>
+
+                            <button
+                              type="button"
                               onClick={() => setEditingFloorId(floor.id)}
                               className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-850 border border-amber-200 rounded-xl text-xs font-black flex items-center gap-1 transition cursor-pointer"
                               title="تعديل الدور وأسماء ووحدات ونشاط هذا الدور"
                             >
-                              <Edit className="w-3.5 h-3.5" />
-                              <span>تعديل الدور</span>
+                              <Edit className="w-3.5 h-3.5 text-amber-600" />
+                              <span>تعديل</span>
                             </button>
 
                             <button
                               type="button"
                               onClick={() => {
-                                if (confirm(`هل أنت متأكد من حذف ${floor.floorLabel} بالكامل من هيكل العمارة؟`)) {
-                                  removeFloorConfig(floor.id);
-                                }
+                                setConfirmData({
+                                  type: 'delete_floor',
+                                  floorToDeleteId: floor.id,
+                                  floorToDeleteLabel: floor.floorLabel
+                                });
                               }}
                               className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-black flex items-center gap-1 transition cursor-pointer"
-                              title="حذف هذا الدور بالكامل"
+                              title="حذف هذا الدور بالكامل من قاعدة البيانات"
                             >
-                              <X className="w-3.5 h-3.5" />
-                              <span>حذف الدور</span>
+                              <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                              <span>حذف</span>
                             </button>
                           </div>
                         </div>
@@ -2134,45 +2191,15 @@ ${appUrl}
               </div>
             </div>
 
-            {/* Safety Notice Banner */}
-            <div className="p-3 bg-emerald-50/80 border border-emerald-200/80 rounded-2xl flex items-center gap-2 mb-3 text-[11px] text-emerald-950 font-bold">
-              <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-              <span>حفظ الهيكل آمن: زر «توليد ودمج وحفظ الهيكل» يحافظ تلقائياً على كافة بيانات السكان ومستحقاتهم الحالية، ويطبق تعديلات وحذف الأدوار فورياً!</span>
-            </div>
-
             {/* Modal Actions */}
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-2.5 pt-3 border-t border-slate-100">
-              <div className="flex items-center gap-2 w-full sm:w-auto">
-                <button 
-                  type="button"
-                  onClick={() => setShowConfigModal(false)}
-                  className="px-4 py-2 text-slate-500 hover:text-slate-800 font-bold text-xs hover:bg-slate-100 rounded-xl transition cursor-pointer"
-                >
-                  إلغاء التراجع
-                </button>
-              </div>
-
-              <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
-                <button 
-                  type="button"
-                  disabled={isGenerating}
-                  onClick={handleGenerateBuilding}
-                  className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-6 py-2.5 bg-blue-900 text-white hover:bg-blue-950 disabled:opacity-50 rounded-xl font-black text-xs transition shadow-md active:scale-[0.98] cursor-pointer"
-                  title="حفظ هيكل الأدوار وتوليد الوحدات ودمج بيانات السكان الحالية وتأكيد الحذف"
-                >
-                  {isGenerating ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 text-amber-300 animate-spin" />
-                      <span>جاري الحفظ والمعالجة...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Save className="w-4 h-4 text-blue-200" />
-                      <span>توليد ودمج وحفظ الهيكل</span>
-                    </>
-                  )}
-                </button>
-              </div>
+            <div className="flex items-center justify-end pt-3 border-t border-slate-100">
+              <button 
+                type="button"
+                onClick={() => setShowConfigModal(false)}
+                className="px-6 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer shadow-2xs"
+              >
+                إغلاق النافذة
+              </button>
             </div>
           </div>
         </div>
@@ -2186,11 +2213,13 @@ ${appUrl}
               <AlertCircle className="w-10 h-10 stroke-[1.5]" />
             </div>
             <h3 className="text-xs font-black text-slate-900 text-center mb-2">
-              {confirmData.type === 'delete' ? 'تأكيد عملية الحذف' : confirmData.type === 'generate' ? 'توليد هيكل العمارة الجديد' : 'تأكيد حفظ البيانات'}
+              {confirmData.type === 'delete' ? 'تأكيد عملية الحذف' : confirmData.type === 'delete_floor' ? 'تأكيد حذف الدور بالكامل' : confirmData.type === 'generate' ? 'توليد هيكل العمارة الجديد' : 'تأكيد حفظ البيانات'}
             </h3>
             <p className="text-[11px] text-slate-600 text-center font-bold leading-relaxed mb-4">
               {confirmData.type === 'delete' 
                 ? `هل أنت متأكد من حذف الوحدة / الساكن "${confirmData.deleteName}"؟ سيتم حذف هذه الوحدة بشكل منفصل فقط مع بقاء هيكل العمارة وكافة الوحدات الأخرى كما هي دون أي تغيير.`
+                : confirmData.type === 'delete_floor'
+                ? `هل أنت متأكد من حذف دور "${confirmData.floorToDeleteLabel}" بالكامل من هيكل العمارة وكافة الشقق والساكنين التابعين له بشكل نهائي؟ لا يمكن التراجع عن هذا الإجراء.`
                 : confirmData.type === 'generate'
                 ? `أنت على وشك إنشاء ${confirmData.generatedResidents?.length} وحدة سكنية جديدة بناءً على الهيكل المحدد. سيتم استبدال الكشف الحالي بهذا الكشف الجديد وحفظ الهيكل. هل تود الاستمرار؟`
                 : confirmData.type === 'edit'
@@ -2206,7 +2235,9 @@ ${appUrl}
               </button>
               <button
                 onClick={async () => {
-                  if (confirmData.type === 'delete' && confirmData.deleteId) {
+                  if (confirmData.type === 'delete_floor' && confirmData.floorToDeleteId) {
+                    await removeFloorConfig(confirmData.floorToDeleteId);
+                  } else if (confirmData.type === 'delete' && confirmData.deleteId) {
                     onDelete(confirmData.deleteId);
                   } else if (confirmData.type === 'generate' && confirmData.generatedResidents) {
                     if (confirmData.structureToSave) {
@@ -2224,9 +2255,9 @@ ${appUrl}
                   }
                   setConfirmData(null);
                 }}
-                className={`flex-1 py-2 text-[10px] font-bold text-white rounded-lg transition cursor-pointer ${confirmData.type === 'delete' ? 'bg-rose-600 hover:bg-rose-700' : 'bg-blue-900 hover:bg-blue-950'}`}
+                className={`flex-1 py-2 text-[10px] font-bold text-white rounded-lg transition cursor-pointer ${(confirmData.type === 'delete' || confirmData.type === 'delete_floor') ? 'bg-rose-600 hover:bg-rose-700' : 'bg-blue-900 hover:bg-blue-950'}`}
               >
-                {confirmData.type === 'delete' ? 'نعم، حذف' : confirmData.type === 'generate' ? 'تأكيد التوليد' : 'نعم، حفظ وتأكيد'}
+                {(confirmData.type === 'delete' || confirmData.type === 'delete_floor') ? 'نعم، حذف' : confirmData.type === 'generate' ? 'تأكيد التوليد' : 'نعم، حفظ وتأكيد'}
               </button>
             </div>
           </div>

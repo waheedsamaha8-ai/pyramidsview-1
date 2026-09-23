@@ -496,6 +496,10 @@ export default function App() {
       if (!isMounted || !conf) return;
       setConfig(conf);
       offlineSync.saveCachedData('config', conf);
+      if (Array.isArray(conf.buildingLayout)) {
+        setBuildingLayout(conf.buildingLayout);
+        offlineSync.saveCachedData('building_layout', conf.buildingLayout);
+      }
     });
 
     const unsubRules = firestoreService.subscribeToRules((r) => {

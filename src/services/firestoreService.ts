@@ -183,14 +183,17 @@ export async function deleteResidentFromFirestore(id: string): Promise<void> {
 
 export async function saveBatchResidentsToFirestore(residents: Resident[]): Promise<void> {
   const cacheKey = getBuildingCacheKey('residents');
-  const previousResidents = offlineSync.getCachedData<Resident[]>(cacheKey) || [];
 
   // Update local cache immediately for instant UI feedback
   offlineSync.saveCachedData(cacheKey, residents);
 
   try {
+    const colRef = getBuildingColRef('residents');
+    const snap = await getDocs(colRef);
+    const serverResidents = snap.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) } as Resident));
+
     const activeIds = new Set(residents.map(r => String(r.id)));
-    const deleteOps = previousResidents
+    const deleteOps = serverResidents
       .filter(r => r && r.id && !activeIds.has(String(r.id)))
       .map(r => getBuildingDocRef('residents', String(r.id)));
 
