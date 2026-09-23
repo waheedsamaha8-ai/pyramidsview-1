@@ -10,6 +10,7 @@ import {
 import * as backupService from '../services/backupService';
 import * as firestoreService from '../services/firestoreService';
 import { getActiveBuilding, getAllBuildings, deleteBuilding, deleteAllBuildings } from '../services/buildingStore';
+import { logoutUser } from '../services/firebaseConfig';
 
 interface SettingsTabProps {
   config: AppConfig;
@@ -45,6 +46,28 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
 
   const [activeSubTab, setActiveSubTab] = useState<'settings' | 'storage' | 'permissions' | 'types'>('settings');
   const [newRuleInput, setNewRuleInput] = useState('');
+
+  // States to hold all buildings list and selected building to delete
+  const [allBuildings, setAllBuildings] = useState<any[]>([]);
+  const [selectedBuildingId, setSelectedBuildingId] = useState<string>('');
+
+  useEffect(() => {
+    const loadAll = async () => {
+      try {
+        const list = await getAllBuildings();
+        setAllBuildings(list);
+        if (list.length > 0) {
+          const active = getActiveBuilding();
+          setSelectedBuildingId(active?.id || list[0].id);
+        }
+      } catch (err) {
+        console.warn('Error loading buildings inside SettingsTab:', err);
+      }
+    };
+    if (activeSubTab === 'permissions') {
+      loadAll();
+    }
+  }, [activeSubTab]);
 
   // Automatically reset to settings sub-tab if resident mode
   useEffect(() => {
@@ -122,21 +145,45 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
     setIsDeletingBuilding(true);
     try {
       if (buildingDeleteModal.type === 'single') {
-        const currentBuilding = getActiveBuilding();
-        const bName = currentBuilding.name || config.buildingName || 'هذا الاتحاد';
-        if (currentBuilding && currentBuilding.id) {
-          await deleteBuilding(currentBuilding.id);
-          onNotification?.('تم الحذف بنجاح', `تم حذف اتحاد "${bName}" وكافة سجلاته المالية وسكاناته بنجاح.`, 'success');
-          setTimeout(() => {
-            window.location.reload();
-          }, 400);
+        const targetId = selectedBuildingId;
+        const targetB = allBuildings.find(b => b.id === targetId);
+        const bName = targetB?.name || config.buildingName || 'هذا الاتحاد';
+        
+        if (targetId) {
+          await deleteBuilding(targetId);
+          onNotification?.('تم الحذف بنجاح 🗑️', `تم حذف اتحاد "${bName}" وكافة سجلاته المالية وسكاناته بنجاح.`, 'success');
+          
+          const currentBuilding = getActiveBuilding();
+          if (currentBuilding && currentBuilding.id === targetId) {
+            try {
+              await logoutUser();
+            } catch (e) {
+              console.warn('Logout error ignored during building deletion:', e);
+            }
+            localStorage.removeItem('custom_user_session');
+            localStorage.removeItem('user_role');
+            localStorage.removeItem('app_user_role');
+            localStorage.removeItem('google_access_token');
+            localStorage.removeItem('active_president_email');
+            localStorage.removeItem('active_building_v1');
+            setTimeout(() => {
+              window.location.reload();
+            }, 400);
+          } else {
+            setTimeout(() => {
+              window.location.reload();
+            }, 400);
+          }
         }
       } else {
         await deleteAllBuildings();
-        onNotification?.('تم الحذف النهائي', 'تم حذف كافة الاتحادات والعمارات المسجلة نهائياً. التطبيق جاهز تماماً بحالة المصنع لتسجيل اتحاد جديد.', 'success');
+        onNotification?.('تم الحذف النهائي ⚠️', 'تم حذف كافة الاتحادات والعمارات المسجلة نهائياً. التطبيق جاهز تماماً بحالة المصنع لتسجيل اتحاد جديد.', 'success');
+        localStorage.removeItem('custom_user_session');
+        localStorage.removeItem('user_role');
+        localStorage.removeItem('app_user_role');
         setTimeout(() => {
           window.location.reload();
-        }, 400);
+        }, 500);
       }
     } catch (err: any) {
       onNotification?.('خطأ في الحذف', err.message || 'تعذر إتمام عملية الحذف', 'error');
@@ -1550,7 +1597,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
               </div>
 
               {/* Building Management & Union Deletion Section */}
-              <div className="bg-red-50/50 dark:bg-red-950/20 border-2 border-red-200 dark:border-red-900/40 p-4 rounded-2xl col-span-1 md:col-span-2 space-y-3 text-right">
+              <div className="bg-red-50/50 dark:bg-red-950/20 border-2 border-red-200 dark:border-red-900/40 p-4 rounded-2xl col-span-1 md:col-span-2 space-y-3.5 text-right">
                 <div className="flex items-center justify-between border-b border-red-200 dark:border-red-900/50 pb-2.5">
                   <span className="px-2.5 py-0.5 bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-300 text-[10px] font-black rounded-md border border-red-200 dark:border-red-900">
                     صلاحيات الإدارة العليا
@@ -1562,24 +1609,47 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                 </div>
 
                 <p className="text-[11px] text-red-800 dark:text-red-300 font-bold leading-relaxed">
-                  يمكن لرئيس الاتحاد الإداري حذف الاتحاد المسجل حالياً أو إلغاء جميع الاتحادات المسجلة وإعادة ضبط المنظومة السحابية.
+                  يمكن لرئيس الاتحاد الإداري تحديد أي اتحاد ملاك مسجل (بما في ذلك الاتحادات التجريبية) من القائمة المنسدلة أدناه وحذفه نهائياً من هذا الجهاز وقاعدة البيانات.
                 </p>
 
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2.5 pt-1">
+                {/* Dropdown to select union to delete */}
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-black text-slate-700 dark:text-slate-300">
+                    اختر الاتحاد المراد إدارته وحذفه:
+                  </label>
+                  <select
+                    value={selectedBuildingId}
+                    onChange={(e) => setSelectedBuildingId(e.target.value)}
+                    className="w-full sm:w-80 py-2 px-3 text-xs bg-white dark:bg-slate-900 border border-red-200 dark:border-slate-700 rounded-xl font-black text-slate-800 dark:text-white focus:outline-none focus:border-red-600"
+                  >
+                    {allBuildings.map((b) => {
+                      const isActive = b.id === getActiveBuilding()?.id;
+                      return (
+                        <option key={b.id} value={b.id}>
+                          {b.name} ({b.code}){isActive ? ' - [الاتحاد النشط الحالي 🌟]' : ''}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2.5 pt-1.5 border-t border-red-200/50 dark:border-red-900/40">
                   <button
                     type="button"
+                    disabled={!selectedBuildingId}
                     onClick={() => {
-                      const activeB = getActiveBuilding();
+                      const targetId = selectedBuildingId;
+                      const targetB = allBuildings.find(b => b.id === targetId);
                       setBuildingDeleteModal({
                         isOpen: true,
                         type: 'single',
-                        buildingName: activeB.name || config.buildingName || 'هذا الاتحاد',
+                        buildingName: targetB?.name || 'هذا الاتحاد',
                       });
                     }}
-                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-black rounded-xl transition cursor-pointer flex items-center justify-center gap-2 shadow-sm"
+                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-black rounded-xl transition cursor-pointer flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
-                    <span>حذف الاتحاد الحالي النشط ("{config.buildingName || 'العمارة'}")</span>
+                    <span>حذف الاتحاد المختار</span>
                   </button>
 
                   <button

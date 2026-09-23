@@ -92,10 +92,19 @@ export function getLocalBuildings(): Building[] {
     if (cached) {
       const parsed = JSON.parse(cached);
       if (Array.isArray(parsed)) {
+        let hasDemo = false;
         parsed.forEach(b => {
           // Filter out dummy/placeholder buildings from old versions
           if (b && b.id && b.id !== 'union_main_01' && b.name && !localList.some(item => item.id === b.id)) {
-            localList.push(b);
+            const isDemo = b.name?.includes('تجريبي') || b.id?.includes('demo');
+            if (isDemo) {
+              if (!hasDemo) {
+                hasDemo = true;
+                localList.push(b);
+              }
+            } else {
+              localList.push(b);
+            }
           }
         });
       }
@@ -149,7 +158,21 @@ export async function getAllBuildings(): Promise<Building[]> {
     // Return instant local cache on timeout or offline
   }
 
-  return localList;
+  let hasDemo = false;
+  const deduplicatedList: Building[] = [];
+  localList.forEach(b => {
+    const isDemo = b.name?.includes('تجريبي') || b.id?.includes('demo');
+    if (isDemo) {
+      if (!hasDemo) {
+        hasDemo = true;
+        deduplicatedList.push(b);
+      }
+    } else {
+      deduplicatedList.push(b);
+    }
+  });
+
+  return deduplicatedList;
 }
 
 // Register a new commercial building & union (Instant execution)
