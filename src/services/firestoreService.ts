@@ -113,6 +113,7 @@ export async function getBuildingFromFirestore(id: string): Promise<Building | n
 // ----------------------------------------------------
 export async function getResidentsFromFirestore(): Promise<Resident[]> {
   const cacheKey = getBuildingCacheKey('residents');
+  const cached = offlineSync.getCachedData<Resident[]>(cacheKey) || [];
   try {
     const colRef = getBuildingColRef('residents');
     const snapshot = await getDocs(colRef);
@@ -121,18 +122,20 @@ export async function getResidentsFromFirestore(): Promise<Resident[]> {
       residents.push(docSnap.data() as Resident);
     });
     if (residents.length > 0) {
-      offlineSync.saveCachedData(cacheKey, residents);
-      return residents;
+      const remoteIds = new Set(residents.map(r => String(r.id)));
+      const unsyncedLocal = cached.filter(r => !remoteIds.has(String(r.id)));
+      const merged = [...residents, ...unsyncedLocal];
+      offlineSync.saveCachedData(cacheKey, merged);
+      return merged;
     }
-    const cached = offlineSync.getCachedData<Resident[]>(cacheKey);
-    return (cached && cached.length > 0) ? cached : [];
+    return cached;
   } catch (error) {
     handleFirestoreError(error, {
       operation: OperationType.LIST,
       path: 'residents',
       userMessage: 'فشل تحميل بيانات السكان من Firestore'
     });
-    return offlineSync.getCachedData<Resident[]>(cacheKey) || [];
+    return cached;
   }
 }
 
@@ -237,6 +240,7 @@ export async function saveBatchResidentsToFirestore(residents: Resident[], oldRe
 // ----------------------------------------------------
 export async function getPaymentsFromFirestore(): Promise<Payment[]> {
   const cacheKey = getBuildingCacheKey('payments');
+  const cached = offlineSync.getCachedData<Payment[]>(cacheKey) || [];
   try {
     const colRef = getBuildingColRef('payments');
     const snapshot = await getDocs(colRef);
@@ -245,15 +249,19 @@ export async function getPaymentsFromFirestore(): Promise<Payment[]> {
       payments.push(docSnap.data() as Payment);
     });
     if (payments.length > 0) {
-      offlineSync.saveCachedData(cacheKey, payments);
+      const remoteIds = new Set(payments.map(p => String(p.id)));
+      const unsyncedLocal = cached.filter(p => !remoteIds.has(String(p.id)));
+      const merged = [...payments, ...unsyncedLocal];
+      offlineSync.saveCachedData(cacheKey, merged);
+      return merged;
     }
-    return payments;
+    return cached;
   } catch (error) {
     handleFirestoreError(error, {
       operation: OperationType.LIST,
       path: 'payments'
     });
-    return offlineSync.getCachedData<Payment[]>(cacheKey) || [];
+    return cached;
   }
 }
 
@@ -301,6 +309,7 @@ export async function deletePaymentFromFirestore(id: string): Promise<void> {
 // ----------------------------------------------------
 export async function getExpensesFromFirestore(): Promise<Expense[]> {
   const cacheKey = getBuildingCacheKey('expenses');
+  const cached = offlineSync.getCachedData<Expense[]>(cacheKey) || [];
   try {
     const colRef = getBuildingColRef('expenses');
     const snapshot = await getDocs(colRef);
@@ -309,15 +318,19 @@ export async function getExpensesFromFirestore(): Promise<Expense[]> {
       expenses.push(docSnap.data() as Expense);
     });
     if (expenses.length > 0) {
-      offlineSync.saveCachedData(cacheKey, expenses);
+      const remoteIds = new Set(expenses.map(e => String(e.id)));
+      const unsyncedLocal = cached.filter(e => !remoteIds.has(String(e.id)));
+      const merged = [...expenses, ...unsyncedLocal];
+      offlineSync.saveCachedData(cacheKey, merged);
+      return merged;
     }
-    return expenses;
+    return cached;
   } catch (error) {
     handleFirestoreError(error, {
       operation: OperationType.LIST,
       path: 'expenses'
     });
-    return offlineSync.getCachedData<Expense[]>(cacheKey) || [];
+    return cached;
   }
 }
 
@@ -438,6 +451,7 @@ export async function saveRulesToFirestore(rules: string[]): Promise<void> {
 // ----------------------------------------------------
 export async function getChatMessagesFromFirestore(): Promise<ChatMessage[]> {
   const cacheKey = getBuildingCacheKey('chat_messages');
+  const cached = offlineSync.getCachedData<ChatMessage[]>(cacheKey) || [];
   try {
     const colRef = getBuildingColRef('chat_messages');
     const q = query(colRef, orderBy('timestamp', 'asc'));
@@ -447,15 +461,19 @@ export async function getChatMessagesFromFirestore(): Promise<ChatMessage[]> {
       messages.push(docSnap.data() as ChatMessage);
     });
     if (messages.length > 0) {
-      offlineSync.saveCachedData(cacheKey, messages);
+      const remoteIds = new Set(messages.map(m => String(m.id)));
+      const unsyncedLocal = cached.filter(m => !remoteIds.has(String(m.id)));
+      const merged = [...messages, ...unsyncedLocal].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      offlineSync.saveCachedData(cacheKey, merged);
+      return merged;
     }
-    return messages;
+    return cached;
   } catch (error) {
     handleFirestoreError(error, {
       operation: OperationType.LIST,
       path: 'chat_messages'
     });
-    return offlineSync.getCachedData<ChatMessage[]>(cacheKey) || [];
+    return cached;
   }
 }
 

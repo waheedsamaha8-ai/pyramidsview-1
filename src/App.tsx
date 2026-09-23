@@ -1406,19 +1406,37 @@ export default function App() {
 
       const syncedResidents = await syncApprovedRequestsWithResidents(loadedResidents);
 
-      if (syncedResidents) {
-        setResidents(syncedResidents);
-        offlineSync.saveCachedData('residents', syncedResidents);
+      if (syncedResidents && syncedResidents.length > 0) {
+        setResidents(prev => {
+          const map = new Map<string, Resident>();
+          prev.forEach(r => map.set(String(r.id), r));
+          syncedResidents.forEach(r => map.set(String(r.id), r));
+          const list = Array.from(map.values());
+          offlineSync.saveCachedData('residents', list);
+          return list;
+        });
       }
 
-      if (loadedPayments) {
-        setPayments(loadedPayments);
-        offlineSync.saveCachedData('payments', loadedPayments);
+      if (loadedPayments && loadedPayments.length > 0) {
+        setPayments(prev => {
+          const map = new Map<string, Payment>();
+          prev.forEach(p => map.set(String(p.id), p));
+          loadedPayments.forEach(p => map.set(String(p.id), p));
+          const list = Array.from(map.values());
+          offlineSync.saveCachedData('payments', list);
+          return list;
+        });
       }
 
-      if (loadedExpenses) {
-        setExpenses(loadedExpenses);
-        offlineSync.saveCachedData('expenses', loadedExpenses);
+      if (loadedExpenses && loadedExpenses.length > 0) {
+        setExpenses(prev => {
+          const map = new Map<string, Expense>();
+          prev.forEach(e => map.set(String(e.id), e));
+          loadedExpenses.forEach(e => map.set(String(e.id), e));
+          const list = Array.from(map.values());
+          offlineSync.saveCachedData('expenses', list);
+          return list;
+        });
       }
 
       if (loadedRules && loadedRules.length > 0) {
@@ -1426,9 +1444,15 @@ export default function App() {
         offlineSync.saveCachedData('rules', { rules: loadedRules });
       }
 
-      if (loadedCraftsmen) {
-        setCraftsmen(loadedCraftsmen);
-        offlineSync.saveCachedData('craftsmen', loadedCraftsmen);
+      if (loadedCraftsmen && loadedCraftsmen.length > 0) {
+        setCraftsmen(prev => {
+          const map = new Map<string, Craftsman>();
+          prev.forEach(c => map.set(String(c.id), c));
+          loadedCraftsmen.forEach(c => map.set(String(c.id), c));
+          const list = Array.from(map.values());
+          offlineSync.saveCachedData('craftsmen', list);
+          return list;
+        });
       }
 
       const delMsgIds = deletedMessageIdsRef.current;
@@ -1436,8 +1460,16 @@ export default function App() {
       const safeLoadedMessages = loadedMessages ? loadedMessages.filter(m => !delMsgIds.has(m.id)).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()) : [];
       const safeLoadedComplaints = loadedComplaints ? loadedComplaints.filter(c => !delCompIds.has(c.id)).sort((a, b) => (b.date || '').localeCompare(a.date || '')) : [];
 
-      setMessages(safeLoadedMessages);
-      offlineSync.saveCachedData('chat_messages', safeLoadedMessages);
+      if (safeLoadedMessages && safeLoadedMessages.length > 0) {
+        setMessages(prev => {
+          const map = new Map<string, ChatMessage>();
+          prev.forEach(m => map.set(String(m.id), m));
+          safeLoadedMessages.forEach(m => map.set(String(m.id), m));
+          const list = Array.from(map.values()).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+          offlineSync.saveCachedData('chat_messages', list);
+          return list;
+        });
+      }
 
       if (loadedDecisions) {
         const sortedDec = loadedDecisions.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
@@ -2846,6 +2878,9 @@ export default function App() {
   };
 
   const handleSelectNotification = (notif: AppNotification) => {
+    // Close notification panel immediately
+    setShowNotifications(false);
+
     // Mark notification as read
     setNotifications((prev) =>
       prev.map((n) => (n.id === notif.id ? { ...n, read: true } : n))
