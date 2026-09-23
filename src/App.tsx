@@ -1617,7 +1617,7 @@ export default function App() {
     offlineSync.clearResidentActionsFromQueue();
     
     try {
-      await firestoreService.saveBatchResidentsToFirestore(newResidents, previousResidents);
+      await firestoreService.saveBatchResidentsToFirestore(newResidents);
     } catch (err) {
       logError(err, 'setAllResidents');
     }

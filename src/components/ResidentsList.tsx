@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Resident, UserRole, FloorConfig, Payment, AppConfig, JoinRequest } from '../types';
-import { Search, Phone, Edit, Trash2, Home, AlertCircle, LayoutGrid, List, Settings2, Plus, X, Building2, Save, User, KeyRound, Wallet, ArrowDownRight, ArrowUpRight, CheckCircle2, UserCheck, UserX, Clock, Share2, RefreshCw } from 'lucide-react';
+import { Search, Phone, Edit, Trash2, Home, AlertCircle, LayoutGrid, List, Settings2, Plus, X, Building2, Save, User, KeyRound, Wallet, ArrowDownRight, ArrowUpRight, CheckCircle2, UserCheck, UserX, Clock, Share2, RefreshCw, ShieldCheck } from 'lucide-react';
 import { deriveFloorConfigsFromResidents, floorTypeLabels, getFloorName, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber, parseFlatNumber } from '../utils/buildingStructure';
 import * as googleApi from '../services/googleApi';
 import { 
@@ -577,7 +577,22 @@ ${appUrl}
     setNewUnitInputs(prev => ({ ...prev, [floorId]: '' }));
   };
 
-  // Generate residents from structure AND save structure simultaneously, with instant Firebase persistence & automatic cleanup
+  // Save building structure only WITHOUT touching or resetting existing residents
+  const handleSaveStructureOnly = async () => {
+    setIsGenerating(true);
+    try {
+      onSetFloorConfigs(localFloorConfigs);
+      setShowConfigModal(false);
+      setToastMsg('تم حفظ وتوثيق هيكل العمارة والأدوار بنجاح مع الحفاظ التام 100% على كافة بيانات وأسماء السكان ومستحقاتهم دون أي تعديل! 🛡️');
+      setTimeout(() => setToastMsg(null), 8000);
+    } catch (err: any) {
+      alert('حدث خطأ أثناء حفظ الهيكل: ' + (err?.message || 'خطأ غير معروف'));
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  // Generate missing units from structure AND save structure simultaneously, with complete merging and preservation of all existing residents
   const handleGenerateBuilding = async () => {
     setIsGenerating(true);
     try {
@@ -588,14 +603,22 @@ ${appUrl}
         setToastMsg('تم إخلاء وتصميم هيكل العمارة بنجاح.');
         return;
       }
+
       const newResidents: Resident[] = [];
       const presidentProfile = config?.adminResidentProfile;
       const presFlat = presidentProfile?.flatNumber || 207;
       let presidentAssigned = false;
 
-      // Existing residents map to preserve user-customized occupant names & phones if they exist
+      // Track processed IDs so no existing resident is lost
+      const processedIds = new Set<string>();
+
+      // Existing residents lookup map
       const existingMap = new Map<string, Resident>();
-      residents.forEach(r => existingMap.set(String(r.flatNumber).trim(), r));
+      residents.forEach(r => {
+        if (r && r.flatNumber !== undefined && r.flatNumber !== null) {
+          existingMap.set(String(r.flatNumber).trim(), r);
+        }
+      });
 
       localFloorConfigs.forEach((configItem, floorIndex) => {
         const unitFee = getDefaultFeeForActivity(configItem.activityType);
@@ -604,91 +627,107 @@ ${appUrl}
         floorUnits.forEach((unitId, j) => {
           const isPresidentUnit = isSameFlatNumber(unitId, presFlat);
           const unitStr = String(unitId).trim();
+          const existingRes = existingMap.get(unitStr) || residents.find(r => isSameFlatNumber(r.flatNumber, unitId));
 
           if (isPresidentUnit && presidentProfile) {
             presidentAssigned = true;
+            const presId = existingRes?.id || `res_president_${unitId}_${Date.now()}`;
+            processedIds.add(presId);
             newResidents.push({
-              id: existingMap.get(unitStr)?.id || `res_president_${unitId}_${Date.now()}`,
+              ...(existingRes || {}),
+              id: presId,
               flatNumber: unitId,
               name: (presidentProfile.name || 'وحيد سماحة').replace(/\s*\(رئيس الاتحاد\)/g, '').trim(),
               activityType: presidentProfile.activityType || configItem.activityType,
-              phone: presidentProfile.phone || existingMap.get(unitStr)?.phone || '',
+              phone: presidentProfile.phone || existingRes?.phone || '',
               notes: presidentProfile.notes || 'رئيس اتحاد الملاك',
               ownershipType: presidentProfile.ownershipType || 'تمليك',
-              tenantName: existingMap.get(unitStr)?.tenantName || '',
-              tenantPhone: existingMap.get(unitStr)?.tenantPhone || '',
+              tenantName: existingRes?.tenantName || '',
+              tenantPhone: existingRes?.tenantPhone || '',
               monthlyFee: presidentProfile.monthlyFee !== undefined && Number(presidentProfile.monthlyFee) > 0 
                 ? Number(presidentProfile.monthlyFee) 
-                : unitFee,
-              initialBalance: presidentProfile.initialBalance !== undefined ? Number(presidentProfile.initialBalance) : (existingMap.get(unitStr)?.initialBalance || 0),
-            });
-          } else if (existingMap.has(unitStr)) {
-            const existing = existingMap.get(unitStr)!;
+                : (existingRes?.monthlyFee || unitFee),
+              initialBalance: presidentProfile.initialBalance !== undefined ? Number(presidentProfile.initialBalance) : (existingRes?.initialBalance || 0),
+            } as Resident);
+          } else if (existingRes) {
+            // SAFE MERGE: Keep 100% of existing resident properties!
+            processedIds.add(String(existingRes.id));
             newResidents.push({
-              ...existing,
+              ...existingRes,
               flatNumber: unitId,
-              monthlyFee: existing.monthlyFee || unitFee,
+              activityType: existingRes.activityType || configItem.activityType,
+              monthlyFee: existingRes.monthlyFee || unitFee,
             });
           } else {
-            const matchedResident = residents.find(r => isSameFlatNumber(r.flatNumber, unitId));
-            if (matchedResident) {
-              newResidents.push({
-                ...matchedResident,
-                flatNumber: unitId,
-                monthlyFee: matchedResident.monthlyFee || unitFee,
-              });
-            } else {
-              newResidents.push({
-                id: `res_gen_${unitId}_${Date.now()}_${floorIndex}_${j}`,
-                flatNumber: unitId,
-                name: `شاغل ${configItem.activityType} ${unitId}`,
-                activityType: configItem.activityType,
-                phone: '',
-                notes: '',
-                ownershipType: 'تمليك',
-                tenantName: '',
-                tenantPhone: '',
-                monthlyFee: unitFee,
-                initialBalance: 0,
-              });
-            }
+            // Generate new placeholder resident slot for missing unit
+            const genId = `res_gen_${unitId}_${Date.now()}_${floorIndex}_${j}`;
+            processedIds.add(genId);
+            newResidents.push({
+              id: genId,
+              flatNumber: unitId,
+              name: `شاغل ${configItem.activityType} ${unitId}`,
+              activityType: configItem.activityType,
+              phone: '',
+              notes: '',
+              ownershipType: 'تمليك',
+              tenantName: '',
+              tenantPhone: '',
+              monthlyFee: unitFee,
+              initialBalance: 0,
+              email: `flat${unitId}@pyramids.com`,
+              password: `pyr${unitId}#2026`,
+              accountStatus: 'ACTIVE',
+            });
           }
         });
       });
 
-      // If president unit was not within generated standard loops, explicitly add their unit (e.g. 207)
+      // Explicitly add president profile if not assigned
       if (presidentProfile && !presidentAssigned) {
         const presStr = String(presFlat).trim();
-        newResidents.push({
-          id: existingMap.get(presStr)?.id || `res_president_${presFlat}_${Date.now()}`,
-          flatNumber: presFlat,
-          name: (presidentProfile.name || 'وحيد سماحة').replace(/\s*\(رئيس الاتحاد\)/g, '').trim(),
-          activityType: presidentProfile.activityType || 'سكني',
-          phone: presidentProfile.phone || existingMap.get(presStr)?.phone || '',
-          notes: presidentProfile.notes || 'رئيس اتحاد الملاك',
-          ownershipType: presidentProfile.ownershipType || 'تمليك',
-          tenantName: existingMap.get(presStr)?.tenantName || '',
-          tenantPhone: existingMap.get(presStr)?.tenantPhone || '',
-          monthlyFee: presidentProfile.monthlyFee !== undefined && Number(presidentProfile.monthlyFee) > 0
-            ? Number(presidentProfile.monthlyFee)
-            : getDefaultFeeForActivity(presidentProfile.activityType || 'سكني'),
-          initialBalance: presidentProfile.initialBalance !== undefined ? Number(presidentProfile.initialBalance) : (existingMap.get(presStr)?.initialBalance || 0),
-        });
-        newResidents.sort((a, b) => compareFlatNumbers(a.flatNumber, b.flatNumber));
+        const existingPres = existingMap.get(presStr) || residents.find(r => isSameFlatNumber(r.flatNumber, presFlat));
+        const presId = existingPres?.id || `res_president_${presFlat}_${Date.now()}`;
+        if (!processedIds.has(presId)) {
+          processedIds.add(presId);
+          newResidents.push({
+            ...(existingPres || {}),
+            id: presId,
+            flatNumber: presFlat,
+            name: (presidentProfile.name || 'وحيد سماحة').replace(/\s*\(رئيس الاتحاد\)/g, '').trim(),
+            activityType: presidentProfile.activityType || 'سكني',
+            phone: presidentProfile.phone || existingPres?.phone || '',
+            notes: presidentProfile.notes || 'رئيس اتحاد الملاك',
+            ownershipType: presidentProfile.ownershipType || 'تمليك',
+            tenantName: existingPres?.tenantName || '',
+            tenantPhone: existingPres?.tenantPhone || '',
+            monthlyFee: presidentProfile.monthlyFee !== undefined && Number(presidentProfile.monthlyFee) > 0
+              ? Number(presidentProfile.monthlyFee)
+              : getDefaultFeeForActivity(presidentProfile.activityType || 'سكني'),
+            initialBalance: presidentProfile.initialBalance !== undefined ? Number(presidentProfile.initialBalance) : (existingPres?.initialBalance || 0),
+          } as Resident);
+        }
       }
+
+      // SAFEGUARD: Retain any existing resident whose unit was not in localFloorConfigs
+      residents.forEach(existingR => {
+        if (existingR && existingR.id && !processedIds.has(String(existingR.id))) {
+          processedIds.add(String(existingR.id));
+          newResidents.push(existingR);
+        }
+      });
+
+      newResidents.sort((a, b) => compareFlatNumbers(a.flatNumber, b.flatNumber));
 
       // 1. Instantly update building structure in React state and local cache
       onSetFloorConfigs(localFloorConfigs);
 
-      // 2. Instantly update generated residents list in React state and local cache
+      // 2. Instantly update merged residents list
       onSetAll(newResidents);
 
-      // 3. Immediately close modal and reset state so UI responds instantly (0s wait time)
       setShowConfigModal(false);
       setIsGenerating(false);
 
-      // 4. Toast notification confirming instant generation and background sync
-      setToastMsg(`تم توليد وتحديث كشف الوحدات (${newResidents.length} وحدة) بنجاح مع الحفظ الفوري! 🔥`);
+      setToastMsg(`تم دمج وتوليد الوحدات (${newResidents.length} وحدة) مع الحفاظ الكامل على بيانات كافة السكان الحالية! 🔥`);
       setTimeout(() => setToastMsg(null), 8000);
     } catch (err: any) {
       alert('حدث خطأ أثناء التوليد: ' + (err?.message || 'خطأ غير معروف'));
@@ -2034,13 +2073,19 @@ ${appUrl}
               </div>
             </div>
 
+            {/* Safety Notice Banner */}
+            <div className="p-3 bg-emerald-50/80 border border-emerald-200/80 rounded-2xl flex items-center gap-2 mb-3 text-[11px] text-emerald-950 font-bold">
+              <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>حفظ الهيكل آمن 100%: يتم الاحتفاظ بكافة بيانات السكان والأسماء والديون والمدفوعات الحالية دون أي مسح أو تغيير!</span>
+            </div>
+
             {/* Modal Actions */}
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-2.5 pt-4 border-t border-slate-100">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-2.5 pt-3 border-t border-slate-100">
               <div className="flex items-center gap-2 w-full sm:w-auto">
                 <button 
                   type="button"
                   onClick={() => setShowConfigModal(false)}
-                  className="px-4 py-2 text-slate-500 hover:text-slate-800 font-bold text-xs hover:bg-slate-100 rounded-xl transition cursor-pointer"
+                  className="px-3.5 py-2 text-slate-500 hover:text-slate-800 font-bold text-xs hover:bg-slate-100 rounded-xl transition cursor-pointer"
                 >
                   إلغاء
                 </button>
@@ -2049,38 +2094,51 @@ ${appUrl}
                   <button
                     type="button"
                     onClick={() => {
-                      if (confirm('هل أنت تأكد من إخلاء ومسح جميع أدوار وهيكل العمارة الحالي؟')) {
+                      if (confirm('هل أنت تأكد من تفريغ كافة الأدوار من شاشة التصميم الحالية؟')) {
                         setLocalFloorConfigs([]);
                       }
                     }}
                     className="px-3 py-2 text-rose-600 hover:text-rose-800 hover:bg-rose-50 border border-rose-200 rounded-xl font-bold text-xs transition flex items-center gap-1 cursor-pointer"
-                    title="تفريغ ومسح الهيكل بالكامل لتصميمه من جديد"
+                    title="تفريغ شاشة التعديل"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
-                    <span>تفريغ الهيكل بالكامل</span>
+                    <span>تفريغ الشاشة</span>
                   </button>
                 )}
               </div>
 
-              <button 
-                type="button"
-                disabled={isGenerating}
-                onClick={handleGenerateBuilding}
-                className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2.5 bg-blue-900 text-white hover:bg-blue-950 disabled:opacity-50 rounded-xl font-black text-xs transition shadow-md active:scale-[0.98] cursor-pointer"
-                title="حفظ هيكل العمارة وتوليد كشف الوحدات والسكان معاً مع الحفظ الفوري والتنظيف على Firebase"
-              >
-                {isGenerating ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 text-amber-300 animate-spin" />
-                    <span>جاري التوليد والحفظ في Firebase...</span>
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                    <span>توليد كشف وحدات (حفظ فوري)</span>
-                  </>
-                )}
-              </button>
+              <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
+                <button 
+                  type="button"
+                  disabled={isGenerating}
+                  onClick={handleSaveStructureOnly}
+                  className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white disabled:opacity-50 rounded-xl font-black text-xs transition shadow-md active:scale-[0.98] cursor-pointer"
+                  title="حفظ هيكل العمارة والتصميم فقط دون أي مساس ببيانات السكان"
+                >
+                  <ShieldCheck className="w-4 h-4 text-emerald-300" />
+                  <span>حفظ الهيكل فقط (دون المساس بالسكان)</span>
+                </button>
+
+                <button 
+                  type="button"
+                  disabled={isGenerating}
+                  onClick={handleGenerateBuilding}
+                  className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-4 py-2.5 bg-blue-900 text-white hover:bg-blue-950 disabled:opacity-50 rounded-xl font-black text-xs transition shadow-md active:scale-[0.98] cursor-pointer"
+                  title="دمج وتوليد الوحدات الجديدة مع الحفاظ الكامل على السكان الحالية"
+                >
+                  {isGenerating ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 text-amber-300 animate-spin" />
+                      <span>جاري المعالجة...</span>
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="w-4 h-4 text-blue-200" />
+                      <span>توليد ودمج كشف الوحدات</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>

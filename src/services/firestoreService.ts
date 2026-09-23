@@ -181,28 +181,13 @@ export async function deleteResidentFromFirestore(id: string): Promise<void> {
   offlineSync.saveCachedData(cacheKey, list);
 }
 
-export async function saveBatchResidentsToFirestore(residents: Resident[], oldResidents?: Resident[]): Promise<void> {
+export async function saveBatchResidentsToFirestore(residents: Resident[]): Promise<void> {
   const cacheKey = getBuildingCacheKey('residents');
   // Update local cache immediately for instant UI feedback
   offlineSync.saveCachedData(cacheKey, residents);
 
   try {
-    const newIdsSet = new Set(residents.map(r => String(r.id)));
-    const newFlatsSet = new Set(residents.map(r => String(r.flatNumber).trim()));
-
-    // 1. Collect deleted units in memory from oldResidents diff
-    const deleteDocRefs: any[] = [];
-    if (oldResidents && oldResidents.length > 0) {
-      oldResidents.forEach(oldRes => {
-        const oldId = String(oldRes.id);
-        const oldFlat = String(oldRes.flatNumber).trim();
-        if (!newIdsSet.has(oldId) && !newFlatsSet.has(oldFlat)) {
-          deleteDocRefs.push(getBuildingDocRef('residents', oldId));
-        }
-      });
-    }
-
-    // 2. Prepare set operations
+    // Prepare set operations
     const setOps = residents.map(res => {
       const cleanId = String(res.id || `res_${res.flatNumber}`);
       return {
@@ -211,16 +196,8 @@ export async function saveBatchResidentsToFirestore(residents: Resident[], oldRe
       };
     });
 
-    // 3. Process commits in small chunk sizes (150 ops max per batch)
+    // Process commits in small chunk sizes (150 ops max per batch)
     const CHUNK_SIZE = 150;
-
-    // Process deletes
-    for (let i = 0; i < deleteDocRefs.length; i += CHUNK_SIZE) {
-      const batch = writeBatch(db);
-      const chunk = deleteDocRefs.slice(i, i + CHUNK_SIZE);
-      chunk.forEach(ref => batch.delete(ref));
-      await batch.commit().catch(err => console.warn('Delete batch commit warning:', err));
-    }
 
     // Process sets
     for (let i = 0; i < setOps.length; i += CHUNK_SIZE) {

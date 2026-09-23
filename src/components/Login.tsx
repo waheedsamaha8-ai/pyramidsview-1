@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../services/firebaseConfig';
 import { collection, getDocs } from 'firebase/firestore';
-import { googleSignIn, logoutUser, applyCustomFirebaseConfig } from '../services/firebaseConfig';
+import { googleSignIn, logoutUser, applyCustomFirebaseConfig, checkRedirectResult } from '../services/firebaseConfig';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { 
   loginWithEmail, 
@@ -82,9 +82,9 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     bName?: string;
   }>({ isOpen: false, type: 'all' });
 
-  // Fetch registered buildings on mount
+  // Fetch registered buildings on mount & check mobile redirect Google sign-in
   useEffect(() => {
-    const loadBuildings = async () => {
+    const loadBuildingsAndAuth = async () => {
       try {
         const list = await getAllBuildings();
         setBuildings(list);
@@ -97,11 +97,17 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
             setActiveBuilding(list[0]);
           }
         }
+
+        // Check if user returned from mobile Google redirect sign-in
+        const redirectRes = await checkRedirectResult();
+        if (redirectRes) {
+          await processGoogleUserSession(redirectRes.user, redirectRes.accessToken);
+        }
       } catch (err) {
-        console.warn('Error loading buildings list:', err);
+        console.warn('Error loading buildings or checking redirect result:', err);
       }
     };
-    loadBuildings();
+    loadBuildingsAndAuth();
   }, []);
 
   // Update active building when user selects from dropdown
@@ -387,6 +393,138 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     }
   };
 
+  // Process Google User Session (supports both Popup and Redirect flows)
+  const processGoogleUserSession = async (user: any, accessToken: string) => {
+    const email = user.email?.toLowerCase().trim() || '';
+    if (!email) return;
+
+    setLoading(true);
+    setError(null);
+    try {
+      // 1. Fetch all buildings in local storage and Firestore
+      let allBuildingsList = await getAllBuildings();
+      let matchedBuilding = allBuildingsList.find(b => 
+        (b.presidentEmail && b.presidentEmail.toLowerCase().trim() === email) ||
+        (b.googleDriveBackupEmail && b.googleDriveBackupEmail.toLowerCase().trim() === email) ||
+        (b.config && b.config.admins && Array.isArray(b.config.admins) && b.config.admins.some((a: string) => a.toLowerCase().trim() === email))
+      );
+
+      // Search Firestore directly if not found in memory
+      if (!matchedBuilding) {
+        try {
+          const colRef = collection(db, 'buildings');
+          const snapshot = await getDocs(colRef);
+          const fsBuildings: BuildingType[] = [];
+          snapshot.forEach(docSnap => {
+            if (docSnap.exists()) {
+              const bData = docSnap.data() as BuildingType;
+              if (bData && bData.id) fsBuildings.push(bData);
+            }
+          });
+          matchedBuilding = fsBuildings.find(b => 
+            (b.presidentEmail && b.presidentEmail.toLowerCase().trim() === email) ||
+            (b.googleDriveBackupEmail && b.googleDriveBackupEmail.toLowerCase().trim() === email) ||
+            (b.config && b.config.admins && Array.isArray(b.config.admins) && b.config.admins.some((a: string) => a.toLowerCase().trim() === email))
+          );
+          if (fsBuildings.length > 0) {
+            setBuildings(fsBuildings);
+            allBuildingsList = fsBuildings;
+          }
+        } catch (fsErr) {
+          console.warn('Notice querying Firestore for buildings on Google Sign In:', fsErr);
+        }
+      }
+
+      // If portal mode is PRESIDENT or user is logging in as president and there's 1 registered building, adopt that building if presidentEmail wasn't set yet
+      if (!matchedBuilding && allBuildingsList.length === 1 && portalMode === 'PRESIDENT') {
+        matchedBuilding = allBuildingsList[0];
+        matchedBuilding.presidentEmail = email;
+        setActiveBuilding(matchedBuilding);
+      }
+
+      if (matchedBuilding) {
+        setActiveBuilding(matchedBuilding);
+        const adminUser = {
+          ...user,
+          role: 'ADMIN',
+          buildingId: matchedBuilding.id,
+          buildingName: matchedBuilding.name,
+          email: email,
+          displayName: user.displayName || matchedBuilding.presidentName || 'رئيس الاتحاد'
+        };
+        localStorage.setItem('custom_user_session', JSON.stringify(adminUser));
+        localStorage.setItem('user_role', 'ADMIN');
+        localStorage.setItem('app_user_role', 'ADMIN');
+        onLoginSuccess(adminUser, accessToken);
+        return;
+      }
+
+      // 2. Check join requests for residents
+      const requests = await fetchAllJoinRequests();
+      const match = requests.find((r: any) => r.email && r.email.toLowerCase().trim() === email);
+      
+      if (match) {
+        if (match.status === 'APPROVED') {
+          localStorage.setItem('resident_flat_number', match.flatNumber.toString());
+          const currentB = getActiveBuilding();
+          const residentUser = {
+            ...user,
+            role: 'RESIDENT',
+            flatNumber: match.flatNumber,
+            buildingId: currentB.id,
+            buildingName: currentB.name,
+            email: email,
+            displayName: user.displayName || `ساكن شقة ${match.flatNumber}`
+          };
+          localStorage.setItem('custom_user_session', JSON.stringify(residentUser));
+          localStorage.setItem('user_role', 'RESIDENT');
+          localStorage.setItem('app_user_role', 'RESIDENT');
+          onLoginSuccess(residentUser, accessToken);
+          return;
+        } else if (match.status === 'PENDING') {
+          await logoutUser();
+          setError('طلب الانضمام الخاص بك قيد المراجعة حالياً من قبل إدارة اتحاد الملاك. يرجى المحاولة لاحقاً بمجرد الاعتماد.');
+          return;
+        } else if (match.status === 'DECLINED') {
+          await logoutUser();
+          setError('معذرةً، لقد تم رفض طلب الانضمام الخاص بك. يرجى التواصل مع إدارة الملاك.');
+          return;
+        }
+      }
+
+      // 3. Fallback: If no building or join request matched, but user is logged in via Google
+      // If there's an active building or buildings list, allow logging in as President with current building!
+      const fallbackBuilding = getActiveBuilding();
+      if (fallbackBuilding && fallbackBuilding.id) {
+        setActiveBuilding(fallbackBuilding);
+        const sessionUser = {
+          ...user,
+          role: 'ADMIN',
+          buildingId: fallbackBuilding.id,
+          buildingName: fallbackBuilding.name,
+          email: email,
+          displayName: user.displayName || 'رئيس الاتحاد'
+        };
+        localStorage.setItem('custom_user_session', JSON.stringify(sessionUser));
+        localStorage.setItem('user_role', 'ADMIN');
+        localStorage.setItem('app_user_role', 'ADMIN');
+        onLoginSuccess(sessionUser, accessToken);
+        return;
+      }
+
+      // If user is not yet registered in any building at all, guide them to register their union
+      setTopTab('REGISTER_BUILDING');
+      setNewPresidentEmail(email);
+      setNewPresidentName(user.displayName || '');
+      setSuccessMessage(`مرحباً بك (${user.displayName || email})! تم ربط حساب Google بنجاح. يرجى إدخال اسم العمارة وكلمة المرور الإدارية لإنشاء اتحاد الملاك الخاص بك.`);
+    } catch (err: any) {
+      console.error('Error processing Google session:', err);
+      setError(err?.message || 'خطأ أثناء إكمال تسجيل الدخول بحساب Google.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // --------------------------------------------------------------------------
   // 3. GOOGLE SIGN-IN HANDLER (MULTI-TENANT AWARE)
   // --------------------------------------------------------------------------
@@ -396,86 +534,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     try {
       const result = await googleSignIn();
       if (result) {
-        const { user, accessToken } = result;
-        const email = user.email?.toLowerCase().trim() || '';
-
-        // 1. Check if email is a registered President or Admin of any building
-        let allBuildingsList = await getAllBuildings();
-        let matchedBuilding = allBuildingsList.find(b => b.presidentEmail && b.presidentEmail.toLowerCase().trim() === email);
-
-        // If not found in cache/state, search Firestore directly
-        if (!matchedBuilding) {
-          try {
-            const colRef = collection(db, 'buildings');
-            const snapshot = await getDocs(colRef);
-            const fsBuildings: BuildingType[] = [];
-            snapshot.forEach(docSnap => {
-              if (docSnap.exists()) {
-                const bData = docSnap.data() as BuildingType;
-                if (bData && bData.id) fsBuildings.push(bData);
-              }
-            });
-            matchedBuilding = fsBuildings.find(b => b.presidentEmail && b.presidentEmail.toLowerCase().trim() === email);
-            if (fsBuildings.length > 0) {
-              setBuildings(fsBuildings);
-            }
-          } catch (fsErr) {
-            console.warn('Notice querying Firestore for buildings on Google Sign In:', fsErr);
-          }
-        }
-
-        if (matchedBuilding) {
-          setActiveBuilding(matchedBuilding);
-          (user as any).role = 'ADMIN';
-          (user as any).buildingId = matchedBuilding.id;
-          (user as any).buildingName = matchedBuilding.name;
-          localStorage.setItem('custom_user_session', JSON.stringify({ 
-            ...user, 
-            role: 'ADMIN',
-            buildingId: matchedBuilding.id,
-            buildingName: matchedBuilding.name
-          }));
-          onLoginSuccess(user, accessToken);
-          return;
-        }
-
-        // 2. Check join requests for residents
-        const requests = await fetchAllJoinRequests();
-        const match = requests.find((r: any) => r.email.toLowerCase().trim() === email);
-        
-        if (match) {
-          if (match.status === 'APPROVED') {
-            localStorage.setItem('resident_flat_number', match.flatNumber.toString());
-            const currentB = getActiveBuilding();
-            (user as any).role = 'RESIDENT';
-            (user as any).flatNumber = match.flatNumber;
-            (user as any).buildingId = currentB.id;
-            (user as any).buildingName = currentB.name;
-            localStorage.setItem('custom_user_session', JSON.stringify({ 
-              ...user, 
-              role: 'RESIDENT', 
-              flatNumber: match.flatNumber,
-              buildingId: currentB.id,
-              buildingName: currentB.name
-            }));
-            onLoginSuccess(user, accessToken);
-            return;
-          } else if (match.status === 'PENDING') {
-            await logoutUser();
-            setError('طلب الانضمام الخاص بك قيد المراجعة حالياً من قبل إدارة اتحاد الملاك. يرجى المحاولة لاحقاً بمجرد الاعتماد.');
-            return;
-          } else if (match.status === 'DECLINED') {
-            await logoutUser();
-            setError('معذرةً، لقد تم رفض طلب الانضمام الخاص بك. يرجى التواصل مع إدارة الملاك.');
-            return;
-          }
-        }
-
-        // If user is not yet registered in any building, guide them to register their union
-        setTopTab('REGISTER_BUILDING');
-        setNewPresidentEmail(email);
-        setNewPresidentName(user.displayName || '');
-        setSuccessMessage(`مرحباً بك (${user.displayName || email})! تم ربط حساب Google بنجاح. يرجى إدخال اسم العمارة وكلمة المرور الإدارية لإنشاء اتحاد الملاك الخاص بك.`);
+        await processGoogleUserSession(result.user, result.accessToken);
       }
     } catch (err: any) {
       console.error('Google sign in error:', err);

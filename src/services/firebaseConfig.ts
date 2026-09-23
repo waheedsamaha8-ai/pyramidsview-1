@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, User } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChanged, User } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import defaultConfig from '../../firebase-applet-config.json';
 
@@ -154,11 +154,52 @@ export const initAuth = (
   });
 };
 
+// Check if user returned from Google Redirect Sign In
+export const checkRedirectResult = async (): Promise<{ user: User; accessToken: string } | null> => {
+  try {
+    const result = await getRedirectResult(auth);
+    if (result && result.user) {
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      const token = credential?.accessToken || (await result.user.getIdToken());
+      cachedAccessToken = token;
+      try {
+        localStorage.setItem('google_access_token', token);
+      } catch {}
+      return { user: result.user, accessToken: token };
+    }
+  } catch (err) {
+    console.warn('Redirect result check notice:', err);
+  }
+  return null;
+};
+
 // Call from button click
 export const googleSignIn = async (): Promise<{ user: User; accessToken: string } | null> => {
   try {
     isSigningIn = true;
-    const result = await signInWithPopup(auth, googleProvider);
+    let result = null;
+    const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
+    try {
+      result = await signInWithPopup(auth, googleProvider);
+    } catch (popupErr: any) {
+      console.warn('signInWithPopup notice:', popupErr);
+      const code = String(popupErr?.code || popupErr?.message || '');
+      if (
+        isMobileDevice ||
+        code.includes('popup-blocked') ||
+        code.includes('popup-closed-by-user') ||
+        code.includes('cancelled-popup-request')
+      ) {
+        // Fallback to redirect flow for mobile web
+        await signInWithRedirect(auth, googleProvider);
+        return null;
+      }
+      throw popupErr;
+    }
+
+    if (!result) return null;
+
     const credential = GoogleAuthProvider.credentialFromResult(result);
     const token = credential?.accessToken || (await result.user.getIdToken());
 
