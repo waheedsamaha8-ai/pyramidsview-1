@@ -963,7 +963,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
               </span>
             </div>
 
-            <form onSubmit={handleSaveCustomFb} className="space-y-3">
+             <form onSubmit={handleSaveCustomFb} className="space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] font-black text-slate-700 mb-1">
@@ -990,32 +990,6 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                     onChange={(e) => setCustomFbConfig({ ...customFbConfig, apiKey: e.target.value })}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 focus:bg-white rounded-xl text-xs font-mono font-bold outline-none text-left"
                     required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-black text-slate-700 mb-1">
-                    نطاق المصادقة (Auth Domain) - اختياري
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="project-id.firebaseapp.com"
-                    value={customFbConfig.authDomain || ''}
-                    onChange={(e) => setCustomFbConfig({ ...customFbConfig, authDomain: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 focus:bg-white rounded-xl text-xs font-mono font-bold outline-none text-left"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-black text-slate-700 mb-1">
-                    معرف التطبيق (App ID) - اختياري
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="1:1023456789:web:abcdef..."
-                    value={customFbConfig.appId || ''}
-                    onChange={(e) => setCustomFbConfig({ ...customFbConfig, appId: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 focus:bg-white rounded-xl text-xs font-mono font-bold outline-none text-left"
                   />
                 </div>
               </div>

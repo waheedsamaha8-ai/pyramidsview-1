@@ -255,6 +255,33 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     }).catch(() => {});
   };
 
+  const handleEnterDemoMode = async () => {
+    setLoading(true);
+    setError(null);
+    setSuccessMessage(null);
+    try {
+      const result = await registerNewUnionBuilding({
+        buildingName: "اتحاد تجريبي (الوضع التجريبي)",
+        buildingAddress: "برج الأهرامات التجريبي",
+        presidentName: "مدير النظام التجريبي",
+        presidentEmail: "demo@pyramidsview.com",
+        presidentPhone: "01000000000",
+        adminPassword: "demo123",
+      });
+
+      localStorage.removeItem('custom_firebase_config');
+
+      setSuccessMessage("مرحباً بك في الوضع التجريبي! تم إنشاء مشروع اتحاد تجريبي خالٍ من البيانات لتجربة كافة الخصائص...");
+      setTimeout(() => {
+        onLoginSuccess(result.userSession, 'local-token');
+      }, 500);
+    } catch (err: any) {
+      setError(err.message || 'حدث خطأ أثناء الدخول للوضع التجريبي.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // --------------------------------------------------------------------------
   // 1. REGISTER NEW UNION / BUILDING HANDLER
   // --------------------------------------------------------------------------
@@ -295,8 +322,6 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         localStorage.setItem('custom_firebase_config', JSON.stringify({
           projectId: customFbProjectId.trim(),
           apiKey: customFbApiKey.trim(),
-          authDomain: customFbAuthDomain.trim() || undefined,
-          appId: customFbAppId.trim() || undefined,
         }));
       }
 
@@ -858,32 +883,6 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                         className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl font-mono text-left font-bold outline-none focus:border-orange-500 dark:text-white"
                       />
                     </div>
-
-                    <div>
-                      <label className="block text-[11px] font-extrabold text-slate-700 dark:text-slate-300 mb-1">
-                        نطاق المصادقة (Auth Domain - اختياري)
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="project-id.firebaseapp.com"
-                        value={customFbAuthDomain}
-                        onChange={(e) => setCustomFbAuthDomain(e.target.value)}
-                        className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl font-mono text-left font-bold outline-none focus:border-orange-500 dark:text-white"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-extrabold text-slate-700 dark:text-slate-300 mb-1">
-                        معرف التطبيق (App ID - اختياري)
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="1:1023456789:web:abcdef..."
-                        value={customFbAppId}
-                        onChange={(e) => setCustomFbAppId(e.target.value)}
-                        className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl font-mono text-left font-bold outline-none focus:border-orange-500 dark:text-white"
-                      />
-                    </div>
                   </div>
                 </div>
               )}
@@ -939,17 +938,38 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                 </div>
               </div>
             ) : (
-              <div className="p-3 bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200/70 dark:border-blue-900/40 rounded-2xl flex items-center justify-between text-xs">
-                <span className="text-blue-950 dark:text-blue-200 font-bold">
-                  سجل الدخول مباشرة ببريدك وكلمة المرور
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setTopTab('REGISTER_BUILDING')}
-                  className="text-emerald-700 dark:text-emerald-400 font-black hover:underline cursor-pointer text-[11px]"
-                >
-                  + تسجيل اتحاد جديد
-                </button>
+              <div className="space-y-3">
+                <div className="p-3 bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200/70 dark:border-blue-900/40 rounded-2xl flex items-center justify-between text-xs">
+                  <span className="text-blue-950 dark:text-blue-200 font-bold">
+                    سجل الدخول مباشرة ببريدك وكلمة المرور
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setTopTab('REGISTER_BUILDING')}
+                    className="text-emerald-700 dark:text-emerald-400 font-black hover:underline cursor-pointer text-[11px]"
+                  >
+                    + تسجيل اتحاد جديد
+                  </button>
+                </div>
+
+                {/* Gorgeous Demo Mode Enter Banner */}
+                <div className="p-4 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/20 dark:to-orange-950/20 border-2 border-amber-200 dark:border-amber-900/40 rounded-2xl text-center space-y-3 shadow-xs">
+                  <div className="flex items-center justify-center gap-1.5 text-amber-950 dark:text-amber-100 font-extrabold text-xs">
+                    <Sparkles className="w-4 h-4 text-amber-500 shrink-0 animate-pulse" />
+                    <span>تصفح التطبيق في الوضع التجريبي فوراً!</span>
+                  </div>
+                  <p className="text-[10px] sm:text-[11px] text-slate-600 dark:text-slate-300 font-bold leading-relaxed">
+                    إذا لم يكن لديك اتحاد مسجل حالياً وتريد تجربة النظام، يمكنك الدخول فوراً في الوضع التجريبي الخالي من البيانات وتصفح كافة الخصائص والميزات.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleEnterDemoMode}
+                    className="w-full py-2.5 px-4 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 active:from-amber-700 active:to-orange-700 text-white font-black text-xs rounded-xl transition cursor-pointer shadow-xs flex items-center justify-center gap-1.5"
+                  >
+                    <LogIn className="w-4 h-4" />
+                    <span>الدخول المباشر في الوضع التجريبي (بدون بيانات مخزنة) 🚀</span>
+                  </button>
+                </div>
               </div>
             )}
 
@@ -961,7 +981,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                   setPortalMode('PRESIDENT');
                   setError(null);
                   setSuccessMessage(null);
-                  if (currentActiveBuilding.presidentEmail) {
+                  if (currentActiveBuilding?.presidentEmail) {
                     setLoginEmail(currentActiveBuilding.presidentEmail);
                   } else {
                     setLoginEmail('');

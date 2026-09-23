@@ -19,7 +19,10 @@ export function getActiveFirebaseConfig(): CustomFirebaseConfig {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && parsed.projectId && parsed.apiKey) {
-        return parsed;
+        return {
+          ...parsed,
+          authDomain: parsed.authDomain || `${parsed.projectId}.firebaseapp.com`
+        };
       }
     }
   } catch {}
