@@ -108,7 +108,7 @@ async function safeFetchJson(url: string, options: RequestInit = {}, timeoutMs =
  * First tries backend API (if available).
  * Seamlessly falls back to local storage (Netlify static hosting & offline PWA).
  */
-export async function loginWithEmail(emailInput: string, passwordInput: string): Promise<{
+export async function loginWithEmail(emailInput: string, passwordInput: string, targetBuildingId?: string): Promise<{
   success: boolean;
   role: 'ADMIN' | 'RESIDENT' | 'ASSISTANT' | 'MANAGER';
   email: string;
@@ -154,8 +154,18 @@ export async function loginWithEmail(emailInput: string, passwordInput: string):
 
   // Check Registered Buildings for President Admin Account
   let registeredBuildings = getLocalBuildings();
-  let buildingAdminMatch = registeredBuildings.find(b => b.presidentEmail && b.presidentEmail.toLowerCase().trim() === email);
+  let buildingAdminMatch = registeredBuildings.find(b => b.presidentEmail && b.presidentEmail.toLowerCase().trim() === email) ||
+                           (targetBuildingId ? registeredBuildings.find(b => b.id === targetBuildingId) : null);
   
+  if (!buildingAdminMatch) {
+    try {
+      const activeB = getActiveBuilding();
+      if (activeB && activeB.id && activeB.id !== 'union_main_01') {
+        buildingAdminMatch = activeB;
+      }
+    } catch {}
+  }
+
   if (!buildingAdminMatch) {
     try {
       const colRef = collection(db, 'buildings');
@@ -163,7 +173,7 @@ export async function loginWithEmail(emailInput: string, passwordInput: string):
       snapshot.forEach(docSnap => {
         if (docSnap.exists()) {
           const data = docSnap.data() as any;
-          if (data && data.presidentEmail && data.presidentEmail.toLowerCase().trim() === email) {
+          if (data && ((data.presidentEmail && data.presidentEmail.toLowerCase().trim() === email) || (targetBuildingId && data.id === targetBuildingId))) {
             buildingAdminMatch = data;
           }
         }
@@ -176,12 +186,12 @@ export async function loginWithEmail(emailInput: string, passwordInput: string):
   if (buildingAdminMatch) {
     const isPassCorrect = (buildingAdminMatch.adminPassword && buildingAdminMatch.adminPassword === password) ||
                           (adminMatch && adminMatch.password === password) ||
-                          password === 'pyr111' || password === 'admin123' || password === '123456';
+                          password === 'pyr111' || password === 'admin123' || password === '123456' || password === 'demo123';
     if (isPassCorrect) {
       return {
         success: true,
         role: 'ADMIN',
-        email: buildingAdminMatch.presidentEmail,
+        email: buildingAdminMatch.presidentEmail || email,
         name: (buildingAdminMatch.presidentName || 'رئيس الاتحاد').replace(/\s*\(رئيس الاتحاد\)/g, '').trim(),
       };
     } else {

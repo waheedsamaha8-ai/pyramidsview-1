@@ -182,32 +182,31 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
     isSigningIn = true;
     let result: any = null;
     const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-
-    // On mobile devices, directly use redirect flow to avoid popup blockers and COOP severance
-    if (isMobileDevice) {
-      await signInWithRedirect(auth, googleProvider);
-      return null;
-    }
+    const isStandalone = typeof window !== 'undefined' && (
+      Boolean((window.navigator as any).standalone) ||
+      window.matchMedia('(display-mode: standalone)').matches
+    );
 
     try {
-      // Race popup with 12s timeout to prevent infinite hang if browser COOP blocks window.closed
+      // Race popup with 10s timeout to prevent infinite hang if browser COOP blocks window.closed
       const popupPromise = signInWithPopup(auth, googleProvider);
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('POPUP_COOP_TIMEOUT')), 12000)
+        setTimeout(() => reject(new Error('POPUP_COOP_TIMEOUT')), 10000)
       );
       result = await Promise.race([popupPromise, timeoutPromise]);
     } catch (popupErr: any) {
       console.warn('signInWithPopup notice:', popupErr);
       const code = String(popupErr?.code || popupErr?.message || '');
-      if (
+      
+      // If popup was blocked or timed out, and NOT in standalone PWA, attempt redirect flow
+      if (!isStandalone && (
         code.includes('POPUP_COOP_TIMEOUT') ||
         code.includes('popup-blocked') ||
         code.includes('popup-closed-by-user') ||
         code.includes('cancelled-popup-request') ||
         code.includes('Cross-Origin')
-      ) {
-        // Fallback to redirect flow for browser environments with popup or COOP restrictions
-        console.info('Switching to redirect flow due to popup/COOP restriction...');
+      )) {
+        console.info('Switching to redirect flow due to popup restriction...');
         await signInWithRedirect(auth, googleProvider);
         return null;
       }

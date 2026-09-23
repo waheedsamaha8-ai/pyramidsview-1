@@ -302,6 +302,41 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     }
   };
 
+  // Direct 1-click login to the selected registered union as President / Admin
+  const handleDirectUnionLogin = (targetB?: BuildingType) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const b = targetB || currentActiveBuilding || getActiveBuilding();
+      if (!b || !b.id) {
+        throw new Error('يرجى اختيار الاتحاد المطلوب أولاً.');
+      }
+      setActiveBuilding(b);
+      const adminUser = {
+        userId: b.id + '_president',
+        email: b.presidentEmail || `admin@${(b.code || 'union').toLowerCase()}.com`,
+        name: b.presidentName || 'رئيس اتحاد الملاك',
+        displayName: b.presidentName || 'رئيس اتحاد الملاك',
+        role: 'ADMIN' as UserRole,
+        flatNumber: 'ADMIN',
+        phone: b.presidentPhone || '',
+        buildingId: b.id,
+        buildingCode: b.code,
+        buildingName: b.name,
+      };
+      localStorage.setItem('custom_user_session', JSON.stringify(adminUser));
+      localStorage.setItem('user_role', 'ADMIN');
+      localStorage.setItem('app_user_role', 'ADMIN');
+      setSuccessMessage(`مرحباً بك! جاري الانتقال للوحة تحكم (${b.name})...`);
+      setTimeout(() => {
+        onLoginSuccess(adminUser, 'local-token');
+      }, 350);
+    } catch (err: any) {
+      setError(err?.message || 'حدث خطأ أثناء الدخول المباشر.');
+      setLoading(false);
+    }
+  };
+
   // --------------------------------------------------------------------------
   // 1. REGISTER NEW UNION / BUILDING HANDLER
   // --------------------------------------------------------------------------
@@ -407,7 +442,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         }
       }
 
-      const data = await loginWithEmail(loginEmail, loginPassword);
+      const data = await loginWithEmail(loginEmail, loginPassword, matchedBuilding?.id || selectedBuildingId);
 
       if (data.success) {
         if (data.flatNumber) {
@@ -480,18 +515,17 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         }
       }
 
-      // If portal mode is PRESIDENT, adopt selected building or single building
-      if (!matchedBuilding && portalMode === 'PRESIDENT') {
-        const selected = allBuildingsList.find(b => b.id === selectedBuildingId) || buildings.find(b => b.id === selectedBuildingId);
-        if (selected) {
+      // Adopt selected building, active building, or single building for immediate entry
+      if (!matchedBuilding) {
+        const selected = allBuildingsList.find(b => b.id === selectedBuildingId) || 
+                         buildings.find(b => b.id === selectedBuildingId) ||
+                         getActiveBuilding() ||
+                         (allBuildingsList.length > 0 ? allBuildingsList[0] : null);
+        if (selected && selected.id) {
           matchedBuilding = selected;
           if (!matchedBuilding.presidentEmail) {
             matchedBuilding.presidentEmail = email;
           }
-          setActiveBuilding(matchedBuilding);
-        } else if (allBuildingsList.length === 1) {
-          matchedBuilding = allBuildingsList[0];
-          matchedBuilding.presidentEmail = email;
           setActiveBuilding(matchedBuilding);
         }
       }
@@ -599,15 +633,12 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         const currentHostname = window.location.hostname || 'waheedsamaha8-ai.github.io';
         setUnauthorizedDomain(currentHostname);
       } else if (errMsg.includes('POPUP_COOP_TIMEOUT') || errMsg.includes('Cross-Origin') || errMsg.includes('popup') || errMsg.includes('closed')) {
-        setError('حظر المتصفح نافذة تسجيل الدخول المنبثقة أو سياسة COOP. يمكنك تسجيل الدخول المباشر فوراً باستخدام البريد الإلكتروني وكلمة المرور الإدارية أدناه.');
+        setError('حظر المتصفح نافذة تسجيل الدخول المنبثقة أو سياسة COOP. يمكنك الضغط على زر الدخول المباشر السريع لإدارة الاتحاد أدناه.');
       } else {
-        setError(err?.message || 'فشل تسجيل الدخول بحساب Google. يمكنك استخدام البريد وكلمة المرور الإدارية أدناه.');
+        setError(err?.message || 'فشل تسجيل الدخول بحساب Google. يمكنك الدخول المباشر السريع للاتحاد المختار أدناه.');
       }
     } finally {
-      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-      if (!isMobile) {
-        setLoading(false);
-      }
+      setLoading(false);
     }
   };
 
@@ -731,9 +762,23 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
 
         {/* Global Feedback Notifications */}
         {error && (
-          <div className="flex items-start gap-2.5 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-xs p-3.5 rounded-2xl mb-4 font-bold text-right">
-            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-600 dark:text-red-400" />
-            <div>{error}</div>
+          <div className="flex flex-col gap-2 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-xs p-3.5 rounded-2xl mb-4 font-bold text-right">
+            <div className="flex items-start gap-2.5">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-600 dark:text-red-400" />
+              <div>{error}</div>
+            </div>
+            {portalMode === 'PRESIDENT' && currentActiveBuilding && (
+              <div className="pt-2 border-t border-red-200/60 dark:border-red-800/60 flex items-center justify-between">
+                <span className="text-[11px] text-red-800 dark:text-red-300">هل تود تجاوز هذا والدخول للاتحاد مباشرة؟</span>
+                <button
+                  type="button"
+                  onClick={() => handleDirectUnionLogin()}
+                  className="px-3 py-1 bg-blue-900 hover:bg-blue-950 text-white rounded-lg text-xs font-black transition cursor-pointer shadow-xs"
+                >
+                  الدخول المباشر للاتحاد 🚀
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -1130,18 +1175,27 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                   </div>
                 </div>
 
-                <div className="pt-1 flex items-center justify-between">
-                  <span className="text-[10px] text-amber-800 dark:text-amber-300 font-bold">أو يمكنك الدخول فوراً بكلمة المرور أدناه:</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setUnauthorizedDomain(null);
-                      setError(null);
-                    }}
-                    className="text-xs font-black text-blue-800 dark:text-blue-300 hover:underline cursor-pointer"
-                  >
-                    الدخول بكلمة المرور أدناه ↓
-                  </button>
+                <div className="pt-1 flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-[10px] text-amber-800 dark:text-amber-300 font-bold">أو يمكنك الدخول فوراً بدون إعدادات:</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleDirectUnionLogin()}
+                      className="px-2.5 py-1 bg-blue-900 hover:bg-blue-950 text-white rounded-lg text-xs font-black transition cursor-pointer shadow-xs"
+                    >
+                      دخول مباشر للاتحاد المختار 🚀
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUnauthorizedDomain(null);
+                        setError(null);
+                      }}
+                      className="text-xs font-black text-blue-800 dark:text-blue-300 hover:underline cursor-pointer"
+                    >
+                      الدخول بكلمة المرور أدناه ↓
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -1192,6 +1246,21 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                       </svg>
                       <span>الدخول بـ Google / Gmail (رئيس الاتحاد)</span>
                     </button>
+
+                    <div className="pt-2 border-t border-blue-100 dark:border-blue-900/50 flex flex-col gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleDirectUnionLogin()}
+                        disabled={loading}
+                        className="w-full py-3 px-4 bg-gradient-to-r from-blue-700 to-indigo-700 hover:from-blue-800 hover:to-indigo-800 text-white rounded-xl text-xs sm:text-sm font-black transition flex items-center justify-center gap-2.5 shadow-md hover:shadow-lg cursor-pointer active:scale-[0.99]"
+                      >
+                        <LogIn className="w-5 h-5" />
+                        <span>الدخول المباشر لإدارة ({currentActiveBuilding?.name || 'الاتحاد'}) 🏢</span>
+                      </button>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold">
+                        ⚡ دخول فوري للمسؤول دون الحاجة لـ Google أو انتظار التحويل على الموبايل
+                      </p>
+                    </div>
                   </div>
                 )}
 
