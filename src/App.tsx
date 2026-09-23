@@ -3326,7 +3326,7 @@ export default function App() {
             <div className="text-right">
               <h3 className="font-extrabold text-xs sm:text-sm mb-0.5 flex items-center gap-1.5">
                 <Smartphone className="w-4 h-4 text-emerald-400" />
-                <span>تثبيت تطبيق {config?.buildingName || localStorage.getItem('active_building_name') || 'اتحاد الملاك'}</span>
+                <span>تثبيت تطبيق "العمارة" - {config?.buildingName || localStorage.getItem('active_building_name') || 'إدارة الملاك'}</span>
               </h3>
               <p className="text-[10px] sm:text-xs text-indigo-200">ثبّت التطبيق على شاشة جوالك الرئيسية لاستخدام سريع ومباشر وإمكانية العمل بدون إنترنت.</p>
             </div>

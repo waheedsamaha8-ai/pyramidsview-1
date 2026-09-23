@@ -19,9 +19,9 @@ export default defineConfig(({ mode }) => {
         includeAssets: ['apple-touch-icon.png', 'icon.svg', 'pwa-192x192.png', 'pwa-512x512.png', '.nojekyll', '404.html'],
         manifest: {
           id: './',
-          name: 'اتحاد ملاك بيراميدز فيو ١ - رئيس الاتحاد وحيد سماحة',
-          short_name: 'بيراميدز فيو ١',
-          description: 'نظام ذكي متكامل لإدارة عمارة بيراميدز فيو ١ ومتابعة الاشتراكات والتحصيلات والمصروفات - رئيس الاتحاد وحيد سماحة.',
+          name: 'تطبيق العمارة - نظام إدارة الملاك والعقارات',
+          short_name: 'العمارة',
+          description: 'تطبيق العمارة - نظام ذكي متكامل لإدارة العمارة واتحادات الملاك ومتابعة الاشتراكات والتحصيلات والمصروفات.',
           theme_color: '#1e3a8a',
           background_color: '#f8fafc',
           display: 'standalone',
