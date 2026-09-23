@@ -488,8 +488,10 @@ export async function saveChatMessageToFirestore(msg: ChatMessage): Promise<void
   }
   const cacheKey = getBuildingCacheKey('chat_messages');
   let list = offlineSync.getCachedData<ChatMessage[]>(cacheKey) || [];
-  list.push(payload);
-  offlineSync.saveCachedData(cacheKey, list);
+  if (!list.some(m => m && String(m.id) === String(cleanId))) {
+    list.push(payload);
+    offlineSync.saveCachedData(cacheKey, list);
+  }
 }
 
 export async function deleteChatMessageFromFirestore(id: string): Promise<void> {

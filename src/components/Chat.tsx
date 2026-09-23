@@ -492,11 +492,15 @@ export const Chat: React.FC<ChatProps> = ({
                         <span className={`font-black text-[11px] sm:text-xs ${isMe ? 'text-blue-100' : 'text-slate-900 dark:text-slate-100'}`}>
                           {msg.senderName}
                         </span>
-                        {msg.flatNumber && (
+                        {msg.flatNumber && 
+                         msg.flatNumber !== 'إدارة الاتحاد' && 
+                         msg.flatNumber !== 'فني الصيانة' && 
+                         !String(msg.flatNumber).includes('ساكن') && 
+                         !String(msg.flatNumber).includes('الساكن') && (
                           <span className={`px-1.5 py-0.5 rounded text-[9.5px] font-black ${
                             isMe ? 'bg-blue-800/80 text-white' : 'bg-blue-50 dark:bg-blue-900/40 text-blue-900 dark:text-blue-300'
                           }`}>
-                            وحدة {msg.flatNumber}
+                            {String(msg.flatNumber).startsWith('شقة') ? msg.flatNumber : `وحدة ${msg.flatNumber}`}
                           </span>
                         )}
                         {/* Sender Role Badge */}
