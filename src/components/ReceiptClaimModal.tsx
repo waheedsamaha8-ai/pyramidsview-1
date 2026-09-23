@@ -212,13 +212,29 @@ const ReceiptClaimModalContent: React.FC<{
       if (hasTenant && data.tenantName) {
         t += `🔑 *المستأجر:* ${data.tenantName}\n`;
       }
-      t += `💰 *المبلغ المسدد:* *${Math.round(data.amount).toLocaleString()} جنيه مصري* ✓\n`;
+      t += `💰 *المبلغ المسدد الآن:* *${Math.round(data.amount).toLocaleString()} جنيه مصري* ✓\n`;
       t += `🗓 *بيان الاشتراك:* شهر ${monthName} (${data.year})\n`;
       if (data.paymentType) {
         t += `🏷 *فئة التحصيل:* ${data.paymentType}\n`;
       }
       t += `🔢 *رقم الإيصال:* ${docNumber}\n`;
       t += `📅 *تاريخ التحصيل:* ${data.date || `${data.year}-${data.month}`}\n`;
+
+      if (carriedDebt > 0) {
+        t += `-----------------------------------\n`;
+        t += `⚠️ *المديونية القديمة السابقة:* ${Math.round(carriedDebt).toLocaleString()} جنيه مصري\n`;
+        const netAfterPayment = data.amount - carriedDebt;
+        if (netAfterPayment < 0) {
+          const remDebt = Math.abs(netAfterPayment);
+          t += `📌 *المتبقي من المديونية القديمة:* ${Math.round(remDebt).toLocaleString()} جنيه مصري\n`;
+          t += `💡 *نشجع سيادتكم على المبادرة بسداد باقي المديونية القديمة المتبقية للحفاظ على الانتظام وتطوير خدمات العمارة.*\n`;
+        } else {
+          t += `✨ *تم بحمد الله تسوية وتصفية المديونية السابقة بالكامل مع هذا السداد! نشكركم جزيل الشكر والتقدير.*\n`;
+        }
+      } else {
+        t += `✨ *حالة الحساب:* مسدد بالكامل ولا توجد أي مديونيات سابقة 👍\n`;
+      }
+
       if (data.notes) {
         t += `📝 *ملاحظات:* ${data.notes}\n`;
       }
@@ -241,6 +257,9 @@ const ReceiptClaimModalContent: React.FC<{
       t += `💰 *إجمالي المبلغ المطلوب سداده:* *${Math.round(data.amount).toLocaleString()} جنيه مصري*\n`;
       t += `🔢 *رقم المطالبة:* ${docNumber}\n`;
       t += `📅 *تاريخ الإصدار:* ${data.date || new Date().toISOString().split('T')[0]}\n`;
+      if (carriedDebt > 0) {
+        t += `\n💡 *نشجع سيادتكم ونأمل التكرم بالسرعة والمبادرة بسداد المديونيات القديمة المرحة لحفظ انتظام الخدمات والصيانة.*\n`;
+      }
       if (data.notes) {
         t += `📝 *ملاحظات:* ${data.notes}\n`;
       }
@@ -250,7 +269,7 @@ const ReceiptClaimModalContent: React.FC<{
       t += `إدارة اتحاد ملاك بيراميدز فيو ١`;
       return t;
     }
-  }, [data, isReceipt, monthName, docNumber, hasTenant]);
+  }, [data, isReceipt, monthName, docNumber, hasTenant, carriedDebt]);
 
   const handleDownloadImage = () => {
     if (!imageBlob && !imageDataUrl) return;
@@ -871,11 +890,16 @@ const ReceiptClaimModalContent: React.FC<{
         >
           {isReceipt ? (
             <span>
-              🌺 نشكركم جزيل الشكر والتقدير على حرصكم الدائم وسدادكم المنتظم، مما يساهم مباشرةً في الحفاظ على العمارة وتطوير خدماتها لراحة الجميع.
+              🌺 نشكركم جزيل الشكر والتقدير على حرصكم الدائم وسدادكم المنتظم، مما يساهم مباشرةً في الحفاظ على العمارة وتطوير خدماتها.
+              {showCarriedDebt && (
+                <span style={{ display: 'block', marginTop: '6px', color: '#b91c1c', fontWeight: '900' }}>
+                  💡 ونشجع سيادتكم على المبادرة بسداد وتصفية باقي المديونية القديمة المتبقية ({Math.round(carriedDebt).toLocaleString()} ج.م) للحفاظ على الانتظام الكامل وحفظ حقوق الاتحاد.
+                </span>
+              )}
             </span>
           ) : (
             <span>
-              🤝 نأمل من سيادتكم التكرم بالمبادرة بسداد المستحقات في أقرب وقت لضمان استمرار خدمات النظافة، الحراسة، الصيانة، وتشغيل المصاعد بكفاءة لراحة جميع السكّان.
+              🤝 نأمل من سيادتكم التكرم بالمبادرة بسداد المستحقات والمديونيات القديمة في أقرب وقت لضمان استمرار خدمات النظافة، الحراسة، الصيانة، وتشغيل المصاعد بكفاءة لراحة جميع السكّان.
             </span>
           )}
         </div>

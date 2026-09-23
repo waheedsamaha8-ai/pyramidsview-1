@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { googleSignIn, logoutUser } from '../services/firebaseConfig';
+import { googleSignIn, logoutUser, applyCustomFirebaseConfig } from '../services/firebaseConfig';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { 
   loginWithEmail, 
@@ -43,6 +43,7 @@ import {
   FolderSync,
   MapPin,
   RotateCcw,
+  Server,
   Check,
   Trash2
 } from 'lucide-react';
@@ -200,6 +201,13 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   const [newPresidentPhone, setNewPresidentPhone] = useState('');
   const [newAdminPassword, setNewAdminPassword] = useState('');
 
+  // Custom Firebase fields state for Register New Building
+  const [showCustomFbFields, setShowCustomFbFields] = useState(false);
+  const [customFbProjectId, setCustomFbProjectId] = useState('');
+  const [customFbApiKey, setCustomFbApiKey] = useState('');
+  const [customFbAuthDomain, setCustomFbAuthDomain] = useState('');
+  const [customFbAppId, setCustomFbAppId] = useState('');
+
   // Resident Register (Join Request) inputs
   const [flatNumber, setFlatNumber] = useState('');
   const [residentType, setResidentType] = useState<'OWNER' | 'TENANT'>('OWNER');
@@ -278,6 +286,15 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         presidentPhone: newPresidentPhone.trim(),
         adminPassword: newAdminPassword.trim(),
       });
+
+      if (customFbProjectId.trim() && customFbApiKey.trim()) {
+        localStorage.setItem('custom_firebase_config', JSON.stringify({
+          projectId: customFbProjectId.trim(),
+          apiKey: customFbApiKey.trim(),
+          authDomain: customFbAuthDomain.trim() || undefined,
+          appId: customFbAppId.trim() || undefined,
+        }));
+      }
 
       setSuccessMessage(`تم تسجيل اتحاد "${result.building.name}" بنجاح! كود العمارة هو (${result.building.code}). جاري الدخول للوحة التحكم...`);
       
@@ -571,17 +588,6 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         {/* ========================================================================= */}
         {topTab === 'REGISTER_BUILDING' && (
           <form onSubmit={handleRegisterNewBuildingSubmit} className="space-y-4">
-            <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-2xl text-emerald-900 dark:text-emerald-200 text-xs space-y-1.5">
-              <div className="flex items-center gap-2 font-black">
-                <Sparkles className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                <span>ميزات إنشاء حساب اتحاد الملاك المستقل:</span>
-              </div>
-              <ul className="list-disc list-inside text-[11px] space-y-1 font-bold pr-2 leading-relaxed opacity-95">
-                <li>عزل كامل لقاعدة البيانات السحابية الخاصة بعمارتك على Firebase.</li>
-                <li>تفعيل النسخ الاحتياطي على Google Drive و Google Sheets الخاصة برئيس الاتحاد.</li>
-                <li>يتم ضبط عدد الشقق والاشتراك الشهري تلقائياً بقيم افتراضية قابلة للتعديل بحرية من شاشة الإعدادات الداخلية.</li>
-              </ul>
-            </div>
 
             {/* Building Name */}
             <div>
@@ -702,6 +708,85 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                   className="w-full pl-4 pr-10 py-2.5 text-sm bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-xl focus:border-emerald-600 focus:outline-none text-right font-medium dark:text-white"
                 />
               </div>
+            </div>
+
+            {/* Custom Firebase Setup Toggle (Optional) */}
+            <div className="pt-1">
+              <button
+                type="button"
+                onClick={() => setShowCustomFbFields(!showCustomFbFields)}
+                className="w-full py-2.5 px-3 bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between transition cursor-pointer"
+              >
+                <div className="flex items-center gap-2">
+                  <Server className="w-4 h-4 text-orange-500" />
+                  <span>ربط مشروع الفيربيز الخاص بايميلك (Custom Firebase) - اختياري</span>
+                </div>
+                <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-extrabold">
+                  {showCustomFbFields ? 'إخفاء' : 'إضافة مفاتيح الربط +'}
+                </span>
+              </button>
+
+              {showCustomFbFields && (
+                <div className="mt-2.5 p-3.5 bg-orange-50/50 dark:bg-orange-950/20 border border-orange-200 dark:border-orange-800/50 rounded-2xl space-y-3 text-right">
+                  <p className="text-[11px] text-slate-600 dark:text-slate-300 font-bold leading-relaxed">
+                    إذا كان لديك مشروع الفيربيز المخصص المسجل باسم بريدك على كونسول جوجل، أدخل بيانات الربط ليتم حفظ بيانات العمارة بها مباشرة:
+                  </p>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-[11px] font-extrabold text-slate-700 dark:text-slate-300 mb-1">
+                        معرف المشروع (Project ID)
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="مثال: eskan-36079"
+                        value={customFbProjectId}
+                        onChange={(e) => setCustomFbProjectId(e.target.value)}
+                        className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl font-mono text-left font-bold outline-none focus:border-orange-500 dark:text-white"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-extrabold text-slate-700 dark:text-slate-300 mb-1">
+                        مفتاح API الخاص بك (API Key)
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="AIzaSy..."
+                        value={customFbApiKey}
+                        onChange={(e) => setCustomFbApiKey(e.target.value)}
+                        className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl font-mono text-left font-bold outline-none focus:border-orange-500 dark:text-white"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-extrabold text-slate-700 dark:text-slate-300 mb-1">
+                        نطاق المصادقة (Auth Domain - اختياري)
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="project-id.firebaseapp.com"
+                        value={customFbAuthDomain}
+                        onChange={(e) => setCustomFbAuthDomain(e.target.value)}
+                        className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl font-mono text-left font-bold outline-none focus:border-orange-500 dark:text-white"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-extrabold text-slate-700 dark:text-slate-300 mb-1">
+                        معرف التطبيق (App ID - اختياري)
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="1:1023456789:web:abcdef..."
+                        value={customFbAppId}
+                        onChange={(e) => setCustomFbAppId(e.target.value)}
+                        className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl font-mono text-left font-bold outline-none focus:border-orange-500 dark:text-white"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             <button

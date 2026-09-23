@@ -1249,12 +1249,12 @@ export default function App() {
       const cachedConfig = offlineSync.getCachedData<AppConfig>('config');
       if (cachedConfig) {
         setConfig(cachedConfig);
-        if (cachedConfig.buildingLayout && cachedConfig.buildingLayout.length > 0) {
+        if (Array.isArray(cachedConfig.buildingLayout)) {
           setBuildingLayout(cachedConfig.buildingLayout);
         }
       }
       const cachedLayout = offlineSync.getCachedData<any[]>('building_layout');
-      if (cachedLayout && cachedLayout.length > 0) setBuildingLayout(cachedLayout);
+      if (Array.isArray(cachedLayout)) setBuildingLayout(cachedLayout);
       const cachedResidents = offlineSync.getCachedData<Resident[]>('residents');
       if (cachedResidents) setResidents(cachedResidents);
       const cachedPayments = offlineSync.getCachedData<Payment[]>('payments');
@@ -1398,7 +1398,7 @@ export default function App() {
       if (loadedConfig) {
         setConfig(prev => ({ ...prev, ...loadedConfig }));
         offlineSync.saveCachedData('config', loadedConfig);
-        if (loadedConfig.buildingLayout && loadedConfig.buildingLayout.length > 0) {
+        if (Array.isArray(loadedConfig.buildingLayout)) {
           setBuildingLayout(loadedConfig.buildingLayout);
           offlineSync.saveCachedData('building_layout', loadedConfig.buildingLayout);
         }
@@ -2626,7 +2626,7 @@ export default function App() {
     });
 
     // 2. Derive all floor units to find vacant/unregistered ones if any
-    const effectiveFloors = (buildingLayout && buildingLayout.length > 0)
+    const effectiveFloors = Array.isArray(buildingLayout)
       ? buildingLayout
       : deriveFloorConfigsFromResidents(residents);
 
@@ -4343,7 +4343,7 @@ export default function App() {
                   .sort((a, b) => compareFlatNumbers(a.flatNumber, b.flatNumber));
 
                 if (selectedActivityModal === 'شاغرة') {
-                  const effectiveFloors = (buildingLayout && buildingLayout.length > 0) ? buildingLayout : deriveFloorConfigsFromResidents(residents);
+                  const effectiveFloors = Array.isArray(buildingLayout) ? buildingLayout : deriveFloorConfigsFromResidents(residents);
                   const registeredSet = new Set(residents.map(r => String(r.flatNumber).trim()));
                   const vacantFlats: string[] = [];
                   effectiveFloors.forEach(f => {

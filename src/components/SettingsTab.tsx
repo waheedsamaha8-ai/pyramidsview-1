@@ -58,6 +58,29 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   const [restoreStatus, setRestoreStatus] = useState<string | null>(null);
   const restoreFileInputRef = useRef<HTMLInputElement>(null);
 
+  // Custom Firebase Project Override States
+  const [customFbConfig, setCustomFbConfig] = useState(() => firestoreService.getActiveFirebaseConfig());
+  const [isUsingCustomFb, setIsUsingCustomFb] = useState(() => firestoreService.isUsingCustomFirebase());
+
+  const handleSaveCustomFb = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customFbConfig.apiKey || !customFbConfig.projectId) {
+      onNotification?.('بيانات ناقصة ⚠️', 'يرجى إدخال مفتاح API ومعرف المشروع (Project ID) على الأقل.', 'warning');
+      return;
+    }
+    try {
+      firestoreService.applyCustomFirebaseConfig(customFbConfig);
+    } catch (err: any) {
+      onNotification?.('خطأ', 'تعذر تطبيق الإعدادات المخصصة: ' + (err.message || ''), 'error');
+    }
+  };
+
+  const handleResetDefaultFb = () => {
+    if (window.confirm('هل تريد إلغاء ربط الفيربيز المخصص والعودة بالفيربيز السحابي التلقائي الموحد؟')) {
+      firestoreService.applyCustomFirebaseConfig(null);
+    }
+  };
+
   // Monthly Excel Backup States
   const [selectedExcelYear, setSelectedExcelYear] = useState<number>(new Date().getFullYear());
   const [selectedExcelMonth, setSelectedExcelMonth] = useState<number>(new Date().getMonth() + 1);
@@ -405,13 +428,24 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   const handleAddAdmin = (e: React.FormEvent) => {
     e.preventDefault();
     const email = newAdminEmail.trim().toLowerCase();
-    if (!email || config.admins.includes(email)) return;
-    updateConfig('admins', [...config.admins, email]);
+    if (!email || effectiveAdmins.includes(email)) return;
+    updateConfig('admins', [...effectiveAdmins, email]);
     setNewAdminEmail('');
   };
 
+  const activeBuilding = getActiveBuilding();
+  const primaryAdminEmail = (activeBuilding?.presidentEmail || config.presidentEmail || '').trim().toLowerCase();
+  const effectiveAdmins = Array.from(new Set([
+    ...(primaryAdminEmail ? [primaryAdminEmail] : []),
+    ...(config.admins || []).map(a => a.trim().toLowerCase())
+  ])).filter(Boolean);
+
   const handleDeleteItem = (key: keyof AppConfig, item: string) => {
     if (!isAdmin) return;
+    if (key === 'admins' && item.trim().toLowerCase() === primaryAdminEmail) {
+      alert('لا يمكن إلغاء تفويض الأدمن الرئيسي (البريد الإلكتروني المسجل به الاتحاد).');
+      return;
+    }
     const currentVal = config[key];
     if (!Array.isArray(currentVal)) return;
     const filtered = currentVal.filter((x) => x !== item);
@@ -907,6 +941,122 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
             )}
           </div>
 
+          {/* Custom Firebase Project Setup Section */}
+          <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div>
+                <h3 className="text-sm font-black text-slate-900 flex items-center gap-2">
+                  <Server className="w-4 h-4 text-orange-600" />
+                  <span>ربط مشروع الفيربيز الخاص بايميلك (Custom Firebase Project)</span>
+                </h3>
+                <p className="text-[11px] text-slate-500 font-bold mt-0.5">
+                  خيار تجاري مخصص: يتيح لك ربط التطبيق مباشرة بمشروع الفيربيز المسجل على كونسول جوجل الخاص ببريدك الإلكتروني لتخزين قواعد البيانات فيه مباشرة.
+                </p>
+              </div>
+
+              <span className={`px-2.5 py-1 rounded-full text-[11px] font-extrabold border shrink-0 ${
+                isUsingCustomFb 
+                  ? 'bg-amber-100 text-amber-900 border-amber-300' 
+                  : 'bg-blue-100 text-blue-900 border-blue-200'
+              }`}>
+                {isUsingCustomFb ? 'مشروع مخصص' : 'الفيربيز الموحد (تلقائي)'}
+              </span>
+            </div>
+
+            <form onSubmit={handleSaveCustomFb} className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-black text-slate-700 mb-1">
+                    معرف المشروع (Project ID) *
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="مثال: eskan-36079"
+                    value={customFbConfig.projectId || ''}
+                    onChange={(e) => setCustomFbConfig({ ...customFbConfig, projectId: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 focus:bg-white rounded-xl text-xs font-mono font-bold outline-none text-left"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-black text-slate-700 mb-1">
+                    مفتاح API الخاص بك (API Key) *
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="AIzaSy..."
+                    value={customFbConfig.apiKey || ''}
+                    onChange={(e) => setCustomFbConfig({ ...customFbConfig, apiKey: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 focus:bg-white rounded-xl text-xs font-mono font-bold outline-none text-left"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-black text-slate-700 mb-1">
+                    نطاق المصادقة (Auth Domain) - اختياري
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="project-id.firebaseapp.com"
+                    value={customFbConfig.authDomain || ''}
+                    onChange={(e) => setCustomFbConfig({ ...customFbConfig, authDomain: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 focus:bg-white rounded-xl text-xs font-mono font-bold outline-none text-left"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-black text-slate-700 mb-1">
+                    معرف التطبيق (App ID) - اختياري
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="1:1023456789:web:abcdef..."
+                    value={customFbConfig.appId || ''}
+                    onChange={(e) => setCustomFbConfig({ ...customFbConfig, appId: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 focus:bg-white rounded-xl text-xs font-mono font-bold outline-none text-left"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between pt-2 gap-2 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="submit"
+                    className="px-4 py-2.5 bg-orange-600 hover:bg-orange-700 active:bg-orange-800 text-white font-black text-xs rounded-xl transition cursor-pointer shadow-xs flex items-center gap-1.5"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>حفظ وتفعيل مشروع الفيربيز الخاص بك</span>
+                  </button>
+
+                  {isUsingCustomFb && (
+                    <button
+                      type="button"
+                      onClick={handleResetDefaultFb}
+                      className="px-3 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer"
+                    >
+                      إعادة الضبط للفيربيز الموحد
+                    </button>
+                  )}
+                </div>
+
+                <div className="text-[10px] text-slate-400 font-bold">
+                  * يتم حفظ مفاتيح مشروعك بأمان تام محلياً على جهازك.
+                </div>
+              </div>
+            </form>
+
+            <div className="p-3 bg-amber-50/70 border border-amber-200/80 rounded-xl text-[11px] text-amber-950 font-bold leading-relaxed space-y-1">
+              <span className="font-extrabold text-amber-900 block">💡 كيف تجد بيانات الفيربيز المخصص الخاص بك؟</span>
+              <ol className="list-decimal list-inside space-y-0.5 text-slate-700 font-medium">
+                <li>افتح موقع <a href="https://console.firebase.google.com" target="_blank" rel="noreferrer" className="underline text-blue-700 font-bold">console.firebase.google.com</a> وسجل الدخول بايميلك.</li>
+                <li>انقر على مشروعك (مثل <code className="font-mono bg-white px-1 rounded border">eskan-36079</code>).</li>
+                <li>اذهب إلى ⚙️ Project Settings ثم انزل لأسفل إلى قسم Web App وانسخ قيمة <code className="font-mono bg-white px-1 rounded border">projectId</code> و <code className="font-mono bg-white px-1 rounded border">apiKey</code>.</li>
+              </ol>
+            </div>
+          </div>
+
           {/* Info & Security Guarantee */}
           <div className="p-4 bg-emerald-50/70 border border-emerald-200/80 rounded-2xl text-xs text-emerald-950 font-bold space-y-1.5 leading-relaxed">
             <div className="flex items-center gap-2 text-emerald-900 font-black">
@@ -1313,19 +1463,30 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                 </form>
 
                 <div className="space-y-1 max-h-32 overflow-y-auto">
-                  {config.admins.map((email) => (
-                    <div key={email} className="flex items-center justify-between p-1.5 bg-slate-50 rounded-lg border border-slate-100">
-                      <button
-                        onClick={() => handleDeleteItem('admins', email)}
-                        className="p-1 text-red-500 hover:bg-red-50 rounded-md transition cursor-pointer disabled:opacity-40"
-                        title="إلغاء التفويض"
-                        disabled={config.admins.length <= 1} // Protect at least one main admin
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
-                      <span className="text-[10px] font-bold text-slate-700">{email}</span>
-                    </div>
-                  ))}
+                  {effectiveAdmins.map((email) => {
+                    const isPrimary = primaryAdminEmail && email.toLowerCase() === primaryAdminEmail;
+                    return (
+                      <div key={email} className="flex items-center justify-between p-1.5 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-100 dark:border-slate-700">
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteItem('admins', email)}
+                          className="p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-md transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                          title={isPrimary ? 'الأدمن الرئيسي المسجل به الاتحاد (لا يمكن حذفه)' : 'إلغاء التفويض'}
+                          disabled={isPrimary || effectiveAdmins.length <= 1}
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                        <div className="flex items-center gap-1.5 dir-ltr">
+                          <span className="text-[10px] font-bold text-slate-700 dark:text-slate-200">{email}</span>
+                          {isPrimary && (
+                            <span className="text-[9px] font-black text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
+                              (الأدمن الرئيسي - إيميل الاتحاد)
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 

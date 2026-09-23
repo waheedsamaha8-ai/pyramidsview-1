@@ -1,9 +1,25 @@
-import { Building, AppConfig } from '../types';
+import { Building, AppConfig, Craftsman } from '../types';
 import { db } from './firebaseConfig';
 import { collection, doc, getDocs, setDoc, getDoc, deleteDoc } from 'firebase/firestore';
 import { registerAdmin } from './authStore';
+import * as offlineSync from './offlineSync';
 
 export const DEFAULT_BUILDING_ID = 'union_main_01';
+
+export const DEFAULT_CRAFTSMEN: Craftsman[] = [
+  { id: 'cr_def_1', name: 'مهندس صيانة المصاعد', phone: '', specialty: 'صيانة مصاعد', notes: 'صيانة دورية للمصعد وتغيير الزيوت والأعطال', addedBy: 'إدارة الاتحاد' },
+  { id: 'cr_def_2', name: 'فني كهرباء العمارة', phone: '', specialty: 'كهرباء خدمات', notes: 'إصلاح إضاءة السلم واللوحات المعتمدة', addedBy: 'إدارة الاتحاد' },
+  { id: 'cr_def_3', name: 'فني سباكة ومضخات', phone: '', specialty: 'سباكة ومياه', notes: 'صيانة موتور المياه، الخزانات، والشبكة', addedBy: 'إدارة الاتحاد' },
+  { id: 'cr_def_4', name: 'فني تكييف وتبريد', phone: '', specialty: 'تكييف وتبريد', notes: 'تركيب وصيانة أجهزة التكييف بالبناء', addedBy: 'إدارة الاتحاد' }
+];
+
+export const DEFAULT_RULES: string[] = [
+  'المحافظة على نظافة السلم والمداخل والمرافق المشتركة للعمارة.',
+  'الالتزام بسداد اشتراك الصيانة الشهري في موعده المحدد.',
+  'مراعاة الهدوء وعدم إزعاج الجيران في أوقات الراحة والنوم.',
+  'إغلاق باب العمارة والمصعد جيداً بعد الاستخدام لضمان الأمان.',
+  'يمنع إلقاء القمامة أو وضع ممتلكات شخصية في طرقات السلم.'
+];
 
 export const DEFAULT_BUILDING: Building = {
   id: DEFAULT_BUILDING_ID,
@@ -187,8 +203,42 @@ export async function registerNewUnionBuilding(params: {
     console.warn('Notice registering admin:', adminErr);
   }
 
-  // 3. Instantly set as active building
+  // 3. Instantly set as active building & initialize pristine local caches
   setActiveBuilding(newBuilding);
+
+  const initialConfig: AppConfig = {
+    buildingId: newBuilding.id,
+    buildingName: newBuilding.name,
+    buildingAddress: newBuilding.address,
+    buildingCode: newBuilding.code,
+    presidentName: newBuilding.presidentName,
+    presidentEmail: newBuilding.presidentEmail,
+    presidentPhone: newBuilding.presidentPhone,
+    expenseTypes: ['صيانة مصاعد', 'نظافة وخدمات', 'كهرباء خدمات', 'حراسة وأمن', 'صيانة سباكة ومياه', 'نثريات وطوارئ'],
+    paymentTypes: ['اشتراك شهري', 'مساهمة صيانة', 'وديعة تجديد', 'أخرى'],
+    activityTypes: ['سكني', 'سكني مغلق', 'مفروش', 'إداري', 'تجاري'],
+    admins: [cleanEmail],
+    managers: [],
+    defaultMonthlyFee: 400,
+    activityDefaultFees: { 'سكني': 400, 'سكني مغلق': 200, 'مفروش': 600, 'إداري': 800, 'تجاري': 500 },
+    accountingStartDate: new Date().toISOString().split('T')[0],
+    buildingLayout: [],
+  };
+
+  // Ensure fresh new building starts with ZERO residents / units / floors as requested
+  offlineSync.saveCachedData('residents', []);
+  offlineSync.saveCachedData('building_layout', []);
+  offlineSync.saveCachedData('payments', []);
+  offlineSync.saveCachedData('expenses', []);
+  offlineSync.saveCachedData('chat_messages', []);
+  offlineSync.saveCachedData('public_complaints', []);
+  offlineSync.saveCachedData('maintenance', []);
+  offlineSync.saveCachedData('polls', []);
+  offlineSync.saveCachedData('admin_decisions', []);
+  offlineSync.saveCachedData('events', []);
+  offlineSync.saveCachedData('config', initialConfig);
+  offlineSync.saveCachedData('rules', { rules: DEFAULT_RULES });
+  offlineSync.saveCachedData('craftsmen', DEFAULT_CRAFTSMEN);
 
   // 4. Construct user session
   const userSession = {
@@ -210,26 +260,16 @@ export async function registerNewUnionBuilding(params: {
       const bDocRef = doc(db, 'buildings', newBuilding.id);
       await setDoc(bDocRef, newBuilding, { merge: true });
 
-      const initialConfig: AppConfig = {
-        buildingId: newBuilding.id,
-        buildingName: newBuilding.name,
-        buildingAddress: newBuilding.address,
-        buildingCode: newBuilding.code,
-        presidentName: newBuilding.presidentName,
-        presidentEmail: newBuilding.presidentEmail,
-        presidentPhone: newBuilding.presidentPhone,
-        expenseTypes: ['صيانة مصاعد', 'نظافة وخدمات', 'كهرباء خدمات', 'حراسة وأمن', 'صيانة سباكة ومياه', 'نثريات وطوارئ'],
-        paymentTypes: ['اشتراك شهري', 'مساهمة صيانة', 'وديعة تجديد', 'أخرى'],
-        activityTypes: ['سكني', 'سكني مغلق', 'مفروش', 'إداري', 'تجاري'],
-        admins: [cleanEmail],
-        managers: [],
-        defaultMonthlyFee: 400,
-        activityDefaultFees: { 'سكني': 400, 'سكني مغلق': 200, 'مفروش': 600, 'إداري': 800, 'تجاري': 500 },
-        accountingStartDate: new Date().toISOString().split('T')[0],
-      };
-
       const configRef = doc(db, 'buildings', newBuilding.id, 'config', 'app_config');
       await setDoc(configRef, initialConfig, { merge: true });
+
+      const rulesRef = doc(db, 'buildings', newBuilding.id, 'rules', 'building_rules');
+      await setDoc(rulesRef, { rules: DEFAULT_RULES, updatedAt: new Date().toISOString() }, { merge: true });
+
+      for (const cr of DEFAULT_CRAFTSMEN) {
+        const crRef = doc(db, 'buildings', newBuilding.id, 'craftsmen', cr.id);
+        await setDoc(crRef, cr, { merge: true });
+      }
     } catch (fsErr) {
       console.warn('Background Firestore sync completed with notice:', fsErr);
     }

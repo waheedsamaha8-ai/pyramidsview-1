@@ -1,13 +1,57 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, User } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
-import firebaseConfig from '../../firebase-applet-config.json';
+import defaultConfig from '../../firebase-applet-config.json';
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
+export interface CustomFirebaseConfig {
+  apiKey: string;
+  authDomain?: string;
+  projectId: string;
+  storageBucket?: string;
+  messagingSenderId?: string;
+  appId?: string;
+  firestoreDatabaseId?: string;
+}
+
+export function getActiveFirebaseConfig(): CustomFirebaseConfig {
+  try {
+    const raw = localStorage.getItem('custom_firebase_config');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.projectId && parsed.apiKey) {
+        return parsed;
+      }
+    }
+  } catch {}
+  return defaultConfig as CustomFirebaseConfig;
+}
+
+export function isUsingCustomFirebase(): boolean {
+  try {
+    const raw = localStorage.getItem('custom_firebase_config');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return Boolean(parsed && parsed.projectId && parsed.apiKey);
+    }
+  } catch {}
+  return false;
+}
+
+export function applyCustomFirebaseConfig(config: CustomFirebaseConfig | null) {
+  if (config && config.projectId && config.apiKey) {
+    localStorage.setItem('custom_firebase_config', JSON.stringify(config));
+  } else {
+    localStorage.removeItem('custom_firebase_config');
+  }
+  window.location.reload();
+}
+
+// Initialize active Firebase
+const activeConfig = getActiveFirebaseConfig();
+const app = initializeApp(activeConfig);
 export const auth = getAuth(app);
-export const db = (firebaseConfig as any).firestoreDatabaseId 
-  ? getFirestore(app, (firebaseConfig as any).firestoreDatabaseId)
+export const db = (activeConfig as any).firestoreDatabaseId 
+  ? getFirestore(app, (activeConfig as any).firestoreDatabaseId)
   : getFirestore(app);
 
 export enum OperationType {

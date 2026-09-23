@@ -52,6 +52,8 @@ export function getActiveBuildingId(): string {
   }
 }
 
+export { isUsingCustomFirebase, getActiveFirebaseConfig, applyCustomFirebaseConfig } from './firebaseConfig';
+
 export function getBuildingCacheKey(key: string): string {
   // Delegate cache key names directly to offlineSync's single unified getBuildingCacheKey
   return key;
