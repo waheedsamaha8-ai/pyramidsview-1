@@ -183,10 +183,17 @@ export async function deleteResidentFromFirestore(id: string): Promise<void> {
 
 export async function saveBatchResidentsToFirestore(residents: Resident[]): Promise<void> {
   const cacheKey = getBuildingCacheKey('residents');
+  const previousResidents = offlineSync.getCachedData<Resident[]>(cacheKey) || [];
+
   // Update local cache immediately for instant UI feedback
   offlineSync.saveCachedData(cacheKey, residents);
 
   try {
+    const activeIds = new Set(residents.map(r => String(r.id)));
+    const deleteOps = previousResidents
+      .filter(r => r && r.id && !activeIds.has(String(r.id)))
+      .map(r => getBuildingDocRef('residents', String(r.id)));
+
     // Prepare set operations
     const setOps = residents.map(res => {
       const cleanId = String(res.id || `res_${res.flatNumber}`);
@@ -198,6 +205,14 @@ export async function saveBatchResidentsToFirestore(residents: Resident[]): Prom
 
     // Process commits in small chunk sizes (150 ops max per batch)
     const CHUNK_SIZE = 150;
+
+    // Process deletes
+    for (let i = 0; i < deleteOps.length; i += CHUNK_SIZE) {
+      const batch = writeBatch(db);
+      const chunk = deleteOps.slice(i, i + CHUNK_SIZE);
+      chunk.forEach(ref => batch.delete(ref));
+      await batch.commit().catch(err => console.warn('Delete batch commit warning:', err));
+    }
 
     // Process sets
     for (let i = 0; i < setOps.length; i += CHUNK_SIZE) {

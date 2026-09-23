@@ -69,6 +69,7 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
 
   // Local draft of floor configs inside the structure modal
   const [localFloorConfigs, setLocalFloorConfigs] = useState<FloorConfig[]>([]);
+  const [editingFloorId, setEditingFloorId] = useState<string | null>(null);
   const [newUnitInputs, setNewUnitInputs] = useState<Record<string, string>>({});
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -402,6 +403,7 @@ ${appUrl}
   };
 
   const openStructureModal = () => {
+    setEditingFloorId(null);
     const base = (floorConfigs && floorConfigs.length > 0)
       ? floorConfigs
       : (residents && residents.length > 0 ? deriveFloorConfigsFromResidents(residents) : []);
@@ -493,8 +495,9 @@ ${appUrl}
     const isGround = floorCount === 0;
     const startNum = isGround ? 1 : (floorCount * 100 + 1);
     const defaultUnits = [startNum, startNum + 1, startNum + 2, startNum + 3];
+    const newId = `floor_${Date.now()}_${Math.random()}`;
     const newFloor: FloorConfig = {
-      id: `floor_${Date.now()}_${Math.random()}`,
+      id: newId,
       type: isGround ? 'ground' : 'typical',
       floorLabel: isGround ? 'الدور الأرضي' : getFloorName(floorCount),
       unitsCount: defaultUnits.length,
@@ -503,6 +506,7 @@ ${appUrl}
       unitNumbers: defaultUnits,
     };
     setLocalFloorConfigs(prev => [...prev, newFloor]);
+    setEditingFloorId(newId);
   };
 
   const removeFloorConfig = (id: string) => {
@@ -577,27 +581,13 @@ ${appUrl}
     setNewUnitInputs(prev => ({ ...prev, [floorId]: '' }));
   };
 
-  // Save building structure only WITHOUT touching or resetting existing residents
-  const handleSaveStructureOnly = async () => {
-    setIsGenerating(true);
-    try {
-      onSetFloorConfigs(localFloorConfigs);
-      setShowConfigModal(false);
-      setToastMsg('تم حفظ وتوثيق هيكل العمارة والأدوار بنجاح مع الحفاظ التام 100% على كافة بيانات وأسماء السكان ومستحقاتهم دون أي تعديل! 🛡️');
-      setTimeout(() => setToastMsg(null), 8000);
-    } catch (err: any) {
-      alert('حدث خطأ أثناء حفظ الهيكل: ' + (err?.message || 'خطأ غير معروف'));
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
   // Generate missing units from structure AND save structure simultaneously, with complete merging and preservation of all existing residents
   const handleGenerateBuilding = async () => {
     setIsGenerating(true);
     try {
       if (localFloorConfigs.length === 0) {
         onSetFloorConfigs([]);
+        onSetAll([]);
         setShowConfigModal(false);
         setIsGenerating(false);
         setToastMsg('تم إخلاء وتصميم هيكل العمارة بنجاح.');
@@ -609,7 +599,7 @@ ${appUrl}
       const presFlat = presidentProfile?.flatNumber || 207;
       let presidentAssigned = false;
 
-      // Track processed IDs so no existing resident is lost
+      // Track processed IDs so no duplicate slots are generated
       const processedIds = new Set<string>();
 
       // Existing residents lookup map
@@ -708,26 +698,18 @@ ${appUrl}
         }
       }
 
-      // SAFEGUARD: Retain any existing resident whose unit was not in localFloorConfigs
-      residents.forEach(existingR => {
-        if (existingR && existingR.id && !processedIds.has(String(existingR.id))) {
-          processedIds.add(String(existingR.id));
-          newResidents.push(existingR);
-        }
-      });
-
       newResidents.sort((a, b) => compareFlatNumbers(a.flatNumber, b.flatNumber));
 
       // 1. Instantly update building structure in React state and local cache
       onSetFloorConfigs(localFloorConfigs);
 
-      // 2. Instantly update merged residents list
+      // 2. Instantly update merged residents list (any omitted residents will be removed/deleted)
       onSetAll(newResidents);
 
       setShowConfigModal(false);
       setIsGenerating(false);
 
-      setToastMsg(`تم دمج وتوليد الوحدات (${newResidents.length} وحدة) مع الحفاظ الكامل على بيانات كافة السكان الحالية! 🔥`);
+      setToastMsg(`تم حفظ وتوليد هيكل العمارة بنجاح مع دمج الوحدات وتأكيد الحذف والتعديلات المطلوبة بنجاح! 🔥`);
       setTimeout(() => setToastMsg(null), 8000);
     } catch (err: any) {
       alert('حدث خطأ أثناء التوليد: ' + (err?.message || 'خطأ غير معروف'));
@@ -1914,11 +1896,24 @@ ${appUrl}
             <div className="flex-1 overflow-y-auto pr-1 space-y-4 mb-4">
               <div className="bg-blue-50/60 p-3.5 rounded-2xl border border-blue-100/60">
                 <p className="text-[11px] text-blue-950 font-bold leading-relaxed">
-                  يمكنك تعديل الأدوار وإضافة وحذف الوحدات لكل دور بكل سهولة (تقبل صيغ مثل 502-2 و 502/2). عند الضغط على زر «توليد كشف وحدات» بالأسفل، يتم حفظ الهيكل المعتمد وتوليد كشف الوحدات والسكان معاً تلقائياً.
+                  يمكنك تصميم أدوار العمارة وإدارتها بسهولة. اضغط على زر «إضافة دور جديد لهيكل العمارة» للبدء، ثم قم بتعديل تفاصيل كل دور وحفظه، وعند الانتهاء اضغط على «توليد ودمج وحفظ الهيكل» بالأسفل للتأكيد.
                 </p>
               </div>
 
-              <div className="space-y-3">
+              {/* Main Primary Action Button: Add New Floor (At the top of the body for main visibility) */}
+              <div>
+                <button 
+                  type="button"
+                  onClick={addFloorConfig}
+                  className="w-full py-3.5 bg-blue-900 hover:bg-blue-950 text-white rounded-2xl flex items-center justify-center gap-2 font-black text-xs transition shadow-md active:scale-[0.98] cursor-pointer"
+                  title="إضافة دور جديد وتخصيص أرقام وحداته"
+                >
+                  <Plus className="w-4 h-4 text-emerald-400 stroke-[3]" />
+                  <span>إضافة دور جديد لهيكل العمارة</span>
+                </button>
+              </div>
+
+              <div className="space-y-3 pt-1">
                 {localFloorConfigs.length === 0 ? (
                   <div className="p-8 text-center bg-slate-50 dark:bg-slate-800/50 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center gap-2">
                     <Building2 className="w-8 h-8 text-slate-400" />
@@ -1926,157 +1921,223 @@ ${appUrl}
                       لا يوجد أي دور مصمم في هيكل العمارة حالياً.
                     </p>
                     <p className="text-[11px] text-slate-400 font-semibold">
-                      يمكنك بدء تصميم الهيكل بالضغط على زر «إضافة دور جديد لهيكل العمارة» بالأسفل.
+                      اضغط على زر «إضافة دور جديد لهيكل العمارة» بالأعلى لبدء تصميم الهيكل.
                     </p>
                   </div>
                 ) : (
                   localFloorConfigs.map((floor) => {
-                  const floorUnits = getUnitNumbersForFloor(floor, residents);
-                  const currentInputVal = newUnitInputs[floor.id] || '';
+                    const floorUnits = getUnitNumbersForFloor(floor, residents);
+                    const currentInputVal = newUnitInputs[floor.id] || '';
+                    const isEditing = floor.id === editingFloorId;
 
-                  return (
-                    <div key={floor.id} className="bg-slate-50/80 p-3.5 sm:p-4 rounded-2xl border border-slate-200/70 flex flex-col gap-3 relative group">
-                      <button 
-                        onClick={() => removeFloorConfig(floor.id)}
-                        className="absolute -top-2 -right-2 w-6 h-6 bg-rose-500 text-white rounded-full flex items-center justify-center shadow-md hover:bg-rose-600 transition cursor-pointer z-10"
-                        title="حذف هذا الدور بالكامل"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
+                    if (isEditing) {
+                      return (
+                        <div key={floor.id} className="bg-slate-50 p-4 rounded-2xl border-2 border-blue-200 flex flex-col gap-3 relative shadow-xs">
+                          <div className="flex flex-col md:flex-row items-end md:items-center gap-3">
+                            <div className="flex-1 min-w-[140px] space-y-1 w-full md:w-auto">
+                              <label className="text-[10px] font-black text-blue-900">نوع/اسم الدور</label>
+                              <div className="flex gap-1.5">
+                                <select 
+                                  value={floor.type}
+                                  onChange={(e) => {
+                                    const val = e.target.value as FloorConfig['type'];
+                                    updateFloorConfig(floor.id, { type: val, floorLabel: floorTypeLabels[val] });
+                                  }}
+                                  className="flex-1 px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none cursor-pointer"
+                                >
+                                  {Object.entries(floorTypeLabels).map(([key, label]) => (
+                                    <option key={key} value={key}>{label}</option>
+                                  ))}
+                                </select>
+                                <input 
+                                  type="text"
+                                  value={floor.floorLabel}
+                                  onChange={(e) => updateFloorConfig(floor.id, { floorLabel: e.target.value })}
+                                  className="flex-1 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none"
+                                  placeholder="اسم الدور"
+                                />
+                              </div>
+                            </div>
 
-                      <div className="flex flex-col md:flex-row items-end md:items-center gap-3">
-                        <div className="flex-1 min-w-[140px] space-y-1 w-full md:w-auto">
-                          <label className="text-[10px] font-black text-slate-500">نوع/اسم الدور</label>
-                          <div className="flex gap-1.5">
-                            <select 
-                              value={floor.type}
-                              onChange={(e) => {
-                                const val = e.target.value as FloorConfig['type'];
-                                updateFloorConfig(floor.id, { type: val, floorLabel: floorTypeLabels[val] });
-                              }}
-                              className="flex-1 px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none cursor-pointer"
-                            >
-                              {Object.entries(floorTypeLabels).map(([key, label]) => (
-                                <option key={key} value={key}>{label}</option>
-                              ))}
-                            </select>
-                            <input 
-                              type="text"
-                              value={floor.floorLabel}
-                              onChange={(e) => updateFloorConfig(floor.id, { floorLabel: e.target.value })}
-                              className="flex-1 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none"
-                              placeholder="اسم الدور"
-                            />
+                            <div className="w-full md:w-auto grid grid-cols-3 gap-2">
+                              <div className="space-y-1">
+                                <label className="text-[10px] font-black text-blue-900 text-center block">عدد الوحدات</label>
+                                <input 
+                                  type="number"
+                                  min="1"
+                                  value={floorUnits.length}
+                                  onChange={(e) => updateFloorConfig(floor.id, { unitsCount: parseInt(e.target.value) || 1 })}
+                                  className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none text-center"
+                                />
+                              </div>
+
+                              <div className="space-y-1">
+                                <label className="text-[10px] font-black text-blue-900 text-center block">النشاط الافتراضي</label>
+                                <select 
+                                  value={floor.activityType}
+                                  onChange={(e) => updateFloorConfig(floor.id, { activityType: e.target.value })}
+                                  className="w-full px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none cursor-pointer"
+                                >
+                                  {activityTypes.map(type => (
+                                    <option key={type} value={type}>{type}</option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              <div className="space-y-1">
+                                <label className="text-[10px] font-black text-blue-900 text-center block">بداية الأرقام</label>
+                                <input 
+                                  type="number"
+                                  value={floor.startUnitNumber || ''}
+                                  placeholder="مثلاً: 101"
+                                  onChange={(e) => updateFloorConfig(floor.id, { startUnitNumber: parseInt(e.target.value) || 0 })}
+                                  className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none text-center"
+                                />
+                              </div>
+                            </div>
                           </div>
-                        </div>
 
-                        <div className="w-full md:w-auto grid grid-cols-3 gap-2">
-                          <div className="space-y-1">
-                            <label className="text-[10px] font-black text-slate-500 text-center block">عدد الوحدات</label>
-                            <input 
-                              type="number"
-                              min="1"
-                              value={floorUnits.length}
-                              onChange={(e) => updateFloorConfig(floor.id, { unitsCount: parseInt(e.target.value) || 1 })}
-                              className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none text-center"
-                            />
-                          </div>
+                          {/* Explicit Unit Numbers Display & Surgical Deletion */}
+                          <div className="pt-2 border-t border-slate-200/60 flex flex-wrap items-center gap-1.5">
+                            <span className="text-[10px] font-bold text-slate-500 ml-1">الوحدات في هذا الدور:</span>
+                            {floorUnits.length === 0 ? (
+                              <span className="text-[10px] text-amber-600 font-bold">لا توجد وحدات متبقية في هذا الدور</span>
+                            ) : (
+                              floorUnits.map(unitNum => (
+                                <span 
+                                  key={unitNum} 
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 bg-white text-slate-800 rounded-md border border-slate-200 text-[11px] font-black shadow-2xs group/chip hover:border-rose-300 transition"
+                                >
+                                  <span dir="ltr">{unitNum}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => removeUnitFromFloorConfig(floor.id, unitNum)}
+                                    className="w-3.5 h-3.5 flex items-center justify-center rounded-full text-slate-400 hover:text-white hover:bg-rose-500 transition cursor-pointer"
+                                    title={`حذف الوحدة ${unitNum} منفصلة من هذا الدور`}
+                                  >
+                                    <X className="w-2.5 h-2.5" />
+                                  </button>
+                                </span>
+                              ))
+                            )}
 
-                          <div className="space-y-1">
-                            <label className="text-[10px] font-black text-slate-500 text-center block">النشاط الافتراضي</label>
-                            <select 
-                              value={floor.activityType}
-                              onChange={(e) => updateFloorConfig(floor.id, { activityType: e.target.value })}
-                              className="w-full px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none cursor-pointer"
-                            >
-                              {activityTypes.map(type => (
-                                <option key={type} value={type}>{type}</option>
-                              ))}
-                            </select>
-                          </div>
-
-                          <div className="space-y-1">
-                            <label className="text-[10px] font-black text-slate-500 text-center block">بداية الأرقام</label>
-                            <input 
-                              type="number"
-                              value={floor.startUnitNumber || ''}
-                              placeholder="مثلاً: 101"
-                              onChange={(e) => updateFloorConfig(floor.id, { startUnitNumber: parseInt(e.target.value) || 0 })}
-                              className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none text-center"
-                            />
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Explicit Unit Numbers Display & Surgical Deletion */}
-                      <div className="pt-2 border-t border-slate-200/60 flex flex-wrap items-center gap-1.5">
-                        <span className="text-[10px] font-bold text-slate-500 ml-1">الوحدات في هذا الدور:</span>
-                        {floorUnits.length === 0 ? (
-                          <span className="text-[10px] text-amber-600 font-bold">لا توجد وحدات متبقية في هذا الدور</span>
-                        ) : (
-                          floorUnits.map(unitNum => (
-                            <span 
-                              key={unitNum} 
-                              className="inline-flex items-center gap-1 px-2 py-0.5 bg-white text-slate-800 rounded-md border border-slate-200 text-[11px] font-black shadow-2xs group/chip hover:border-rose-300 transition"
-                            >
-                              <span dir="ltr">{unitNum}</span>
+                            <div className="inline-flex items-center gap-1.5 mr-auto mt-1 sm:mt-0">
+                              <input 
+                                type="text"
+                                placeholder="مثال: 502-2"
+                                value={currentInputVal}
+                                onChange={(e) => setNewUnitInputs(prev => ({ ...prev, [floor.id]: e.target.value }))}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    addUnitToFloorConfig(floor.id, currentInputVal);
+                                  }
+                                }}
+                                className="w-28 sm:w-36 px-2 py-1 bg-white border border-slate-200 focus:border-blue-500 rounded-lg text-xs font-bold outline-none text-center placeholder:text-[10px]"
+                                dir="ltr"
+                              />
                               <button
                                 type="button"
-                                onClick={() => removeUnitFromFloorConfig(floor.id, unitNum)}
-                                className="w-3.5 h-3.5 flex items-center justify-center rounded-full text-slate-400 hover:text-white hover:bg-rose-500 transition cursor-pointer"
-                                title={`حذف الوحدة ${unitNum} منفصلة من هذا الدور`}
+                                onClick={() => addUnitToFloorConfig(floor.id, currentInputVal)}
+                                disabled={!currentInputVal || !currentInputVal.trim()}
+                                className="px-3 py-1 bg-blue-900 text-white hover:bg-blue-950 disabled:bg-slate-200 disabled:text-slate-400 rounded-lg text-xs font-black transition flex items-center gap-1 cursor-pointer"
                               >
-                                <X className="w-2.5 h-2.5" />
+                                <Plus className="w-3.5 h-3.5" />
+                                <span>إضافة وحدة</span>
                               </button>
-                            </span>
-                          ))
-                        )}
+                            </div>
+                          </div>
 
-                        <div className="inline-flex items-center gap-1.5 mr-auto mt-1 sm:mt-0">
-                          <input 
-                            type="text"
-                            placeholder="مثال: 502-2 أو 502/2"
-                            value={currentInputVal}
-                            onChange={(e) => setNewUnitInputs(prev => ({ ...prev, [floor.id]: e.target.value }))}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault();
-                                addUnitToFloorConfig(floor.id, currentInputVal);
-                              }
-                            }}
-                            className="w-36 sm:w-44 px-2 py-1 bg-white border border-slate-200 focus:border-blue-500 rounded-lg text-xs font-bold outline-none text-center placeholder:text-[10px] placeholder:font-normal placeholder:text-slate-400"
-                            dir="ltr"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => addUnitToFloorConfig(floor.id, currentInputVal)}
-                            disabled={!currentInputVal || !currentInputVal.trim()}
-                            className="px-3 py-1 bg-blue-900 text-white hover:bg-blue-950 disabled:bg-slate-200 disabled:text-slate-400 rounded-lg text-xs font-black transition flex items-center gap-1 cursor-pointer disabled:cursor-not-allowed shadow-2xs"
-                            title="إضافة هذه الوحدة للدور (يقبل 502-2 و 502/2 والأرقام العادية)"
-                          >
-                            <Plus className="w-3.5 h-3.5" />
-                            <span>إضافة وحدة</span>
-                          </button>
+                          {/* Save / Delete action buttons for this floor */}
+                          <div className="pt-2 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (confirm(`هل أنت متأكد من حذف ${floor.floorLabel} بالكامل من هيكل العمارة؟`)) {
+                                  removeFloorConfig(floor.id);
+                                  setEditingFloorId(null);
+                                }
+                              }}
+                              className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-[11px] font-black flex items-center gap-1 transition cursor-pointer"
+                              title="حذف الدور بالكامل مع وحداته"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>حذف الدور بالكامل</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setEditingFloorId(null)}
+                              className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[11px] font-black flex items-center gap-1.5 transition cursor-pointer shadow-xs"
+                              title="حفظ التعديلات الحالية لهذا الدور وإغلاق نموذج التحرير"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-100" />
+                              <span>حفظ وإغلاق التعديل</span>
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    </div>
-                  );
-                }))}
+                      );
+                    } else {
+                      return (
+                        <div key={floor.id} className="bg-white p-3.5 rounded-2xl border border-slate-200/80 hover:border-slate-300 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition shadow-2xs">
+                          <div className="space-y-1.5 flex-1 text-right">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="w-2 h-2 rounded-full bg-blue-500" />
+                              <span className="font-black text-slate-900 text-xs sm:text-sm">{floor.floorLabel}</span>
+                              <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md">
+                                {floor.type === 'ground' ? 'دور أرضي' : floor.type === 'typical' ? 'دور متكرر' : floor.type === 'basement' ? 'بدروم' : floor.type === 'roof' ? 'روف' : 'خدمات'}
+                              </span>
+                              <span className="text-[10px] font-bold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-md">
+                                {floorUnits.length} وحدات ({floor.activityType})
+                              </span>
+                            </div>
+                            
+                            <div className="flex flex-wrap items-center gap-1">
+                              {floorUnits.map(unitNum => (
+                                <span key={unitNum} className="px-1.5 py-0.5 bg-slate-50 text-slate-700 rounded-md border border-slate-100 text-[10px] font-bold" dir="ltr">
+                                  {unitNum}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
 
-                <button 
-                  onClick={addFloorConfig}
-                  className="w-full py-3 border-2 border-dashed border-slate-200 hover:border-blue-300 rounded-2xl text-slate-500 hover:text-blue-900 hover:bg-blue-50/40 transition flex items-center justify-center gap-2 font-bold text-xs cursor-pointer"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>إضافة دور جديد لهيكل العمارة</span>
-                </button>
+                          <div className="flex items-center gap-1.5 self-end sm:self-center">
+                            <button
+                              type="button"
+                              onClick={() => setEditingFloorId(floor.id)}
+                              className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-850 border border-amber-200 rounded-xl text-xs font-black flex items-center gap-1 transition cursor-pointer"
+                              title="تعديل الدور وأسماء ووحدات ونشاط هذا الدور"
+                            >
+                              <Edit className="w-3.5 h-3.5" />
+                              <span>تعديل الدور</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (confirm(`هل أنت متأكد من حذف ${floor.floorLabel} بالكامل من هيكل العمارة؟`)) {
+                                  removeFloorConfig(floor.id);
+                                }
+                              }}
+                              className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-black flex items-center gap-1 transition cursor-pointer"
+                              title="حذف هذا الدور بالكامل"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                              <span>حذف الدور</span>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    }
+                  })
+                )}
               </div>
             </div>
 
             {/* Safety Notice Banner */}
             <div className="p-3 bg-emerald-50/80 border border-emerald-200/80 rounded-2xl flex items-center gap-2 mb-3 text-[11px] text-emerald-950 font-bold">
               <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-              <span>حفظ الهيكل آمن 100%: يتم الاحتفاظ بكافة بيانات السكان والأسماء والديون والمدفوعات الحالية دون أي مسح أو تغيير!</span>
+              <span>حفظ الهيكل آمن: زر «توليد ودمج وحفظ الهيكل» يحافظ تلقائياً على كافة بيانات السكان ومستحقاتهم الحالية، ويطبق تعديلات وحذف الأدوار فورياً!</span>
             </div>
 
             {/* Modal Actions */}
@@ -2085,56 +2146,29 @@ ${appUrl}
                 <button 
                   type="button"
                   onClick={() => setShowConfigModal(false)}
-                  className="px-3.5 py-2 text-slate-500 hover:text-slate-800 font-bold text-xs hover:bg-slate-100 rounded-xl transition cursor-pointer"
+                  className="px-4 py-2 text-slate-500 hover:text-slate-800 font-bold text-xs hover:bg-slate-100 rounded-xl transition cursor-pointer"
                 >
-                  إلغاء
+                  إلغاء التراجع
                 </button>
-
-                {localFloorConfigs.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (confirm('هل أنت تأكد من تفريغ كافة الأدوار من شاشة التصميم الحالية؟')) {
-                        setLocalFloorConfigs([]);
-                      }
-                    }}
-                    className="px-3 py-2 text-rose-600 hover:text-rose-800 hover:bg-rose-50 border border-rose-200 rounded-xl font-bold text-xs transition flex items-center gap-1 cursor-pointer"
-                    title="تفريغ شاشة التعديل"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>تفريغ الشاشة</span>
-                  </button>
-                )}
               </div>
 
               <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
                 <button 
                   type="button"
                   disabled={isGenerating}
-                  onClick={handleSaveStructureOnly}
-                  className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white disabled:opacity-50 rounded-xl font-black text-xs transition shadow-md active:scale-[0.98] cursor-pointer"
-                  title="حفظ هيكل العمارة والتصميم فقط دون أي مساس ببيانات السكان"
-                >
-                  <ShieldCheck className="w-4 h-4 text-emerald-300" />
-                  <span>حفظ الهيكل فقط (دون المساس بالسكان)</span>
-                </button>
-
-                <button 
-                  type="button"
-                  disabled={isGenerating}
                   onClick={handleGenerateBuilding}
-                  className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-4 py-2.5 bg-blue-900 text-white hover:bg-blue-950 disabled:opacity-50 rounded-xl font-black text-xs transition shadow-md active:scale-[0.98] cursor-pointer"
-                  title="دمج وتوليد الوحدات الجديدة مع الحفاظ الكامل على السكان الحالية"
+                  className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-6 py-2.5 bg-blue-900 text-white hover:bg-blue-950 disabled:opacity-50 rounded-xl font-black text-xs transition shadow-md active:scale-[0.98] cursor-pointer"
+                  title="حفظ هيكل الأدوار وتوليد الوحدات ودمج بيانات السكان الحالية وتأكيد الحذف"
                 >
                   {isGenerating ? (
                     <>
                       <RefreshCw className="w-4 h-4 text-amber-300 animate-spin" />
-                      <span>جاري المعالجة...</span>
+                      <span>جاري الحفظ والمعالجة...</span>
                     </>
                   ) : (
                     <>
-                      <RefreshCw className="w-4 h-4 text-blue-200" />
-                      <span>توليد ودمج كشف الوحدات</span>
+                      <Save className="w-4 h-4 text-blue-200" />
+                      <span>توليد ودمج وحفظ الهيكل</span>
                     </>
                   )}
                 </button>

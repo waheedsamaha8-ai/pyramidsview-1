@@ -85,6 +85,7 @@ export async function generateElementImageBlob(
   const prevWidth = elem.style.width;
   const prevZIndex = elem.style.zIndex;
   const prevOpacity = elem.style.opacity;
+  const prevVisibility = elem.style.visibility;
   const prevPointerEvents = elem.style.pointerEvents;
   const prevBg = elem.style.backgroundColor;
   const hadHiddenClass = elem.classList.contains('hidden');
@@ -93,17 +94,21 @@ export async function generateElementImageBlob(
     elem.classList.remove('hidden');
   }
 
-  // Temporarily position at (0,0) with target width and microscopic opacity
-  // to give html2canvas exact physical layout coordinates without user-visible flicker
+  // Temporarily position offscreen with target width and full visibility
+  // to give browser & html2canvas exact physical layout coordinates without user-visible flicker
   elem.style.display = 'block';
   elem.style.position = 'fixed';
-  elem.style.left = '0px';
-  elem.style.top = '0px';
+  elem.style.left = '-9999px';
+  elem.style.top = '-9999px';
   elem.style.width = `${customWidth}px`;
   elem.style.zIndex = '-99999';
-  elem.style.opacity = '0.01';
+  elem.style.opacity = '1';
+  elem.style.visibility = 'visible';
   elem.style.pointerEvents = 'none';
   elem.style.backgroundColor = '#ffffff';
+
+  // Force DOM layout reflow so computed styles for all child nodes are fully calculated
+  void elem.getBoundingClientRect();
 
   try {
     const canvas = await html2canvas(elem, {
@@ -122,10 +127,43 @@ export async function generateElementImageBlob(
       onclone: (clonedDoc) => {
         const clonedTarget = clonedDoc.getElementById(elementId);
         if (clonedTarget) {
-          // 1. Isolate the target: remove all other elements from clonedDoc.body
+          // 1. Extract all CSS rules from the active document and embed them sanitized into clonedDoc
+          try {
+            let combinedCss = '';
+            Array.from(document.styleSheets).forEach((sheet) => {
+              try {
+                const rules = Array.from(sheet.cssRules || sheet.rules || []);
+                rules.forEach((rule) => {
+                  combinedCss += rule.cssText + '\n';
+                });
+              } catch (e) {
+                // Ignore cross-origin sheet errors
+              }
+            });
+
+            if (combinedCss) {
+              const styleEl = clonedDoc.createElement('style');
+              styleEl.setAttribute('data-source', 'app-embedded-full-css');
+              styleEl.textContent = sanitizeStyleText(combinedCss);
+              clonedDoc.head.appendChild(styleEl);
+            }
+          } catch (e) {
+            console.warn('Notice embedding app stylesheets:', e);
+          }
+
+          // 2. Sanitize any existing <style> tags in clonedDoc.head (converting oklch -> rgb)
+          const styleTags = Array.from(clonedDoc.head.querySelectorAll('style'));
+          styleTags.forEach((styleTag) => {
+            const cssContent = styleTag.textContent || '';
+            if (/(oklch|oklab|lab|lch|hwb|color)\(/i.test(cssContent)) {
+              styleTag.textContent = sanitizeStyleText(cssContent);
+            }
+          });
+
+          // 3. Isolate the target: remove other elements from clonedDoc.body
           clonedDoc.body.innerHTML = '';
 
-          // 2. Set explicit document and body dimensions to prevent mobile viewport squeezing
+          // 4. Set explicit document and body dimensions to prevent mobile viewport squeezing
           clonedDoc.documentElement.style.width = `${customWidth}px`;
           clonedDoc.documentElement.style.minWidth = `${customWidth}px`;
           clonedDoc.documentElement.style.margin = '0';
@@ -140,7 +178,7 @@ export async function generateElementImageBlob(
           clonedDoc.body.style.background = '#ffffff';
           clonedDoc.body.style.overflow = 'visible';
 
-          // 3. Create a clean outer wrapper for the report
+          // 5. Create a clean outer wrapper for the report
           const wrapper = clonedDoc.createElement('div');
           wrapper.id = 'report-clean-export-wrapper';
           wrapper.style.width = `${customWidth}px`;
@@ -153,7 +191,7 @@ export async function generateElementImageBlob(
           wrapper.style.direction = 'rtl';
           wrapper.style.fontFamily = 'Cairo, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans Arabic", sans-serif';
 
-          // 4. Style clonedTarget
+          // 6. Style clonedTarget
           clonedTarget.classList.remove('hidden');
           clonedTarget.style.display = 'block';
           clonedTarget.style.visibility = 'visible';
@@ -170,45 +208,12 @@ export async function generateElementImageBlob(
           wrapper.appendChild(clonedTarget);
           clonedDoc.body.appendChild(wrapper);
 
-          // 5. Remove external stylesheet link tags and prune non-font <style> blocks from clonedDoc.head
-          // This prevents html2canvas from making slow network requests or parsing thousands of CSS classes.
-          const linkTags = Array.from(clonedDoc.head.querySelectorAll('link'));
-          linkTags.forEach((link) => {
-            const href = link.getAttribute('href') || '';
-            if (!href.includes('fonts.googleapis.com') && !href.includes('fonts.gstatic.com')) {
-              link.remove();
-            }
-          });
-
-          const styleTags = Array.from(clonedDoc.head.querySelectorAll('style'));
-          styleTags.forEach((styleTag) => {
-            const cssContent = styleTag.textContent || '';
-            const fontRules = cssContent.match(/@font-face\s*\{[^}]+\}/gi);
-            if (fontRules && fontRules.length > 0) {
-              // Preserve font rules
-            }
-            if (/(oklch|oklab|lab|lch|hwb|color)\(/i.test(cssContent)) {
-              styleTag.textContent = sanitizeStyleText(cssContent);
-            }
-          });
-
-          // 6. Fix for Arabic typography in html2canvas (letter-spacing breaks Arabic ligatures) and sanitize color functions
-          const targetNodes = [clonedTarget, ...Array.from(clonedTarget.querySelectorAll('*'))] as HTMLElement[];
-          targetNodes.forEach((node) => {
-            node.style.letterSpacing = 'normal';
-            (node.style as any).fontFeatureSettings = '"liga" 1, "calt" 1';
-            node.style.textRendering = 'geometricPrecision';
-
-            const styleAttr = node.getAttribute('style');
-            if (styleAttr && /(oklch|oklab|lab|lch|hwb|color)\(/i.test(styleAttr)) {
-              node.setAttribute('style', sanitizeStyleText(styleAttr));
-            }
-          });
-
-          // 7. Sanitize computed color properties ONLY for target nodes that need it
+          // 7. Fix typography and explicitly apply computed styles from live DOM to cloned nodes
           const origElem = document.getElementById(elementId);
           if (origElem) {
             const origNodes = [origElem, ...Array.from(origElem.querySelectorAll('*'))] as HTMLElement[];
+            const targetNodes = [clonedTarget, ...Array.from(clonedTarget.querySelectorAll('*'))] as HTMLElement[];
+
             const colorProps = [
               'color',
               'backgroundColor',
@@ -225,21 +230,40 @@ export async function generateElementImageBlob(
               const clonedNode = targetNodes[i];
               if (!origNode || !clonedNode) continue;
 
-              const styleAttr = origNode.getAttribute('style') || '';
-              // Only query computed style if inline style or node may have modern color function
-              if (styleAttr.includes('var(') || styleAttr.includes('oklch') || styleAttr.includes('oklab') || !styleAttr) {
-                try {
-                  const computed = window.getComputedStyle(origNode);
-                  for (let p = 0; p < colorProps.length; p++) {
-                    const prop = colorProps[p];
+              // Arabic typography fix
+              clonedNode.style.letterSpacing = 'normal';
+              (clonedNode.style as any).fontFeatureSettings = '"liga" 1, "calt" 1';
+              clonedNode.style.textRendering = 'geometricPrecision';
+
+              try {
+                const computed = window.getComputedStyle(origNode);
+                if (computed) {
+                  // Explicitly copy color properties formatted cleanly in RGB
+                  colorProps.forEach((prop) => {
                     const val = (computed as any)[prop];
-                    if (val && typeof val === 'string' && /(oklch|oklab|lab|lch|hwb|color)\(/i.test(val)) {
+                    if (val && typeof val === 'string' && val !== 'transparent' && val !== 'rgba(0, 0, 0, 0)') {
                       (clonedNode.style as any)[prop] = parseCssColorToRgb(val);
                     }
+                  });
+
+                  // Explicitly preserve grid & flex layouts
+                  if (computed.display === 'grid' || computed.display === 'inline-grid') {
+                    clonedNode.style.display = computed.display;
+                    clonedNode.style.gridTemplateColumns = computed.gridTemplateColumns;
+                  } else if (computed.display === 'flex' || computed.display === 'inline-flex') {
+                    clonedNode.style.display = computed.display;
+                    clonedNode.style.flexDirection = computed.flexDirection;
+                    clonedNode.style.justifyContent = computed.justifyContent;
+                    clonedNode.style.alignItems = computed.alignItems;
                   }
-                } catch (e) {
-                  // Ignore node style lookup errors
                 }
+              } catch (e) {
+                // Ignore node style lookup errors
+              }
+
+              const styleAttr = clonedNode.getAttribute('style');
+              if (styleAttr && /(oklch|oklab|lab|lch|hwb|color)\(/i.test(styleAttr)) {
+                clonedNode.setAttribute('style', sanitizeStyleText(styleAttr));
               }
             }
           }
@@ -284,6 +308,7 @@ export async function generateElementImageBlob(
     elem.style.width = prevWidth;
     elem.style.zIndex = prevZIndex;
     elem.style.opacity = prevOpacity;
+    elem.style.visibility = prevVisibility;
     elem.style.pointerEvents = prevPointerEvents;
     elem.style.backgroundColor = prevBg;
   }
