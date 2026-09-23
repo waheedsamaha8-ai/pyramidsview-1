@@ -24,10 +24,24 @@ export interface FirestoreErrorContext {
   userMessage?: string;
 }
 
+export type FirebaseStatusType = 'success' | 'error' | 'syncing';
+
+export function notifyFirebaseStatus(status: FirebaseStatusType) {
+  try {
+    window.dispatchEvent(new CustomEvent('firebase-status-change', { detail: { status } }));
+  } catch {}
+}
+
 export function handleFirestoreError(error: unknown, context: FirestoreErrorContext): void {
   const err = error as { code?: string; message?: string };
   const msg = err?.message || String(error || '');
   const isOffline = msg.toLowerCase().includes('offline') || err?.code === 'unavailable' || err?.code === 'failed-precondition';
+  
+  // Trigger red dot indicator if write operation fails
+  if (context.operation !== OperationType.READ && context.operation !== OperationType.LIST) {
+    notifyFirebaseStatus('error');
+  }
+
   if (isOffline) {
     console.warn(`[Firestore Offline Note] ${context.operation} at ${context.path}: client is offline, using local cache seamlessly.`);
   } else {

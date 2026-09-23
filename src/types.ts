@@ -102,6 +102,7 @@ export interface Building {
   presidentName: string; // e.g. "وحيد سماحة"
   presidentEmail: string; // e.g. "waheedsamaha8@gmail.com"
   presidentPhone?: string;
+  adminPassword?: string;
   createdAt: string;
   status: 'ACTIVE' | 'PENDING' | 'SUSPENDED';
   googleDriveBackupEmail?: string;

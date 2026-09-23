@@ -61,7 +61,7 @@ import {
   ResponsiveContainer 
 } from 'recharts';
 
-import { initAuth, logoutUser, googleSignIn } from './services/firebaseConfig';
+import { initAuth, logoutUser, googleSignIn, notifyFirebaseStatus } from './services/firebaseConfig';
 import * as firestoreService from './services/firestoreService';
 import * as backupService from './services/backupService';
 import * as googleApi from './services/googleApi';
@@ -166,6 +166,17 @@ export default function App() {
   const [flatNumber, setFlatNumber] = useState<number | string | undefined>(() => getInitialFlatNumber(initialUser));
   const [isInitializingAuth, setIsInitializingAuth] = useState<boolean>(!initialUser);
   const [isBackgroundSyncing, setIsBackgroundSyncing] = useState<boolean>(false);
+  const [firebaseStatus, setFirebaseStatus] = useState<'success' | 'error' | 'syncing'>('success');
+
+  useEffect(() => {
+    const handleFirebaseStatus = (e: any) => {
+      if (e?.detail?.status) {
+        setFirebaseStatus(e.detail.status);
+      }
+    };
+    window.addEventListener('firebase-status-change', handleFirebaseStatus);
+    return () => window.removeEventListener('firebase-status-change', handleFirebaseStatus);
+  }, []);
 
   // App configurations & lists initialized synchronously from offline cache
   const [config, setConfig] = useState<AppConfig>(() => {
@@ -1440,7 +1451,9 @@ export default function App() {
         offlineSync.saveCachedData('events', sortedEv);
       }
 
+      notifyFirebaseStatus('success');
     } catch (err) {
+      notifyFirebaseStatus('error');
       logError(err, 'refreshAllData');
     }
   };
@@ -2897,14 +2910,63 @@ export default function App() {
       <header className="sticky top-0 z-40 bg-white border-b border-slate-100 shadow-sm shadow-slate-100/40">
         <div className="max-w-full mx-auto px-2 sm:px-4 h-16 flex items-center justify-between" dir="rtl">
           
-          {/* Right Section: Building Title & User Info */}
-          <div className="flex items-center gap-3">
+          {/* Right Section: Building Title, User Info & Firebase Status Dot */}
+          <div className="flex items-center gap-2.5 sm:gap-3">
             <div className="w-10 h-10 bg-gradient-to-br from-blue-900 to-indigo-900 text-white rounded-2xl flex items-center justify-center font-black shadow-xs shrink-0">
               <Building2 className="w-5 h-5" />
             </div>
             <div className="flex flex-col text-right">
-              <h1 className="text-sm sm:text-base font-black text-blue-950 tracking-tight leading-tight">{config?.buildingName || localStorage.getItem('active_building_name') || 'بيراميدز فيو ١'}</h1>
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-2">
+                <h1 className="text-sm sm:text-base font-black text-blue-950 tracking-tight leading-tight">
+                  {config?.buildingName || localStorage.getItem('active_building_name') || 'بيراميدز فيو ١'}
+                </h1>
+
+                {/* Firebase Status Dot Indicator (Clean dot only, no text) */}
+                <div 
+                  className={`flex items-center justify-center p-1 rounded-full border transition shadow-2xs cursor-pointer select-none shrink-0 ${
+                    firebaseStatus === 'success' 
+                      ? 'bg-emerald-50 border-emerald-200/80 dark:bg-emerald-950/40 dark:border-emerald-800' 
+                      : firebaseStatus === 'error'
+                      ? 'bg-red-50 border-red-200/80 dark:bg-red-950/40 dark:border-red-800'
+                      : 'bg-amber-50 border-amber-200/80 dark:bg-amber-950/40 dark:border-amber-800'
+                  }`}
+                  onClick={() => {
+                    if (firebaseStatus === 'error') {
+                      triggerBackgroundSync();
+                    }
+                  }}
+                  title={
+                    firebaseStatus === 'success'
+                      ? 'جميع البيانات تُسجّل وتُحفظ على الفيربيز بنجاح'
+                      : firebaseStatus === 'error'
+                      ? 'توجد مشكلة في الحفظ على الفيربيز - انقر لإعادة المحاولة'
+                      : 'جاري حفظ ومزامنة البيانات مع الفيربيز...'
+                  }
+                >
+                  <span className="relative flex h-2.5 w-2.5 shrink-0">
+                    {firebaseStatus === 'success' && (
+                      <>
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 shadow-xs shadow-emerald-500"></span>
+                      </>
+                    )}
+                    {firebaseStatus === 'error' && (
+                      <>
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500 shadow-xs shadow-red-500"></span>
+                      </>
+                    )}
+                    {firebaseStatus === 'syncing' && (
+                      <>
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500 shadow-xs shadow-amber-500"></span>
+                      </>
+                    )}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1.5 mt-0.5">
                 <span className="text-[11px] font-bold text-slate-700">
                   {getUserDisplayName()}
                 </span>

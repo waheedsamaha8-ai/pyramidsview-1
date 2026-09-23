@@ -10,7 +10,7 @@ import {
   orderBy,
   writeBatch
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from './firebaseConfig';
+import { db, handleFirestoreError, OperationType, notifyFirebaseStatus } from './firebaseConfig';
 import {
   Resident,
   Payment,

@@ -908,49 +908,6 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
             {/* PRESIDENT PORTAL */}
             {portalMode === 'PRESIDENT' && (
               <div className="space-y-4">
-                {/* Google Sign-in Option */}
-                <div className="p-4 bg-gradient-to-br from-blue-50 to-indigo-50/50 dark:from-blue-950/40 dark:to-indigo-950/30 border-2 border-blue-200 dark:border-blue-800 rounded-2xl space-y-3">
-                  <div className="text-right">
-                    <div className="flex items-center justify-between">
-                      <span className="px-2.5 py-1 bg-blue-100 dark:bg-blue-900 text-blue-900 dark:text-blue-200 text-[10px] font-black rounded-full">
-                        Google Sign-In
-                      </span>
-                      <span className="text-xs font-black text-blue-950 dark:text-blue-200">
-                        بوابة رئيس الاتحاد السحابية
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-600 dark:text-slate-300 font-bold mt-2 leading-relaxed">
-                      دخول مباشر ومزامنة تلقائية مع Google Drive وجداول البيانات لحساب مجلس إدارة الاتحاد.
-                    </p>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={handleGoogleSignIn}
-                    disabled={loading}
-                    className="w-full py-3 px-4 bg-blue-900 hover:bg-blue-950 text-white rounded-xl text-xs font-black transition active:scale-[0.99] shadow-md shadow-blue-900/20 flex items-center justify-center gap-2.5 disabled:opacity-50 cursor-pointer"
-                  >
-                    <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" width="24" height="24" xmlns="http://www.w3.org/2000/svg">
-                      <g transform="matrix(1, 0, 0, 1, 0, 0)">
-                        <path fill="#EA4335" d="M20.64 12.2c0-.7-.06-1.36-.18-2H12v3.78h4.84c-.2.11-.2.22-.3.43-.54 1.45-1.8 2.5-3.32 2.5a5.18 5.18 0 0 1-4.85-3.6l-2.63 2.03A10.3 10.3 0 0 0 12 22.36c5.73 0 10.55-1.9 14.07-5.18l-5.43-4.98z" />
-                        <path fill="#4285F4" d="M12 22.36c3.24 0 5.95-1.07 7.93-2.91l-5.43-4.98c-1.5.11-3.04-.15-4.21-.86a5.18 5.18 0 0 1-3.3-3.6L4.35 12.04a10.3 10.3 0 0 0 7.65 10.32z" />
-                        <path fill="#FBBC05" d="M4.35 12.04c-.25-.75-.4-1.55-.4-2.38s.15-1.63.4-2.38L1.72 5.25A10.3 10.3 0 0 0 0 9.66c0 1.63.3 3.19.85 4.63l3.5-3.25z" />
-                        <path fill="#34A853" d="M12 4.14c1.76 0 3.3.61 4.54 1.8l3.4-3.15C17.9 1.07 15.24 0 12 0 7.34 0 3.3 2.7 1.25 6.64l3.5 3.25A5.18 5.18 0 0 1 12 4.14z" />
-                      </g>
-                    </svg>
-                    <span>{loading ? 'جاري الاتصال...' : 'الدخول المباشر بحساب Google'}</span>
-                  </button>
-                </div>
-
-                {/* Divider */}
-                <div className="relative flex items-center justify-center py-1">
-                  <div className="border-t border-slate-200 dark:border-slate-700 w-full"></div>
-                  <span className="bg-white dark:bg-[#111a2e] px-3 text-[11px] font-black text-slate-400 shrink-0">
-                    أو الدخول بكلمة المرور الإدارية
-                  </span>
-                  <div className="border-t border-slate-200 dark:border-slate-700 w-full"></div>
-                </div>
-
                 {/* Direct Email & Password Login */}
                 <form onSubmit={handleEmailLogin} className="space-y-3">
                   <div>
@@ -1138,30 +1095,6 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                     >
                       <LogIn className="w-4 h-4" />
                       <span>تسجيل دخول الساكن</span>
-                    </button>
-
-                    <div className="relative my-3 flex items-center justify-center">
-                      <div className="absolute inset-0 flex items-center">
-                        <div className="w-full border-t border-slate-200 dark:border-slate-700"></div>
-                      </div>
-                      <span className="relative px-3 bg-white dark:bg-[#111a2e] text-slate-400 text-[11px] font-bold">أو الدخول عبر Google</span>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={handleGoogleSignIn}
-                      disabled={loading}
-                      className="w-full flex items-center justify-center gap-2.5 px-4 py-2.5 border-2 border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 transition font-black text-xs text-slate-700 dark:text-slate-200 shadow-xs cursor-pointer"
-                    >
-                      <svg className="w-4 h-4" viewBox="0 0 24 24" width="24" height="24" xmlns="http://www.w3.org/2000/svg">
-                        <g transform="matrix(1, 0, 0, 1, 0, 0)">
-                          <path fill="#EA4335" d="M20.64 12.2c0-.7-.06-1.36-.18-2H12v3.78h4.84c-.2.11-.2.22-.3.43-.54 1.45-1.8 2.5-3.32 2.5a5.18 5.18 0 0 1-4.85-3.6l-2.63 2.03A10.3 10.3 0 0 0 12 22.36c5.73 0 10.55-1.9 14.07-5.18l-5.43-4.98z" />
-                          <path fill="#4285F4" d="M12 22.36c3.24 0 5.95-1.07 7.93-2.91l-5.43-4.98c-1.5.11-3.04-.15-4.21-.86a5.18 5.18 0 0 1-3.3-3.6L4.35 12.04a10.3 10.3 0 0 0 7.65 10.32z" />
-                          <path fill="#FBBC05" d="M4.35 12.04c-.25-.75-.4-1.55-.4-2.38s.15-1.63.4-2.38L1.72 5.25A10.3 10.3 0 0 0 0 9.66c0 1.63.3 3.19.85 4.63l3.5-3.25z" />
-                          <path fill="#34A853" d="M12 4.14c1.76 0 3.3.61 4.54 1.8l3.4-3.15C17.9 1.07 15.24 0 12 0 7.34 0 3.3 2.7 1.25 6.64l3.5 3.25A5.18 5.18 0 0 1 12 4.14z" />
-                        </g>
-                      </svg>
-                      <span>الدخول بحساب Google المسجل بالاتحاد</span>
                     </button>
                   </form>
                 ) : (
