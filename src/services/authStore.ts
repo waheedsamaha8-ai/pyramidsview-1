@@ -1,6 +1,6 @@
 // Unified Auth & Join Requests store with automatic fallback for static hosting (Netlify) and offline PWA
 import { getLocalBuildings } from './buildingStore';
-import { db } from './firebaseConfig';
+import { db, isUsingCustomFirebase } from './firebaseConfig';
 import { collection, getDocs } from 'firebase/firestore';
 
 export interface StoredAdmin {
@@ -119,20 +119,24 @@ export async function loginWithEmail(emailInput: string, passwordInput: string):
   const email = emailInput.trim().toLowerCase();
   const password = passwordInput;
 
-  // 1. Try server API if available
-  const serverRes = await safeFetchJson('/api/login-email', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
-  });
+  let serverRes: any = null;
 
-  if (serverRes.ok && serverRes.data?.success) {
-    return serverRes.data;
-  }
+  // 1. Try server API if available (ONLY if not using custom Firebase)
+  if (!isUsingCustomFirebase()) {
+    serverRes = await safeFetchJson('/api/login-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
 
-  // If server explicitly returned an error message for password mismatch, throw it directly
-  if (serverRes.data?.error && serverRes.data.error.includes('كلمة المرور')) {
-    throw new Error(serverRes.data.error);
+    if (serverRes && serverRes.ok && serverRes.data?.success) {
+      return serverRes.data;
+    }
+
+    // If server explicitly returned an error message for password mismatch, throw it directly
+    if (serverRes && serverRes.data?.error && serverRes.data.error.includes('كلمة المرور')) {
+      throw new Error(serverRes.data.error);
+    }
   }
 
   // 2. Client-side / Netlify / Offline Fallback
@@ -248,7 +252,7 @@ export async function loginWithEmail(emailInput: string, passwordInput: string):
   }
 
   // If server had returned 401/403 and fallback didn't handle it, throw server's error
-  if (serverRes.status === 401 || serverRes.status === 403) {
+  if (!isUsingCustomFirebase() && serverRes && (serverRes.status === 401 || serverRes.status === 403)) {
     throw new Error(serverRes.data?.error || 'بيانات الدخول غير صحيحة.');
   }
 
