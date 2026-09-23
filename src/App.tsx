@@ -1247,9 +1247,14 @@ export default function App() {
     try {
       // 1. Immediately hydrate local state from local storage for instant 0ms entry across all roles
       const cachedConfig = offlineSync.getCachedData<AppConfig>('config');
-      if (cachedConfig) setConfig(cachedConfig);
+      if (cachedConfig) {
+        setConfig(cachedConfig);
+        if (cachedConfig.buildingLayout && cachedConfig.buildingLayout.length > 0) {
+          setBuildingLayout(cachedConfig.buildingLayout);
+        }
+      }
       const cachedLayout = offlineSync.getCachedData<any[]>('building_layout');
-      if (cachedLayout) setBuildingLayout(cachedLayout);
+      if (cachedLayout && cachedLayout.length > 0) setBuildingLayout(cachedLayout);
       const cachedResidents = offlineSync.getCachedData<Resident[]>('residents');
       if (cachedResidents) setResidents(cachedResidents);
       const cachedPayments = offlineSync.getCachedData<Payment[]>('payments');
@@ -1387,7 +1392,17 @@ export default function App() {
         complaints: loadedComplaints,
         maintenance: loadedMaintenance,
         events: loadedEvents,
+        config: loadedConfig,
       } = await firestoreService.getAllDataFromFirestore();
+
+      if (loadedConfig) {
+        setConfig(prev => ({ ...prev, ...loadedConfig }));
+        offlineSync.saveCachedData('config', loadedConfig);
+        if (loadedConfig.buildingLayout && loadedConfig.buildingLayout.length > 0) {
+          setBuildingLayout(loadedConfig.buildingLayout);
+          offlineSync.saveCachedData('building_layout', loadedConfig.buildingLayout);
+        }
+      }
 
       const syncedResidents = await syncApprovedRequestsWithResidents(loadedResidents);
 

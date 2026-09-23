@@ -222,15 +222,7 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
       (r.tenantName && r.tenantName.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
-  // Automatically initialize building structure if not yet configured
-  useEffect(() => {
-    if ((!floorConfigs || floorConfigs.length === 0) && residents.length > 0 && role !== 'RESIDENT') {
-      const derived = deriveFloorConfigsFromResidents(residents);
-      if (derived.length > 0) {
-        onSetFloorConfigs(derived);
-      }
-    }
-  }, [floorConfigs, residents, role, onSetFloorConfigs]);
+
 
   // Group residents by floor based on building configuration or derivation
   const effectiveFloorConfigs = useMemo(() => {
