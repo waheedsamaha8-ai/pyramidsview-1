@@ -14,7 +14,6 @@ import {
   MessageSquare, 
   Send, 
   CheckCircle, 
-  Copy, 
   Printer, 
   Sparkles,
   AlertTriangle,
@@ -30,6 +29,7 @@ import { calculateResidentFinancials, getCarriedPreviousBalance } from '../utils
 import { formatMobileNumber, formatPhoneForDisplay, toWhatsAppNumber } from '../utils/phoneUtils';
 import { shareImageViaWhatsApp } from '../utils/shareImageViaWhatsApp';
 import { generateElementImageBlob } from '../utils/imageExport';
+import { printReceiptClaim } from '../utils/receiptClaimGenerator';
 import { ReceiptClaimModal, ReceiptClaimData } from './ReceiptClaimModal';
 
 interface BuildingMapProps {
@@ -51,7 +51,6 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
   const initialMonth = currentMonthNum < 10 ? `0${currentMonthNum}` : `${currentMonthNum}`;
   const [selectedMonth, setSelectedMonth] = useState<string>(initialMonth);
   const [activeUnit, setActiveUnit] = useState<{ unitNum: number | string; floor: FloorConfig; resident?: Resident } | null>(null);
-  const [copiedReceipt, setCopiedReceipt] = useState(false);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [receiptModalData, setReceiptModalData] = useState<ReceiptClaimData | null>(null);
@@ -526,26 +525,31 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
     });
   };
 
-  const copyReceiptText = () => {
+  const handlePrintReceiptOrClaim = () => {
     if (!financials) return;
-    const { resident, monthlyFee, currentMonthStatus, oldDebtVal, currentMonthPayment } = financials;
-    const isPaid = currentMonthStatus === 'مسدد';
-    const paidAmt = currentMonthPayment?.amount || monthlyFee;
-    const receiptNum = `REC-${resident.flatNumber}-${selectedMonth}${currentYear}`;
+    const isPaid = financials.currentMonthStatus === 'مسدد';
+    const paidAmt = financials.currentMonthPayment?.amount || financials.monthlyFee;
+    const totalDue = financials.monthlyFee + financials.oldDebtVal;
 
-    let text = `اتحاد ملاك عمارة بيراميدز فيو ١\n`;
-    text += isPaid ? `إيصال سداد إلكتروني معتمد (رقم ${receiptNum})\n` : `إشعار مطالبة إلكتروني عن شهر ${monthName} ${currentYear}\n`;
-    text += `الوحدة: شقة ${resident.flatNumber} - ${resident.name}\n`;
-    text += `قيمة الاشتراك: ${monthlyFee} ج.م - الحالة: ${currentMonthStatus}\n`;
-    if (oldDebtVal > 0) {
-      text += `تنبيه: توجد مديونية قديمة مرحلة بمبلغ: ${oldDebtVal.toLocaleString()} ج.م\n`;
-    }
-    text += isPaid ? `المبلغ المسدد: ${paidAmt} ج.م` : `إجمالي المستحق: ${(monthlyFee + oldDebtVal).toLocaleString()} ج.م`;
+    const printData: ReceiptClaimData = {
+      type: isPaid ? 'receipt' : 'claim',
+      unitNumber: financials.resident.flatNumber,
+      residentName: financials.resident.name,
+      tenantName: financials.resident.tenantName,
+      phone: financials.resident.phone,
+      tenantPhone: financials.resident.tenantPhone,
+      amount: isPaid ? paidAmt : totalDue,
+      month: selectedMonth,
+      year: currentYear,
+      date: isPaid ? financials.currentMonthPayment?.date : new Date().toISOString().slice(0, 10),
+      receiptNumber: financials.currentMonthPayment?.receiptNumber,
+      paymentType: financials.currentMonthPayment?.paymentType,
+      monthlyFee: financials.monthlyFee,
+      carriedBalance: financials.carriedBalance,
+      remainingBalance: financials.oldDebtVal,
+    };
 
-    navigator.clipboard.writeText(text).then(() => {
-      setCopiedReceipt(true);
-      setTimeout(() => setCopiedReceipt(false), 2500);
-    });
+    printReceiptClaim(printData, residents);
   };
 
   if (effectiveFloorConfigs.length === 0) {
@@ -929,19 +933,17 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
                           </span>
                         </button>
 
-                        {/* Button 3: Copy Text */}
+                        {/* Button 3: Print Receipt or Claim Notice */}
                         <button
                           type="button"
-                          onClick={copyReceiptText}
-                          className="py-2 px-1 bg-white hover:bg-slate-100 text-slate-800 border border-slate-200 rounded-xl font-black text-[11px] sm:text-xs transition cursor-pointer flex items-center justify-center gap-1 text-center active:scale-95"
-                          title="نسخ نص الإيصال"
+                          onClick={handlePrintReceiptOrClaim}
+                          className="py-2 px-1 bg-white hover:bg-slate-100 text-slate-800 border border-slate-200 rounded-xl font-black text-[11px] sm:text-xs transition cursor-pointer flex items-center justify-center gap-1 text-center active:scale-95 shadow-2xs"
+                          title={financials.currentMonthStatus === 'مسدد' ? 'طباعة إيصال سداد معتمد' : 'طباعة إشعار مطالبة شهرية'}
                         >
-                          {copiedReceipt ? (
-                            <CheckCircle className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                          ) : (
-                            <Copy className="w-3.5 h-3.5 text-slate-600 shrink-0" />
-                          )}
-                          <span className="truncate">{copiedReceipt ? 'تم النسخ ✓' : 'نسخ النص'}</span>
+                          <Printer className="w-3.5 h-3.5 text-blue-900 shrink-0" />
+                          <span className="truncate">
+                            {financials.currentMonthStatus === 'مسدد' ? 'طباعة إيصال' : 'طباعة إشعار مطالبة'}
+                          </span>
                         </button>
                       </div>
 

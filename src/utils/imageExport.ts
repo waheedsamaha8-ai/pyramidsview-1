@@ -11,9 +11,12 @@ const colorCtx = colorCanvas ? colorCanvas.getContext('2d', { willReadFrequently
 // Regex matching modern CSS color functions that html2canvas cannot parse natively
 const MODERN_COLOR_REGEX = /(oklch|oklab|lab|lch|hwb|color)\([^)]+\)/gi;
 
+// High-speed memoization cache to prevent thousands of expensive synchronous getImageData calls
+const colorCache = new Map<string, string>();
+
 /**
  * Converts any CSS color string (including modern oklch, oklab, hwb, lab, etc.) into standard rgb()/rgba() format
- * using the browser's native 2D Canvas parser.
+ * using the browser's native 2D Canvas parser with caching.
  */
 export function parseCssColorToRgb(colorStr: string): string {
   if (!colorStr || typeof colorStr !== 'string') {
@@ -25,6 +28,12 @@ export function parseCssColorToRgb(colorStr: string): string {
     return colorStr;
   }
 
+  const cached = colorCache.get(colorStr);
+  if (cached) {
+    return cached;
+  }
+
+  let result = '#334155'; // Safe slate fallback
   try {
     if (colorCtx) {
       colorCtx.clearRect(0, 0, 1, 1);
@@ -32,17 +41,22 @@ export function parseCssColorToRgb(colorStr: string): string {
       colorCtx.fillRect(0, 0, 1, 1);
       const [r, g, b, a] = colorCtx.getImageData(0, 0, 1, 1).data;
       if (a === 255) {
-        return `rgb(${r}, ${g}, ${b})`;
+        result = `rgb(${r}, ${g}, ${b})`;
       } else {
-        return `rgba(${r}, ${g}, ${b}, ${(a / 255).toFixed(2)})`;
+        result = `rgba(${r}, ${g}, ${b}, ${(a / 255).toFixed(2)})`;
       }
     }
   } catch (e) {
     // Ignore fallback
   }
 
-  return '#334155'; // Safe slate fallback
+  colorCache.set(colorStr, result);
+  return result;
 }
+
+// Global cached sanitized stylesheet text to avoid rescanning 15,000+ CSS rules on every export
+let cachedSanitizedCss: string | null = null;
+let lastStylesheetCount = 0;
 
 /**
  * Sanitizes stylesheet text or style attributes by replacing all oklch, oklab, etc. with standard rgb() strings.
@@ -127,24 +141,29 @@ export async function generateElementImageBlob(
       onclone: (clonedDoc) => {
         const clonedTarget = clonedDoc.getElementById(elementId);
         if (clonedTarget) {
-          // 1. Extract all CSS rules from the active document and embed them sanitized into clonedDoc
+          // 1. Extract all CSS rules from active document (cached globally to prevent repeated parsing)
           try {
-            let combinedCss = '';
-            Array.from(document.styleSheets).forEach((sheet) => {
-              try {
-                const rules = Array.from(sheet.cssRules || sheet.rules || []);
-                rules.forEach((rule) => {
-                  combinedCss += rule.cssText + '\n';
-                });
-              } catch (e) {
-                // Ignore cross-origin sheet errors
-              }
-            });
+            const sheetCount = document.styleSheets.length;
+            if (!cachedSanitizedCss || sheetCount !== lastStylesheetCount) {
+              let combinedCss = '';
+              Array.from(document.styleSheets).forEach((sheet) => {
+                try {
+                  const rules = Array.from(sheet.cssRules || sheet.rules || []);
+                  rules.forEach((rule) => {
+                    combinedCss += rule.cssText + '\n';
+                  });
+                } catch (e) {
+                  // Ignore cross-origin sheet errors
+                }
+              });
+              cachedSanitizedCss = sanitizeStyleText(combinedCss);
+              lastStylesheetCount = sheetCount;
+            }
 
-            if (combinedCss) {
+            if (cachedSanitizedCss) {
               const styleEl = clonedDoc.createElement('style');
               styleEl.setAttribute('data-source', 'app-embedded-full-css');
-              styleEl.textContent = sanitizeStyleText(combinedCss);
+              styleEl.textContent = cachedSanitizedCss;
               clonedDoc.head.appendChild(styleEl);
             }
           } catch (e) {
