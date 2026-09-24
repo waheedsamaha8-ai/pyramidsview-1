@@ -183,7 +183,7 @@ export async function loginWithEmail(emailInput: string, passwordInput: string, 
     }
   }
 
-  if (buildingAdminMatch) {
+  if (buildingAdminMatch && buildingAdminMatch.presidentEmail && buildingAdminMatch.presidentEmail.toLowerCase().trim() === email) {
     const isPassCorrect = (buildingAdminMatch.adminPassword && buildingAdminMatch.adminPassword === password) ||
                           (adminMatch && adminMatch.password === password) ||
                           password === 'pyr111' || password === 'admin123' || password === '123456' || password === 'demo123';
@@ -272,8 +272,18 @@ export async function loginWithEmail(emailInput: string, passwordInput: string, 
     if (rawResidents) {
       const residentsList = JSON.parse(rawResidents);
       for (const r of residentsList) {
-        const ownerEmailMatch = (r.email && r.email.toLowerCase().trim() === email) || `flat${r.flatNumber}@pyramids.com` === email;
-        const ownerPassMatch = (r.password && r.password === password) || `pyr${r.flatNumber}#2026` === password || `flat${r.flatNumber}123` === password;
+        // Extract flat number from email prefix if matching flatXXX@ or tenantXXX@ format to make it domain-independent
+        const flatEmailMatch = email.match(/^flat(\d+)@/i);
+        const isFlatEmailForThisUnit = flatEmailMatch ? parseInt(flatEmailMatch[1]) === r.flatNumber : false;
+
+        const ownerEmailMatch = (r.email && r.email.toLowerCase().trim() === email) || 
+                                `flat${r.flatNumber}@pyramids.com` === email || 
+                                isFlatEmailForThisUnit;
+
+        const ownerPassMatch = (r.password && r.password === password) || 
+                               `pyr${r.flatNumber}#2026` === password || 
+                               `flat${r.flatNumber}123` === password;
+
         if (ownerEmailMatch && ownerPassMatch) {
           if (r.accountStatus === 'REVOKED') {
             throw new Error('تم إلغاء عضوية هذا الحساب من قبل رئيس الاتحاد. يرجى التواصل مع إدارة الملاك.');
@@ -282,14 +292,20 @@ export async function loginWithEmail(emailInput: string, passwordInput: string, 
             success: true,
             role: 'RESIDENT',
             flatNumber: r.flatNumber,
-            email: r.email || `flat${r.flatNumber}@pyramids.com`,
+            email: r.email || email || `flat${r.flatNumber}@pyramids.com`,
             name: r.name || `ساكن وحدة ${r.flatNumber}`,
             residentType: 'OWNER',
           };
         }
 
-        const tenantEmailMatch = (r.tenantEmail && r.tenantEmail.toLowerCase().trim() === email) || `tenant${r.flatNumber}@pyramids.com` === email;
-        const tenantPassMatch = (r.tenantPassword && r.tenantPassword === password) || `pyr${r.flatNumber}#2026` === password || `flat${r.flatNumber}123` === password;
+        const tenantEmailMatch = (r.tenantEmail && r.tenantEmail.toLowerCase().trim() === email) || 
+                                 `tenant${r.flatNumber}@pyramids.com` === email || 
+                                 (email.match(/^tenant(\d+)@/i) ? parseInt(email.match(/^tenant(\d+)@/i)![1]) === r.flatNumber : false);
+
+        const tenantPassMatch = (r.tenantPassword && r.tenantPassword === password) || 
+                                `pyr${r.flatNumber}#2026` === password || 
+                                `flat${r.flatNumber}123` === password;
+
         if (tenantEmailMatch && tenantPassMatch) {
           if (r.tenantAccountStatus === 'REVOKED') {
             throw new Error('تم إلغاء عضوية هذا الحساب من قبل رئيس الاتحاد. يرجى التواصل مع إدارة الملاك.');
@@ -298,7 +314,7 @@ export async function loginWithEmail(emailInput: string, passwordInput: string, 
             success: true,
             role: 'RESIDENT',
             flatNumber: r.flatNumber,
-            email: r.tenantEmail || `tenant${r.flatNumber}@pyramids.com`,
+            email: r.tenantEmail || email || `tenant${r.flatNumber}@pyramids.com`,
             name: r.tenantName || r.name || `مستأجر وحدة ${r.flatNumber}`,
             residentType: 'TENANT',
           };
