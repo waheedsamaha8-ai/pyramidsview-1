@@ -22,10 +22,23 @@ import {
   X,
   MessageCircle,
   ExternalLink,
-  Check
+  Check,
+  Share2
 } from 'lucide-react';
 import { CommunityHeader, CommunityCounts, CommunityServiceId } from './CommunityHeader';
 import { formatMobileNumber, formatPhoneForDisplay, normalizePhoneInput, toWhatsAppNumber } from '../utils/phoneUtils';
+
+const specialtyLabels: Record<string, string> = {
+  'سباكة': 'سباكة 💧',
+  'كهرباء': 'كهرباء ⚡',
+  'مصاعد': 'مصاعد 🛗',
+  'تكييف': 'تكييف ❄️',
+  'نجارة': 'نجارة 🪚',
+  'نقاشة': 'نقاشة 🎨',
+  'ألوميتال': 'ألوميتال 🚪',
+  'نظافة': 'نظافة 🧹',
+  'أخرى': 'أخرى 🛠️'
+};
 
 interface MaintenanceRequestsProps {
   requests: MaintenanceRequest[];
@@ -84,7 +97,10 @@ export const MaintenanceRequests: React.FC<MaintenanceRequestsProps> = ({
   const [editingCraftsman, setEditingCraftsman] = useState<Craftsman | null>(null);
   const [editName, setEditName] = useState('');
   const [editSpecialty, setEditSpecialty] = useState('');
+  const [customEditSpecialty, setCustomEditSpecialty] = useState('');
+  const [isCustomEditSpecialty, setIsCustomEditSpecialty] = useState(false);
   const [editPhone, setEditPhone] = useState('');
+  const [editPhones, setEditPhones] = useState<string[]>(['']);
   const [editNotes, setEditNotes] = useState('');
 
   // Craftsman Comments Modal State
@@ -105,8 +121,11 @@ export const MaintenanceRequests: React.FC<MaintenanceRequestsProps> = ({
 
   // Form states for new craftsman
   const [craftsmanName, setCraftsmanName] = useState('');
-  const [craftsmanSpecialty, setCraftsmanSpecialty] = useState('');
+  const [craftsmanSpecialty, setCraftsmanSpecialty] = useState('سباكة');
+  const [customSpecialty, setCustomSpecialty] = useState('');
+  const [isCustomSpecialty, setIsCustomSpecialty] = useState(false);
   const [craftsmanPhone, setCraftsmanPhone] = useState('');
+  const [craftsmanPhones, setCraftsmanPhones] = useState<string[]>(['']);
   const [craftsmanNotes, setCraftsmanNotes] = useState('');
 
   // WhatsApp Link Formatter
@@ -154,13 +173,15 @@ export const MaintenanceRequests: React.FC<MaintenanceRequestsProps> = ({
 
   const handleCraftsmanSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!craftsmanName.trim() || !craftsmanSpecialty.trim() || !craftsmanPhone.trim()) return;
+    const finalSpecialty = isCustomSpecialty ? customSpecialty.trim() : craftsmanSpecialty;
+    const finalPhone = craftsmanPhones.map(p => formatMobileNumber(p.trim())).filter(Boolean).join(', ');
+    if (!craftsmanName.trim() || !finalSpecialty || !finalPhone) return;
 
     const newCraftsman: Craftsman = {
       id: `cft_${Date.now()}`,
       name: craftsmanName.trim(),
-      specialty: craftsmanSpecialty.trim(),
-      phone: formatMobileNumber(craftsmanPhone),
+      specialty: finalSpecialty,
+      phone: finalPhone,
       notes: craftsmanNotes.trim(),
       addedBy: role === 'RESIDENT' ? (userName ? `${userName} (وحدة ${flatNumber || '?'})` : `وحدة ${flatNumber || 'ساكن'}`) : 'إدارة الاتحاد',
       comments: [],
@@ -168,8 +189,11 @@ export const MaintenanceRequests: React.FC<MaintenanceRequestsProps> = ({
 
     onAddCraftsman(newCraftsman);
     setCraftsmanName('');
-    setCraftsmanSpecialty('');
+    setCraftsmanSpecialty('سباكة');
+    setCustomSpecialty('');
+    setIsCustomSpecialty(false);
     setCraftsmanPhone('');
+    setCraftsmanPhones(['']);
     setCraftsmanNotes('');
     setShowAddCraftsmanForm(false);
   };
@@ -177,20 +201,35 @@ export const MaintenanceRequests: React.FC<MaintenanceRequestsProps> = ({
   const handleOpenEditCraftsman = (c: Craftsman) => {
     setEditingCraftsman(c);
     setEditName(c.name);
-    setEditSpecialty(c.specialty);
+    const standardSpecialties = ['سباكة', 'كهرباء', 'مصاعد', 'تكييف', 'نجارة', 'نقاشة', 'ألوميتال', 'نظافة'];
+    if (standardSpecialties.includes(c.specialty)) {
+      setEditSpecialty(c.specialty);
+      setIsCustomEditSpecialty(false);
+      setCustomEditSpecialty('');
+    } else {
+      setEditSpecialty('أخرى');
+      setIsCustomEditSpecialty(true);
+      setCustomEditSpecialty(c.specialty);
+    }
     setEditPhone(formatMobileNumber(c.phone));
+    
+    const parts = (c.phone || '').split(/[,/;|\n]+/).map(p => p.trim()).filter(Boolean);
+    setEditPhones(parts.length > 0 ? parts : ['']);
+
     setEditNotes(c.notes || '');
   };
 
   const handleSaveEditedCraftsman = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingCraftsman || !editName.trim() || !editSpecialty.trim() || !editPhone.trim()) return;
+    const finalSpecialty = isCustomEditSpecialty ? customEditSpecialty.trim() : editSpecialty;
+    const finalPhone = editPhones.map(p => formatMobileNumber(p.trim())).filter(Boolean).join(', ');
+    if (!editingCraftsman || !editName.trim() || !finalSpecialty || !finalPhone) return;
 
     const updated: Craftsman = {
       ...editingCraftsman,
       name: editName.trim(),
-      specialty: editSpecialty.trim(),
-      phone: formatMobileNumber(editPhone),
+      specialty: finalSpecialty,
+      phone: finalPhone,
       notes: editNotes.trim(),
     };
 
@@ -224,6 +263,41 @@ export const MaintenanceRequests: React.FC<MaintenanceRequestsProps> = ({
     setNewCommentRating(5);
   };
 
+  const handleShareCraftsmanWhatsApp = (c: Craftsman) => {
+    const commentsText = c.comments && c.comments.length > 0
+      ? c.comments.map(cmt => `• [شقة ${cmt.flatNumber || '?'}] ${cmt.senderName}: "${cmt.text}" (${'★'.repeat(cmt.rating || 5)}${'☆'.repeat(5 - (cmt.rating || 5))})`).join('\n')
+      : 'لا توجد آراء مسجلة بعد.';
+
+    const message = `*بطاقة فني من دليل صنايعية العمارة* 🛠️\n\n` +
+      `👤 *الاسم:* ${c.name}\n` +
+      `🔧 *التخصص:* ${c.specialty}\n` +
+      `📞 *رقم الهاتف:* ${c.phone}\n\n` +
+      `⭐️ *التقييمات وتعليقات السكان:*\n${commentsText}\n\n` +
+      `تمت المشاركة من تطبيق إدارة العمارة السحابي 🏢`;
+
+    const shareUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(message)}`;
+    window.open(shareUrl, '_blank');
+  };
+
+  const handleShareRequestWhatsApp = (req: MaintenanceRequest) => {
+    const statusLabel = req.status === 'PENDING' ? 'قيد الانتظار ⏳' : req.status === 'IN_PROGRESS' ? 'جاري العمل 🛠️' : 'تم الإنجاز ✓';
+    const priorityLabel = req.priority === 'LOW' ? 'عادية' : req.priority === 'MEDIUM' ? 'متوسطة' : 'عاجلة جداً طارئة 🚨';
+    
+    const message = `*بلاغ صيانة - عمارة بيراميدز فيو ١* 🛠️\n\n` +
+      `📍 *رقم الوحدة:* شقة ${req.flatNumber}\n` +
+      `👤 *مقدم الطلب:* ${req.residentName}\n` +
+      `📋 *العنوان:* ${req.title}\n` +
+      `💬 *الوصف:* ${req.description}\n` +
+      `📁 *الفئة:* ${req.category}\n` +
+      `⚠️ *الأولوية:* ${priorityLabel}\n` +
+      `📅 *التاريخ:* ${req.date}\n` +
+      `⚡ *الحالة:* ${statusLabel}\n\n` +
+      `تمت المشاركة من تطبيق إدارة العمارة السحابي 🏢`;
+
+    const shareUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(message)}`;
+    window.open(shareUrl, '_blank');
+  };
+
   // Filter requests based on scope, status, and priority
   const filteredRequests = requests.filter(req => {
     if (filterScope === 'MY_UNIT' && flatNumber && req.flatNumber !== flatNumber) {
@@ -237,6 +311,10 @@ export const MaintenanceRequests: React.FC<MaintenanceRequestsProps> = ({
   // Filter craftsmen
   const filteredCraftsmen = craftsmen.filter(c => {
     if (filterSpecialty === 'ALL') return true;
+    if (filterSpecialty === 'أخرى') {
+      const standards = ['سباكة', 'كهرباء', 'مصاعد', 'تكييف', 'نجارة', 'نقاشة', 'ألوميتال', 'نظافة'];
+      return !standards.some(std => c.specialty.includes(std));
+    }
     return c.specialty.includes(filterSpecialty);
   });
 
@@ -676,7 +754,15 @@ export const MaintenanceRequests: React.FC<MaintenanceRequestsProps> = ({
                               </button>
                             </div>
 
-                            <div className="flex justify-end pt-0.5">
+                            <div className="flex justify-between items-center pt-1 border-t border-slate-100 dark:border-slate-800 mt-1">
+                              <button
+                                onClick={() => handleShareRequestWhatsApp(req)}
+                                className="text-emerald-600 hover:text-emerald-700 flex items-center gap-1 text-[11px] font-bold hover:bg-emerald-50 px-2 py-1 rounded-lg transition border border-emerald-100 cursor-pointer"
+                              >
+                                <Share2 className="w-3 h-3" />
+                                <span>مشاركة البلاغ</span>
+                              </button>
+
                               <button
                                 onClick={() => setConfirmDeleteReqId(req.id)}
                                 className="text-red-500 hover:text-red-700 flex items-center gap-1 text-[11px] font-bold hover:bg-red-50 px-2 py-1 rounded-lg transition border border-red-100 cursor-pointer"
@@ -687,24 +773,35 @@ export const MaintenanceRequests: React.FC<MaintenanceRequestsProps> = ({
                             </div>
                           </div>
                         ) : (
-                          <div className="flex justify-between items-center pt-0.5">
+                          <div className="flex justify-between items-center pt-1.5 border-t border-slate-50 mt-1.5 flex-wrap gap-2">
                             <span className="text-[10px] text-slate-400 font-semibold">
                               {req.status === 'PENDING' ? 'بانتظار مراجعة الاتحاد' : req.status === 'IN_PROGRESS' ? 'جاري متابعة الصيانة' : 'تم إنهاء الطلب'}
                             </span>
-                            {((flatNumber !== undefined && req.flatNumber === flatNumber) ||
-                              (Boolean(userName) && Boolean(req.residentName) && req.residentName.trim().toLowerCase() === userName.trim().toLowerCase())) ? (
+                            
+                            <div className="flex items-center gap-1.5">
                               <button
-                                onClick={() => setConfirmDeleteReqId(req.id)}
-                                className="text-red-500 hover:text-red-700 flex items-center gap-1 text-[11px] font-bold hover:bg-red-50 px-2 py-1 rounded-lg transition border border-red-100 cursor-pointer"
+                                onClick={() => handleShareRequestWhatsApp(req)}
+                                className="text-emerald-600 hover:text-emerald-700 flex items-center gap-1 text-[11px] font-bold hover:bg-emerald-50 px-2 py-1 rounded-lg transition border border-emerald-100 cursor-pointer"
                               >
-                                <Trash2 className="w-3 h-3" />
-                                <span>إلغاء / إزالة البلاغ</span>
+                                <Share2 className="w-3 h-3" />
+                                <span>مشاركة</span>
                               </button>
-                            ) : (
-                              <span className="text-[10px] text-slate-400 bg-slate-50 dark:bg-slate-800 px-2 py-0.5 rounded font-bold">
-                                مقدم من الجيران
-                              </span>
-                            )}
+
+                              {((flatNumber !== undefined && req.flatNumber === flatNumber) ||
+                                (Boolean(userName) && Boolean(req.residentName) && req.residentName.trim().toLowerCase() === userName.trim().toLowerCase())) ? (
+                                <button
+                                  onClick={() => setConfirmDeleteReqId(req.id)}
+                                  className="text-red-500 hover:text-red-700 flex items-center gap-1 text-[11px] font-bold hover:bg-red-50 px-2 py-1 rounded-lg transition border border-red-100 cursor-pointer"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                  <span>إلغاء البلاغ</span>
+                                </button>
+                              ) : (
+                                <span className="text-[10px] text-slate-400 bg-slate-50 dark:bg-slate-800 px-2 py-0.5 rounded font-bold">
+                                  مقدم من الجيران
+                                </span>
+                              )}
+                            </div>
                           </div>
                         )}
                       </>
@@ -727,21 +824,16 @@ export const MaintenanceRequests: React.FC<MaintenanceRequestsProps> = ({
               onChange={(e) => setFilterSpecialty(e.target.value)}
               className="flex-1 px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 rounded-lg text-xs font-bold outline-none cursor-pointer"
             >
-              <option value="ALL">جميع التخصصات المتاحة</option>
-              {Array.from(new Set([
-                'سباكة',
-                'كهرباء',
-                'مصاعد',
-                'تكييف',
-                'نجارة',
-                'نقاشة',
-                'ألوميتال',
-                'نظافة',
-                'أخرى',
-                ...craftsmen.map(c => c.specialty).filter(Boolean)
-              ])).map((spec) => (
-                <option key={spec} value={spec}>{spec}</option>
-              ))}
+              <option value="ALL">جميع التخصصات المتاحة 🛠️</option>
+              <option value="سباكة">سباكة 💧</option>
+              <option value="كهرباء">كهرباء ⚡</option>
+              <option value="مصاعد">مصاعد 🛗</option>
+              <option value="تكييف">تكييف ❄️</option>
+              <option value="نجارة">نجارة 🪚</option>
+              <option value="نقاشة">نقاشة 🎨</option>
+              <option value="ألوميتال">ألوميتال 🚪</option>
+              <option value="نظافة">نظافة 🧹</option>
+              <option value="أخرى">أخرى 🛠️</option>
             </select>
           </div>
 
@@ -776,27 +868,83 @@ export const MaintenanceRequests: React.FC<MaintenanceRequestsProps> = ({
                 </div>
                 <div>
                   <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1">التخصص</label>
-                  <input
-                    type="text"
-                    placeholder="مثال: سباكة وصحي، كهرباء منازل، صيانة تكييف"
+                  <select
                     value={craftsmanSpecialty}
-                    onChange={(e) => setCraftsmanSpecialty(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 rounded-xl text-xs font-bold outline-none focus:border-blue-500 transition"
-                    required
-                  />
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setCraftsmanSpecialty(val);
+                      setIsCustomSpecialty(val === 'أخرى');
+                    }}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 rounded-xl text-xs font-bold outline-none focus:border-blue-500 transition cursor-pointer"
+                  >
+                    <option value="سباكة">سباكة 💧</option>
+                    <option value="كهرباء">كهرباء ⚡</option>
+                    <option value="مصاعد">مصاعد 🛗</option>
+                    <option value="تكييف">تكييف ❄️</option>
+                    <option value="نجارة">نجارة 🪚</option>
+                    <option value="نقاشة">نقاشة 🎨</option>
+                    <option value="ألوميتال">ألوميتال 🚪</option>
+                    <option value="نظافة">نظافة 🧹</option>
+                    <option value="أخرى">أخرى 🛠️</option>
+                  </select>
+                  {isCustomSpecialty && (
+                    <input
+                      type="text"
+                      placeholder="اكتب التخصص المخصص هنا..."
+                      value={customSpecialty}
+                      onChange={(e) => setCustomSpecialty(e.target.value)}
+                      className="w-full mt-2 px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 rounded-xl text-xs font-bold outline-none focus:border-blue-500 transition"
+                      required
+                    />
+                  )}
                 </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1">رقم الهاتف / الواتساب</label>
-                  <input
-                    type="tel"
-                    dir="ltr"
-                    placeholder="مثال: 01012345678 أو +966539313467"
-                    value={craftsmanPhone}
-                    onChange={(e) => setCraftsmanPhone(normalizePhoneInput(e.target.value))}
-                    onBlur={() => setCraftsmanPhone(formatMobileNumber(craftsmanPhone))}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 rounded-xl text-xs font-mono font-bold outline-none focus:border-blue-500 transition text-left placeholder:text-right placeholder:font-sans"
-                    required
-                  />
+                <div className="space-y-1.5">
+                  <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1">أرقام هواتف الصنايعي</label>
+                  <div className="space-y-2">
+                    {craftsmanPhones.map((num, index) => (
+                      <div key={index} className="flex items-center gap-1.5">
+                        <input
+                          type="text"
+                          placeholder="01xxxxxxxxx"
+                          value={num}
+                          onChange={(e) => {
+                            const updated = [...craftsmanPhones];
+                            updated[index] = normalizePhoneInput(e.target.value);
+                            setCraftsmanPhones(updated);
+                          }}
+                          onBlur={() => {
+                            const updated = [...craftsmanPhones];
+                            updated[index] = formatMobileNumber(num);
+                            setCraftsmanPhones(updated);
+                          }}
+                          dir="ltr"
+                          className="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 rounded-xl text-xs font-mono font-bold outline-none focus:border-blue-500 transition text-left"
+                        />
+                        {index === craftsmanPhones.length - 1 ? (
+                          <button
+                            type="button"
+                            onClick={() => setCraftsmanPhones([...craftsmanPhones, ''])}
+                            className="w-9 h-9 bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 rounded-xl flex items-center justify-center hover:bg-blue-100 dark:hover:bg-blue-900/40 transition shrink-0 cursor-pointer"
+                            title="إضافة رقم آخر"
+                          >
+                            <Plus className="w-4 h-4 stroke-[2.5]" />
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated = craftsmanPhones.filter((_, i) => i !== index);
+                              setCraftsmanPhones(updated.length > 0 ? updated : ['']);
+                            }}
+                            className="w-9 h-9 bg-rose-50 dark:bg-rose-950/40 text-rose-500 dark:text-rose-400 rounded-xl flex items-center justify-center hover:bg-rose-100 dark:hover:bg-rose-900/40 transition shrink-0 cursor-pointer"
+                            title="حذف الرقم"
+                          >
+                            <Trash2 className="w-4 h-4 stroke-[1.5]" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
 
@@ -859,9 +1007,17 @@ export const MaintenanceRequests: React.FC<MaintenanceRequestsProps> = ({
                                 {c.specialty}
                               </span>
                               {c.phone && (
-                                <span className="text-[10px] text-slate-600 dark:text-slate-300 font-mono font-bold phone-number-display" dir="ltr">
-                                  {formatPhoneForDisplay(c.phone)}
-                                </span>
+                                <div className="flex flex-col text-[10px] text-slate-600 dark:text-slate-300 font-mono font-bold" dir="ltr">
+                                  {c.phone.split(/[,/;|\n]+/).map((part, idx) => {
+                                    const trimmedPart = part.trim();
+                                    if (!trimmedPart) return null;
+                                    return (
+                                      <span key={idx} className="phone-number-display block">
+                                        {formatPhoneForDisplay(trimmedPart)}
+                                      </span>
+                                    );
+                                  })}
+                                </div>
                               )}
                             </div>
                           </div>
@@ -936,44 +1092,67 @@ export const MaintenanceRequests: React.FC<MaintenanceRequestsProps> = ({
                           </button>
                         </div>
                       </div>
-                    ) : (
+                     ) : (
                       <div className="space-y-2 mt-2 pt-2 border-t border-slate-100 dark:border-slate-800">
                         {/* Quick Contact Buttons (Call & WhatsApp) */}
-                        <div className="grid grid-cols-2 gap-2">
-                          {/* Direct Call Button */}
-                          <a 
-                            href={`tel:${c.phone}`} 
-                            className="flex items-center justify-center gap-1.5 text-xs font-black text-blue-900 dark:text-blue-200 bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/60 border border-blue-200/80 dark:border-blue-800/80 py-2 px-2.5 rounded-xl transition text-center"
-                          >
-                            <Phone className="w-3.5 h-3.5 text-blue-700 dark:text-blue-400" />
-                            <span>اتصال</span>
-                          </a>
+                        <div className="space-y-2">
+                          {c.phone.split(/[,/;|\n]+/).map((part, pIdx) => {
+                            const singlePhone = part.trim();
+                            if (!singlePhone) return null;
+                            const cleanPhone = formatMobileNumber(singlePhone);
+                            const waUrl = formatWhatsAppLink(cleanPhone, c.specialty, c.name);
+                            return (
+                              <div key={pIdx} className="grid grid-cols-2 gap-2">
+                                <a 
+                                  href={`tel:${cleanPhone}`} 
+                                  className="flex items-center justify-center gap-1.5 text-xs font-black text-blue-900 dark:text-blue-200 bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/60 border border-blue-200/80 dark:border-blue-800/80 py-2 px-2 rounded-xl transition text-center"
+                                  title={`اتصال هاتفياً بالفني برقم: ${singlePhone}`}
+                                >
+                                  <Phone className="w-3.5 h-3.5 text-blue-700 dark:text-blue-400 shrink-0" />
+                                  <span className="truncate">{formatPhoneForDisplay(singlePhone)}</span>
+                                </a>
 
-                          {/* WhatsApp Chat Button */}
-                          <a 
-                            href={formatWhatsAppLink(c.phone, c.specialty, c.name)} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="flex items-center justify-center gap-1.5 text-xs font-black text-white bg-emerald-600 hover:bg-emerald-700 shadow-xs py-2 px-2.5 rounded-xl transition text-center cursor-pointer"
-                          >
-                            <MessageCircle className="w-3.5 h-3.5" />
-                            <span>واتساب</span>
-                          </a>
+                                <a 
+                                  href={waUrl} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer"
+                                  className="flex items-center justify-center gap-1.5 text-xs font-black text-white bg-emerald-600 hover:bg-emerald-700 shadow-xs py-2 px-2 rounded-xl transition text-center cursor-pointer"
+                                  title={`مراسلة الفني عبر الواتساب برقم: ${singlePhone}`}
+                                >
+                                  <MessageCircle className="w-3.5 h-3.5 shrink-0" />
+                                  <span>واتساب</span>
+                                </a>
+                              </div>
+                            );
+                          })}
                         </div>
 
-                        {/* Comments & Reviews Trigger */}
-                        <button
-                          onClick={() => setSelectedCraftsmanForComments(c)}
-                          className="w-full flex items-center justify-between text-xs font-black text-slate-700 dark:text-slate-200 hover:text-blue-900 dark:hover:text-blue-300 bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700/80 border border-slate-200 dark:border-slate-700 py-2 px-3 rounded-xl transition cursor-pointer"
-                        >
-                          <div className="flex items-center gap-1.5">
-                            <MessageSquare className="w-3.5 h-3.5 text-slate-500" />
-                            <span>آراء وتقييمات السكان</span>
-                          </div>
-                          <span className="px-2 py-0.5 bg-white dark:bg-slate-900 rounded-md text-[10px] text-blue-800 dark:text-blue-300 font-black border border-slate-200 dark:border-slate-800">
-                            {commentsCount > 0 ? `${commentsCount} تعليق` : '+ تقييم'}
-                          </span>
-                        </button>
+                        {/* Comments & Share Buttons */}
+                        <div className="grid grid-cols-2 gap-2">
+                          {/* Comments & Reviews Trigger */}
+                          <button
+                            onClick={() => setSelectedCraftsmanForComments(c)}
+                            className="flex items-center justify-between text-[11px] font-black text-slate-700 dark:text-slate-200 hover:text-blue-900 dark:hover:text-blue-300 bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700/80 border border-slate-200 dark:border-slate-700 py-2 px-2 rounded-xl transition cursor-pointer"
+                          >
+                            <div className="flex items-center gap-1 min-w-0">
+                              <MessageSquare className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                              <span className="truncate">آراء الجيران</span>
+                            </div>
+                            <span className="px-1.5 py-0.5 bg-white dark:bg-slate-900 rounded-md text-[9px] text-blue-800 dark:text-blue-300 font-black border border-slate-200 dark:border-slate-800 shrink-0">
+                              {commentsCount}
+                            </span>
+                          </button>
+
+                          {/* WhatsApp Share Button */}
+                          <button
+                            onClick={() => handleShareCraftsmanWhatsApp(c)}
+                            className="flex items-center justify-center gap-1.5 text-[11px] font-black text-slate-700 dark:text-slate-200 hover:text-emerald-700 dark:hover:text-emerald-400 bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700/80 border border-slate-200 dark:border-slate-700 py-2 px-2 rounded-xl transition cursor-pointer"
+                            title="مشاركة كارت الفني على الواتساب شامل الاسم والتلفون والتعليقات"
+                          >
+                            <Share2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                            <span>مشاركة الكارت</span>
+                          </button>
+                        </div>
 
                         <div className="flex justify-between items-center text-[10px] text-slate-400 dark:text-slate-500 font-bold pt-0.5">
                           <span>أضيف بواسطة: {c.addedBy}</span>
@@ -1021,26 +1200,83 @@ export const MaintenanceRequests: React.FC<MaintenanceRequestsProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1.5">التخصص</label>
-                  <input
-                    type="text"
+                  <select
                     value={editSpecialty}
-                    onChange={(e) => setEditSpecialty(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 rounded-xl text-xs font-bold outline-none focus:bg-white dark:focus:bg-slate-900 focus:border-blue-500 transition"
-                    required
-                  />
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setEditSpecialty(val);
+                      setIsCustomEditSpecialty(val === 'أخرى');
+                    }}
+                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 rounded-xl text-xs font-bold outline-none focus:bg-white dark:focus:bg-slate-900 focus:border-blue-500 transition cursor-pointer"
+                  >
+                    <option value="سباكة">سباكة 💧</option>
+                    <option value="كهرباء">كهرباء ⚡</option>
+                    <option value="مصاعد">مصاعد 🛗</option>
+                    <option value="تكييف">تكييف ❄️</option>
+                    <option value="نجارة">نجارة 🪚</option>
+                    <option value="نقاشة">نقاشة 🎨</option>
+                    <option value="ألوميتال">ألوميتال 🚪</option>
+                    <option value="نظافة">نظافة 🧹</option>
+                    <option value="أخرى">أخرى 🛠️</option>
+                  </select>
+                  {isCustomEditSpecialty && (
+                    <input
+                      type="text"
+                      placeholder="اكتب التخصص المخصص هنا..."
+                      value={customEditSpecialty}
+                      onChange={(e) => setCustomEditSpecialty(e.target.value)}
+                      className="w-full mt-2 px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 rounded-xl text-xs font-bold outline-none focus:bg-white dark:focus:bg-slate-900 focus:border-blue-500 transition"
+                      required
+                    />
+                  )}
                 </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1.5">رقم الهاتف / الواتساب</label>
-                  <input
-                    type="tel"
-                    dir="ltr"
-                    placeholder="مثال: 01012345678 أو +966539313467"
-                    value={editPhone}
-                    onChange={(e) => setEditPhone(normalizePhoneInput(e.target.value))}
-                    onBlur={() => setEditPhone(formatMobileNumber(editPhone))}
-                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 rounded-xl text-xs font-mono font-bold outline-none focus:bg-white dark:focus:bg-slate-900 focus:border-blue-500 transition text-left placeholder:text-right placeholder:font-sans"
-                    required
-                  />
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1.5">أرقام هواتف الصنايعي</label>
+                  <div className="space-y-2">
+                    {editPhones.map((num, index) => (
+                      <div key={index} className="flex items-center gap-1.5">
+                        <input
+                          type="text"
+                          placeholder="01xxxxxxxxx"
+                          value={num}
+                          onChange={(e) => {
+                            const updated = [...editPhones];
+                            updated[index] = normalizePhoneInput(e.target.value);
+                            setEditPhones(updated);
+                          }}
+                          onBlur={() => {
+                            const updated = [...editPhones];
+                            updated[index] = formatMobileNumber(num);
+                            setEditPhones(updated);
+                          }}
+                          dir="ltr"
+                          className="flex-1 px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 rounded-xl text-xs font-mono font-bold outline-none focus:bg-white dark:focus:bg-slate-900 focus:border-blue-500 transition text-left"
+                        />
+                        {index === editPhones.length - 1 ? (
+                          <button
+                            type="button"
+                            onClick={() => setEditPhones([...editPhones, ''])}
+                            className="w-9 h-9 bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 rounded-xl flex items-center justify-center hover:bg-blue-100 dark:hover:bg-blue-900/40 transition shrink-0 cursor-pointer"
+                            title="إضافة رقم آخر"
+                          >
+                            <Plus className="w-4 h-4 stroke-[2.5]" />
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated = editPhones.filter((_, i) => i !== index);
+                              setEditPhones(updated.length > 0 ? updated : ['']);
+                            }}
+                            className="w-9 h-9 bg-rose-50 dark:bg-rose-950/40 text-rose-500 dark:text-rose-400 rounded-xl flex items-center justify-center hover:bg-rose-100 dark:hover:bg-rose-900/40 transition shrink-0 cursor-pointer"
+                            title="حذف الرقم"
+                          >
+                            <Trash2 className="w-4 h-4 stroke-[1.5]" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
 

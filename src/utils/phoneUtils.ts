@@ -39,12 +39,29 @@ const INTERNATIONAL_COUNTRY_CODES = [
  * - Supports and preserves international format (e.g. +966539313467, 00966539313467, +201007911777, 00201007911777).
  * - Converts Egyptian local missing zero (e.g. 1007911777) to "01007911777".
  * - Cleans Arabic-Indic numerals, spaces, hyphens, and Excel/Sheets escape apostrophes.
+ * - Supports multiple phone numbers separated by comma, slash, semicolon, or newline.
  */
 export function formatMobileNumber(phone: string | number | null | undefined): string {
   if (phone === null || phone === undefined) return '';
   let str = String(phone).trim();
   if (!str) return '';
 
+  // Handle multiple phone numbers separated by comma, slash, semicolon, or newline
+  const separators = /[,/;|\n]+/;
+  if (separators.test(str)) {
+    return str
+      .split(separators)
+      .map(part => part.trim())
+      .filter(Boolean)
+      .map(part => formatSingleMobileNumber(part))
+      .filter(Boolean)
+      .join(', ');
+  }
+
+  return formatSingleMobileNumber(str);
+}
+
+function formatSingleMobileNumber(str: string): string {
   // Remove leading Excel/Sheets text apostrophe if present: ' +966... or '+966...
   str = str.replace(/^['"]+/, '').trim();
 
@@ -123,11 +140,12 @@ export function formatMobileNumber(phone: string | number | null | undefined): s
  * - Allows typing '+' or '00' at the start for international numbers.
  * - Converts Arabic-Indic numerals in real-time.
  * - Auto-prepends '0' for 10-digit Egyptian numbers missing leading zero.
+ * - Supports comma/slash/space separators for multiple numbers.
  */
 export function normalizePhoneInput(input: string): string {
   if (!input) return '';
 
-  // 1. Convert Arabic-Indic & Persian digits
+  // Convert Arabic-Indic & Persian digits
   let str = input
     .replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d).toString())
     .replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶٧٨٩'.indexOf(d).toString());
@@ -135,7 +153,22 @@ export function normalizePhoneInput(input: string): string {
   // Remove leading Excel/Sheets text apostrophe
   str = str.replace(/^['"]+/, '').trim();
 
-  // Determine if it has + or 00
+  // Handle multiple phone numbers separated by comma, slash, semicolon, or space
+  const separators = /[,/;|\n]+/;
+  if (separators.test(str)) {
+    return str
+      .split(separators)
+      .map(part => part.trim())
+      .filter(Boolean)
+      .map(part => normalizeSinglePhoneInput(part))
+      .filter(Boolean)
+      .join(', ');
+  }
+
+  return normalizeSinglePhoneInput(str);
+}
+
+function normalizeSinglePhoneInput(str: string): string {
   const startsWithPlus = str.startsWith('+');
   const startsWithDoubleZero = str.startsWith('00');
   
@@ -208,9 +241,29 @@ export function formatPhoneForText(phone: string | number | null | undefined): s
  * Wraps the formatted number with Left-to-Right Embedding (\u202A) and Pop Directional Formatting (\u202C)
  * so that the number and its symbols (+ / 00) always visually stay in correct order in both mobile and desktop browsers,
  * regardless of parent RTL context or font rendering quirks.
+ * Supports multiple phone numbers.
  */
 export function formatPhoneForDisplay(phone: string | number | null | undefined): string {
-  const formatted = formatMobileNumber(phone);
+  if (phone === null || phone === undefined) return '';
+  const str = String(phone).trim();
+  if (!str) return '';
+
+  const separators = /[,/;|\n]+/;
+  if (separators.test(str)) {
+    return str
+      .split(separators)
+      .map(part => part.trim())
+      .filter(Boolean)
+      .map(part => formatSinglePhoneForDisplay(part))
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  return formatSinglePhoneForDisplay(str);
+}
+
+function formatSinglePhoneForDisplay(part: string): string {
+  const formatted = formatMobileNumber(part);
   if (!formatted) return '';
   if (formatted.startsWith('+') || formatted.startsWith('00') || formatted.match(/^\d+$/)) {
     return '\u202A' + formatted + '\u202C';

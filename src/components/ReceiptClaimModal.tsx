@@ -554,23 +554,134 @@ const ReceiptClaimModalContent: React.FC<{
                 <Sparkles className="w-4 h-4 text-amber-500" />
                 <span>معاينة المستند الرسمي المعتمد:</span>
               </span>
-              <span className="text-[11px] text-emerald-700 font-bold">جاهز للإرسال الفوري</span>
+              <span className="text-[11px] text-emerald-700 font-bold">عرض حي فوري ⚡</span>
             </div>
 
-            {/* Scrollable Container with generated image or direct rendered card */}
-            <div className="border border-slate-200 rounded-2xl overflow-hidden max-h-72 sm:max-h-96 overflow-y-auto bg-slate-100 flex items-center justify-center p-2.5 shadow-inner">
-              {imageDataUrl ? (
-                <img 
-                  src={imageDataUrl} 
-                  alt="معاينة المستند" 
-                  className="w-full max-w-lg h-auto object-contain rounded-xl border border-slate-300 shadow-xs bg-white"
-                />
-              ) : (
-                <div className="py-14 text-slate-400 text-xs font-bold flex flex-col items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-full border-3 border-emerald-600 border-t-transparent animate-spin" />
-                  <span>جاري معالجة وتجهيز صورة المستند عالية الدقة...</span>
+            {/* Scrollable Container with live HTML preview */}
+            <div className="border border-slate-200 rounded-2xl overflow-hidden max-h-72 sm:max-h-96 overflow-y-auto bg-slate-100 p-2.5 shadow-inner flex flex-col items-center w-full">
+              {/* Live instant HTML preview of the receipt/claim */}
+              <div 
+                className="w-full max-w-lg bg-white rounded-2xl border border-slate-200 p-4 text-slate-900 font-sans shadow-xs text-right relative" 
+                dir="rtl"
+              >
+                {/* Header Banner */}
+                <div className={`p-4 rounded-xl text-white flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4 ${
+                  isReceipt ? 'bg-emerald-700' : 'bg-blue-700'
+                }`}>
+                  <div>
+                    <h4 className="text-sm sm:text-base font-extrabold flex items-center gap-1.5">
+                      <span>{isReceipt ? '💐 إيصال سداد واستلام مالي معتمد' : '🏛️ إشعار مطالبة وبيان مستحقات شهرية'}</span>
+                    </h4>
+                    <p className="text-[11px] text-white/90 font-bold mt-1">اتحاد ملاك عمارة بيراميدز فيو ١</p>
+                  </div>
+                  <div className="text-[11px] font-bold opacity-90 sm:text-left space-y-0.5" dir="rtl">
+                    <div>التاريخ: {displayFormattedDate}</div>
+                    <div>المرجع: {docNumber}</div>
+                  </div>
                 </div>
-              )}
+
+                {/* Status Bar */}
+                <div className={`p-2.5 rounded-lg border flex items-center justify-between text-[11px] font-extrabold mb-4 gap-2 ${
+                  isReceipt 
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
+                    : 'bg-amber-50 border-amber-200 text-amber-800'
+                }`}>
+                  <span>
+                    {isReceipt 
+                      ? '✓ تم استلام مبلغ الاشتراك بنجاح وتوثيقه في السجل المالي المعتمد' 
+                      : '⏳ نأمل المبادرة بالسداد لدعم استمرار خدمات وصيانة العمارة'}
+                  </span>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] shrink-0 ${
+                    isReceipt ? 'bg-emerald-200 text-emerald-950' : 'bg-amber-200 text-amber-950'
+                  }`}>
+                    {isReceipt ? 'تم السداد ✓' : '⏳ مطالبة بالسداد'}
+                  </span>
+                </div>
+
+                {/* Data Fields */}
+                <div className="bg-slate-50 border border-slate-200 rounded-xl overflow-hidden text-xs mb-4 divide-y divide-slate-200">
+                  <div className="flex justify-between items-center p-2.5 font-bold">
+                    <span className="text-slate-500">اسم الشاغل:</span>
+                    <span className="text-slate-900">{data.residentName} {formattedPhone ? `(${formattedPhone})` : ''}</span>
+                  </div>
+                  <div className="flex justify-between items-center p-2.5 font-bold">
+                    <span className="text-slate-500">رقم الوحدة:</span>
+                    <span className="text-blue-900 font-black">شقة {data.unitNumber} ({activityType})</span>
+                  </div>
+                  <div className="flex justify-between items-center p-2.5 font-bold">
+                    <span className="text-slate-500">عن شهر:</span>
+                    <span className="text-slate-900">اشتراك {monthName} {data.year} ({Math.round(displayMonthlyFee).toLocaleString()} ج.م)</span>
+                  </div>
+                  <div className="flex justify-between items-center p-2.5 font-bold">
+                    <span className="text-slate-500">نوع الإشغال:</span>
+                    <span className="text-slate-900">{occupancyType}</span>
+                  </div>
+                  {isReceipt && (
+                    <>
+                      <div className="flex justify-between items-center p-2.5 font-bold">
+                        <span className="text-slate-500">تاريخ السداد:</span>
+                        <span className="text-slate-900">{data.date || `${data.year}-${String(data.month).padStart(2, '0')}`}</span>
+                      </div>
+                      <div className="flex justify-between items-center p-2.5 font-bold">
+                        <span className="text-slate-500">نوع التحصيل:</span>
+                        <span className="text-emerald-800">{data.paymentType || 'اشتراك شهري'}</span>
+                      </div>
+                      <div className="flex justify-between items-center p-2.5 font-bold">
+                        <span className="text-slate-500">طريقة السداد:</span>
+                        <span className="text-emerald-800">{data.notes?.includes('تحويل') ? 'تحويل بنكي / محفظة' : 'سداد نقدي'}</span>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Old Debt Notification */}
+                {showCarriedDebt && (
+                  <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-rose-900 text-xs font-black mb-4">
+                    <div>⚠️ تنبيه بوجود مديونية قديمة مرحلة:</div>
+                    <div className="mt-1 font-bold">توجد مديونية قديمة مرحلة على الوحدة قدرها: <span className="underline">{Math.round(carriedDebt).toLocaleString()} ج.م</span></div>
+                  </div>
+                )}
+
+                {/* Note Box */}
+                <div className={`p-3 rounded-xl border text-[11px] font-bold leading-relaxed mb-4 text-center ${
+                  isReceipt ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-blue-50 border-blue-100 text-blue-800'
+                }`}>
+                  {isReceipt ? (
+                    <span>
+                      🌺 نشكركم جزيل الشكر والتقدير على حرصكم الدائم وسدادكم المنتظم، مما يساهم مباشرةً في الحفاظ على العمارة وتطوير خدماتها.
+                      {showCarriedDebt && (
+                        <span className="block mt-1.5 text-rose-750 font-extrabold">
+                          💡 ونشجع سيادتكم على المبادرة بسداد وتصفية باقي المديونية القديمة المتبقية ({Math.round(carriedDebt).toLocaleString()} ج.م) للحفاظ على الانتظام الكامل وحفظ حقوق الاتحاد.
+                        </span>
+                      )}
+                    </span>
+                  ) : (
+                    <span>
+                      🤝 نأمل من سيادتكم التكرم بالمبادرة بسداد المستحقات والمديونيات القديمة في أقرب وقت لضمان استمرار خدمات النظافة، الحراسة، الصيانة، وتشغيل المصاعد بكفاءة لراحة جميع السكّان.
+                    </span>
+                  )}
+                </div>
+
+                {/* Big Total Banner */}
+                <div className={`p-3.5 rounded-xl border-2 flex items-center justify-between font-black ${
+                  isReceipt ? 'bg-emerald-50/50 border-emerald-600' : 'bg-white border-rose-600'
+                }`}>
+                  <span className="text-xs text-slate-850">
+                    {isReceipt ? 'إجمالي المبلغ المسدد معتمداً:' : 'إجمالي المبلغ المستحق للسداد:'}
+                  </span>
+                  <span className={`text-lg sm:text-xl ${isReceipt ? 'text-emerald-700' : 'text-rose-700'}`}>
+                    {Math.round(data.amount).toLocaleString()} ج.م
+                  </span>
+                </div>
+
+                {/* Footer certified badge */}
+                <div className="mt-4 pt-3 border-t border-dashed border-slate-350 flex items-center justify-between text-[9px] font-bold text-slate-500">
+                  <div className="border border-slate-400 rounded px-1.5 py-0.5 text-slate-700 font-black">
+                    معتمد إلكترونياً ✓ اتحاد ملاك بيراميدز فيو ١
+                  </div>
+                  <span>تم استخراج هذا الإيصال إلكترونياً ومطابق للسجلات المالية الرسمية</span>
+                </div>
+              </div>
             </div>
           </div>
 

@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Resident, UserRole, FloorConfig, Payment, AppConfig, JoinRequest } from '../types';
-import { Search, Phone, Edit, Trash2, Home, AlertCircle, LayoutGrid, List, Settings2, Plus, X, Building2, Save, User, KeyRound, Wallet, ArrowDownRight, ArrowUpRight, CheckCircle2, UserCheck, UserX, Clock, Share2, RefreshCw, ShieldCheck } from 'lucide-react';
+import { Search, Phone, Edit, Trash2, Home, AlertCircle, LayoutGrid, List, Settings2, Plus, X, Building2, Save, User, KeyRound, Wallet, ArrowDownRight, ArrowUpRight, CheckCircle2, UserCheck, UserX, Clock, Share2, RefreshCw, ShieldCheck, SlidersHorizontal } from 'lucide-react';
 import { deriveFloorConfigsFromResidents, floorTypeLabels, getFloorName, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber, parseFlatNumber } from '../utils/buildingStructure';
 import * as googleApi from '../services/googleApi';
 import { 
@@ -24,6 +24,20 @@ export {
   getCarriedPreviousBalance, 
   getResidentMonthlyFee, 
   exportCarriedBalancesForYear 
+};
+
+const columnLabels: Record<string, string> = {
+  flatNumber: "رقم الوحدة",
+  ownerName: "اسم المالك / الساكن",
+  ownerPhone: "تليفون المالك",
+  tenantName: "اسم المستأجر",
+  tenantPhone: "تليفون المستأجر",
+  monthlyFee: "الرسوم الشهرية",
+  balance: "الرصيد / المديونية",
+  activityType: "نوع النشاط",
+  membership: "دعوات العضوية",
+  notes: "ملاحظات",
+  actions: "الإجراءات",
 };
 
 interface ResidentsListProps {
@@ -59,6 +73,20 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
   const [selectedResident, setSelectedResident] = useState<Resident | null>(null);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('table');
+  const [showColSelector, setShowColSelector] = useState(false);
+  const [visibleColumns, setVisibleColumns] = useState<Record<string, boolean>>({
+    flatNumber: true,
+    ownerName: true,
+    ownerPhone: true,
+    tenantName: true,
+    tenantPhone: true,
+    monthlyFee: true,
+    balance: true,
+    activityType: true,
+    membership: true,
+    notes: true,
+    actions: true,
+  });
   const [confirmData, setConfirmData] = useState<{ 
     type: 'add' | 'edit' | 'delete' | 'generate' | 'save_structure' | 'delete_floor'; 
     residentData?: Resident; 
@@ -88,10 +116,10 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
 
   const activatedResidents = useMemo(() => {
     return residents.filter(r => {
-      // Must have logged in at least once
-      const ownerHasLoggedIn = !!r.lastLoginAt;
-      const tenantHasLoggedIn = r.ownershipType === 'إيجار' && !!r.tenantLastLoginAt;
-      return ownerHasLoggedIn || tenantHasLoggedIn;
+      // Must be invited (INVITED or REVOKED) AND must have logged in (lastLoginAt or tenantLastLoginAt)
+      const ownerActivated = (r.accountStatus === 'INVITED' || r.accountStatus === 'REVOKED') && !!r.lastLoginAt;
+      const tenantActivated = r.ownershipType === 'إيجار' && (r.tenantAccountStatus === 'INVITED' || r.tenantAccountStatus === 'REVOKED') && !!r.tenantLastLoginAt;
+      return ownerActivated || tenantActivated;
     }).sort((a, b) => compareFlatNumbers(a.flatNumber, b.flatNumber));
   }, [residents]);
 
@@ -218,10 +246,12 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
   const [name, setName] = useState('');
   const [activityType, setActivityType] = useState('سكني');
   const [phone, setPhone] = useState('');
+  const [phoneNumbers, setPhoneNumbers] = useState<string[]>(['']);
   const [notes, setNotes] = useState('');
   const [ownershipType, setOwnershipType] = useState<'تمليك' | 'إيجار'>('تمليك');
   const [tenantName, setTenantName] = useState('');
   const [tenantPhone, setTenantPhone] = useState('');
+  const [tenantPhoneNumbers, setTenantPhoneNumbers] = useState<string[]>(['']);
   const [monthlyFee, setMonthlyFee] = useState<number | ''>(400);
   const [initialBalanceType, setInitialBalanceType] = useState<'debt' | 'surplus' | 'none'>('none');
   const [initialBalanceVal, setInitialBalanceVal] = useState<number | ''>('');
@@ -292,10 +322,12 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
     setName('');
     setActivityType(defaultAct);
     setPhone('');
+    setPhoneNumbers(['']);
     setNotes('');
     setOwnershipType('تمليك');
     setTenantName('');
     setTenantPhone('');
+    setTenantPhoneNumbers(['']);
     setMonthlyFee(getDefaultFeeForActivity(defaultAct));
     setInitialBalanceType('none');
     setInitialBalanceVal('');
@@ -313,11 +345,19 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
     setName(resident.name);
     setActivityType(resident.activityType);
     setPhone(formatMobileNumber(resident.phone || ''));
+    
+    const parts = (resident.phone || '').split(/[,/;|\n]+/).map(p => p.trim()).filter(Boolean);
+    setPhoneNumbers(parts.length > 0 ? parts : ['']);
+
     const cleanNotes = (resident.notes || '').includes('توليد تلقائي') ? '' : (resident.notes || '');
     setNotes(cleanNotes);
     setOwnershipType((resident.ownershipType as any) === 'إيجار' ? 'إيجار' : 'تمليك');
     setTenantName(resident.tenantName || '');
     setTenantPhone(formatMobileNumber(resident.tenantPhone || ''));
+
+    const partsTenant = (resident.tenantPhone || '').split(/[,/;|\n]+/).map(p => p.trim()).filter(Boolean);
+    setTenantPhoneNumbers(partsTenant.length > 0 ? partsTenant : ['']);
+
     const fee = resident.monthlyFee !== undefined && !isNaN(resident.monthlyFee) && resident.monthlyFee > 0
       ? resident.monthlyFee 
       : getDefaultFeeForActivity(resident.activityType);
@@ -484,16 +524,25 @@ ${appUrl}
       finalInitialBalance = Math.abs(Number(initialBalanceVal));
     }
 
+    const finalPhone = phoneNumbers
+      .map(p => formatMobileNumber(p.trim()))
+      .filter(Boolean)
+      .join(', ');
+
+    const finalTenantPhone = ownershipType === 'إيجار'
+      ? tenantPhoneNumbers.map(p => formatMobileNumber(p.trim())).filter(Boolean).join(', ')
+      : '';
+
     const residentData: Resident = {
       id: selectedResident ? selectedResident.id : `res_${Date.now()}`,
       flatNumber: flatStr,
       name: name.trim(),
       activityType,
-      phone: formatMobileNumber(phone),
+      phone: finalPhone,
       notes: notes.trim(),
       ownershipType,
       tenantName: ownershipType === 'إيجار' ? tenantName.trim() : '',
-      tenantPhone: ownershipType === 'إيجار' ? formatMobileNumber(tenantPhone) : '',
+      tenantPhone: finalTenantPhone,
       monthlyFee: monthlyFee !== '' ? Number(monthlyFee) : (config?.defaultMonthlyFee || 200),
       initialBalance: finalInitialBalance,
       email: email.trim() || `flat${flatStr}@pyramids.com`,
@@ -845,21 +894,76 @@ ${appUrl}
           </div>
 
           {/* View Mode Toggle */}
-          <div className="flex items-center bg-slate-100 p-0.5 rounded-xl">
-            <button
-              onClick={() => setViewMode('table')}
-              className={`p-1.5 rounded-lg transition-all cursor-pointer ${viewMode === 'table' ? 'bg-white text-blue-900 shadow-2xs' : 'text-slate-400 hover:text-slate-600'}`}
-              title="عرض جدول مفصل"
-            >
-              <List className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => setViewMode('cards')}
-              className={`p-1.5 rounded-lg transition-all cursor-pointer ${viewMode === 'cards' ? 'bg-white text-blue-900 shadow-2xs' : 'text-slate-400 hover:text-slate-600'}`}
-              title="عرض كروت"
-            >
-              <LayoutGrid className="w-4 h-4" />
-            </button>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <div className="flex items-center bg-slate-100 p-0.5 rounded-xl">
+              <button
+                type="button"
+                onClick={() => setViewMode('table')}
+                className={`p-1.5 rounded-lg transition-all cursor-pointer ${viewMode === 'table' ? 'bg-white text-blue-900 shadow-2xs' : 'text-slate-400 hover:text-slate-600'}`}
+                title="عرض جدول مفصل"
+              >
+                <List className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('cards')}
+                className={`p-1.5 rounded-lg transition-all cursor-pointer ${viewMode === 'cards' ? 'bg-white text-blue-900 shadow-2xs' : 'text-slate-400 hover:text-slate-600'}`}
+                title="عرض كروت"
+              >
+                <LayoutGrid className="w-4 h-4" />
+              </button>
+            </div>
+
+            {viewMode === 'table' && (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowColSelector(!showColSelector)}
+                  className={`w-7 h-7 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg flex items-center justify-center transition cursor-pointer border border-slate-200/40 shrink-0 ${showColSelector ? 'bg-blue-50 text-blue-900 border-blue-200 shadow-2xs' : ''}`}
+                  title="إظهار / إخفاء أعمدة الجدول"
+                >
+                  <SlidersHorizontal className="w-3.5 h-3.5" />
+                </button>
+
+                {showColSelector && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setShowColSelector(false)} />
+                    <div className="absolute left-0 mt-2 w-52 bg-white rounded-2xl border border-slate-150 shadow-xl z-50 p-2.5 space-y-1 text-right animate-scale-up" dir="rtl">
+                      <div className="px-2 py-1.5 border-b border-slate-100/80 mb-1.5">
+                        <span className="text-[10px] font-black text-slate-400 block">إظهار/إخفاء الأعمدة</span>
+                      </div>
+                      <div className="max-h-64 overflow-y-auto pr-0.5 space-y-0.5">
+                        {Object.entries(columnLabels).map(([key, label]) => {
+                          if (key === 'membership' && role !== 'ADMIN') return null;
+                          if (key === 'actions' && (isReadOnly || role === 'ASSISTANT')) return null;
+
+                          const isChecked = visibleColumns[key];
+                          return (
+                            <label
+                              key={key}
+                              className="flex items-center gap-2 px-2 py-1 hover:bg-slate-50 rounded-lg cursor-pointer transition text-[11px] font-bold text-slate-700 select-none text-right"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => {
+                                  setVisibleColumns(prev => ({
+                                    ...prev,
+                                    [key]: !prev[key]
+                                  }));
+                                }}
+                                className="w-3.5 h-3.5 text-blue-900 focus:ring-blue-500 border-slate-300 rounded cursor-pointer accent-blue-900"
+                              />
+                              <span className="flex-1 leading-none">{label}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="text-[11px] font-bold text-slate-500 bg-slate-50 px-2.5 py-1.5 rounded-xl border border-slate-100 hidden sm:block">
@@ -1012,16 +1116,24 @@ ${appUrl}
                           </div>
 
                           {res.phone && (
-                            <div className="flex items-center gap-1.5 text-slate-500 text-[10px] font-bold phone-number-display" dir="ltr">
-                              <a
-                                href={`tel:${formatMobileNumber(res.phone)}`}
-                                className="inline-flex items-center gap-1.5 text-blue-900 hover:text-blue-700 hover:underline font-bold font-mono transition px-2 py-1 bg-blue-50/70 hover:bg-blue-100/70 rounded-lg phone-number-display"
-                                title={`اتصال هاتفي بالمالك ${res.name}: ${formatMobileNumber(res.phone)}`}
-                                dir="ltr"
-                              >
-                                <Phone className="w-3 h-3 text-blue-900 shrink-0" />
-                                <span dir="ltr">{formatPhoneForDisplay(res.phone)}</span>
-                              </a>
+                            <div className="flex flex-col items-start gap-1 font-mono text-[10px]" dir="ltr">
+                              {res.phone.split(/[,/;|\n]+/).map((part, pIdx) => {
+                                const cleanPhone = formatMobileNumber(part);
+                                if (!cleanPhone) return null;
+                                return (
+                                  <a
+                                    key={pIdx}
+                                    href={`tel:${cleanPhone}`}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="inline-flex items-center gap-1.5 text-blue-900 hover:text-blue-700 hover:underline font-bold font-mono transition px-2 py-1 bg-blue-50/70 hover:bg-blue-100/70 rounded-lg phone-number-display"
+                                    title={`اتصال هاتفي بالمالك ${res.name}: ${cleanPhone}`}
+                                    dir="ltr"
+                                  >
+                                    <Phone className="w-3 h-3 text-blue-900 shrink-0" />
+                                    <span>{formatPhoneForDisplay(part)}</span>
+                                  </a>
+                                );
+                              })}
                             </div>
                           )}
 
@@ -1035,16 +1147,24 @@ ${appUrl}
                                 </span>
                               </div>
                               {res.tenantPhone && (
-                                <div className="text-[10px] font-bold text-slate-600 flex items-center gap-1 phone-number-display" dir="ltr">
-                                  <a
-                                    href={`tel:${formatMobileNumber(res.tenantPhone)}`}
-                                    className="inline-flex items-center gap-1 text-amber-800 hover:text-amber-950 hover:underline font-bold font-mono transition px-1.5 py-0.5 bg-amber-100/60 hover:bg-amber-200/60 rounded-md phone-number-display"
-                                    title={`اتصال هاتفي بالمستأجر ${res.tenantName}: ${formatMobileNumber(res.tenantPhone)}`}
-                                    dir="ltr"
-                                  >
-                                    <Phone className="w-2.5 h-2.5 text-amber-700 shrink-0" />
-                                    <span dir="ltr">{formatPhoneForDisplay(res.tenantPhone)}</span>
-                                  </a>
+                                <div className="flex flex-col items-start gap-1 font-mono text-[10px]" dir="ltr">
+                                  {res.tenantPhone.split(/[,/;|\n]+/).map((part, pIdx) => {
+                                    const cleanPhone = formatMobileNumber(part);
+                                    if (!cleanPhone) return null;
+                                    return (
+                                      <a
+                                        key={pIdx}
+                                        href={`tel:${cleanPhone}`}
+                                        onClick={(e) => e.stopPropagation()}
+                                        className="inline-flex items-center gap-1 text-amber-800 hover:text-amber-950 hover:underline font-bold font-mono transition px-1.5 py-0.5 bg-amber-100/60 hover:bg-amber-200/60 rounded-md phone-number-display"
+                                        title={`اتصال هاتفي بالمستأجر ${res.tenantName}: ${cleanPhone}`}
+                                        dir="ltr"
+                                      >
+                                        <Phone className="w-2.5 h-2.5 text-amber-700 shrink-0" />
+                                        <span>{formatPhoneForDisplay(part)}</span>
+                                      </a>
+                                    );
+                                  })}
                                 </div>
                               )}
                             </div>
@@ -1117,24 +1237,49 @@ ${appUrl}
         <div className="bg-white rounded-2xl border border-slate-100 shadow-xs overflow-hidden">
           <div className="overflow-x-auto">
             {(() => {
-              const tableColSpan = role === 'ADMIN' ? (!isReadOnly ? 11 : 10) : (!isReadOnly ? 10 : 9);
+              const tableColSpan = Object.keys(visibleColumns).filter(key => {
+                if (!visibleColumns[key]) return false;
+                if (key === 'membership' && role !== 'ADMIN') return false;
+                if (key === 'actions' && (isReadOnly || role === 'ASSISTANT')) return false;
+                return true;
+              }).length;
               return (
                 <table className="w-full text-right border-collapse">
                   <thead>
                     <tr className="bg-slate-50/90 text-slate-500 font-extrabold text-[10px] border-b border-slate-200">
-                      <th className="px-3 py-3 sticky right-0 bg-slate-50 shadow-xs z-10 border-l border-slate-200">رقم الوحدة</th>
-                      <th className="px-3 py-3">اسم المالك / الساكن</th>
-                      <th className="px-3 py-3">تليفون المالك</th>
-                      <th className="px-3 py-3">اسم المستأجر</th>
-                      <th className="px-3 py-3">تليفون المستأجر</th>
-                      <th className="px-3 py-3 text-center">الرسوم الشهرية</th>
-                      <th className="px-3 py-3 text-center">الرصيد / المديونية</th>
-                      <th className="px-3 py-3">نوع النشاط</th>
-                      {role === 'ADMIN' && (
+                      {visibleColumns.flatNumber && (
+                        <th className="px-3 py-3 sticky right-0 bg-slate-50 shadow-xs z-10 border-l border-slate-200">رقم الوحدة</th>
+                      )}
+                      {visibleColumns.ownerName && (
+                        <th className="px-3 py-3">اسم المالك / الساكن</th>
+                      )}
+                      {visibleColumns.ownerPhone && (
+                        <th className="px-3 py-3">تليفون المالك</th>
+                      )}
+                      {visibleColumns.tenantName && (
+                        <th className="px-3 py-3">اسم المستأجر</th>
+                      )}
+                      {visibleColumns.tenantPhone && (
+                        <th className="px-3 py-3">تليفون المستأجر</th>
+                      )}
+                      {visibleColumns.monthlyFee && (
+                        <th className="px-3 py-3 text-center">الرسوم الشهرية</th>
+                      )}
+                      {visibleColumns.balance && (
+                        <th className="px-3 py-3 text-center">الرصيد / المديونية</th>
+                      )}
+                      {visibleColumns.activityType && (
+                        <th className="px-3 py-3">نوع النشاط</th>
+                      )}
+                      {role === 'ADMIN' && visibleColumns.membership && (
                         <th className="px-3 py-3 text-center">دعوات الواتساب والعضوية</th>
                       )}
-                      <th className="px-3 py-3">ملاحظات</th>
-                      {!isReadOnly && role !== 'ASSISTANT' && <th className="px-3 py-3 text-center">الإجراءات</th>}
+                      {visibleColumns.notes && (
+                        <th className="px-3 py-3">ملاحظات</th>
+                      )}
+                      {!isReadOnly && role !== 'ASSISTANT' && visibleColumns.actions && (
+                        <th className="px-3 py-3 text-center">الإجراءات</th>
+                      )}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-xs font-bold text-slate-800">
@@ -1220,99 +1365,133 @@ ${appUrl}
                             }`}
                           >
                             {/* Unit Number */}
-                            <td className={`px-3 py-3 font-black whitespace-nowrap sticky right-0 z-5 border-l border-slate-100 shadow-xs transition ${
-                              isSelected 
-                                ? 'bg-yellow-50 text-amber-950 font-black' 
-                                : 'bg-white text-blue-900 group-hover:bg-slate-50'
-                            }`}>
-                              وحدة {res.flatNumber}
-                            </td>
+                            {visibleColumns.flatNumber && (
+                              <td className={`px-3 py-3 font-black whitespace-nowrap sticky right-0 z-5 border-l border-slate-100 shadow-xs transition ${
+                                isSelected 
+                                  ? 'bg-yellow-50 text-amber-950 font-black' 
+                                  : 'bg-white text-blue-900 group-hover:bg-slate-50'
+                              }`}>
+                                وحدة {res.flatNumber}
+                              </td>
+                            )}
 
                             {/* Resident / Owner Name */}
-                            <td className="px-3 py-3 font-bold text-slate-900 whitespace-nowrap">
-                              {res.name}
-                            </td>
+                            {visibleColumns.ownerName && (
+                              <td className="px-3 py-3 font-bold text-slate-900 whitespace-nowrap">
+                                {res.name}
+                              </td>
+                            )}
 
                             {/* Owner Phone (Directly after Owner Name) with calling link */}
-                            <td className="px-3 py-3 whitespace-nowrap text-slate-600" dir="ltr">
-                              {res.phone ? (
-                                <a
-                                  href={`tel:${formatMobileNumber(res.phone)}`}
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="inline-flex items-center gap-1 text-blue-900 hover:text-blue-700 hover:underline font-bold font-mono transition px-1.5 py-0.5 rounded-md hover:bg-blue-50 phone-number-display"
-                                  title={`اتصال هاتفياً بالمالك ${res.name}: ${formatMobileNumber(res.phone)}`}
-                                  dir="ltr"
-                                >
-                                  <Phone className="w-3 h-3 text-blue-900 shrink-0" />
-                                  <span dir="ltr">{formatPhoneForDisplay(res.phone)}</span>
-                                </a>
-                              ) : (
-                                <span className="text-slate-300 font-normal">—</span>
-                              )}
-                            </td>
+                            {visibleColumns.ownerPhone && (
+                              <td className="px-3 py-3 text-slate-600" dir="ltr">
+                                {res.phone ? (
+                                  <div className="flex flex-col items-start gap-1">
+                                    {res.phone.split(/[,/;|\n]+/).map((part, pIdx) => {
+                                      const cleanPhone = formatMobileNumber(part);
+                                      if (!cleanPhone) return null;
+                                      return (
+                                        <a
+                                          key={pIdx}
+                                          href={`tel:${cleanPhone}`}
+                                          onClick={(e) => e.stopPropagation()}
+                                          className="inline-flex items-center gap-1 text-blue-900 hover:text-blue-700 hover:underline font-bold font-mono transition px-1.5 py-0.5 rounded-md hover:bg-blue-50 phone-number-display"
+                                          title={`اتصال هاتفياً بالمالك ${res.name}: ${cleanPhone}`}
+                                          dir="ltr"
+                                        >
+                                          <Phone className="w-3 h-3 text-blue-900 shrink-0" />
+                                          <span dir="ltr">{formatPhoneForDisplay(part)}</span>
+                                        </a>
+                                      );
+                                    })}
+                                  </div>
+                                ) : (
+                                  <span className="text-slate-300 font-normal">—</span>
+                                )}
+                              </td>
+                            )}
 
                             {/* Tenant Name */}
-                            <td className="px-3 py-3 text-slate-700 whitespace-nowrap">
-                              {res.ownershipType === 'إيجار' && res.tenantName ? (
-                                <span className="text-amber-950 font-black">{res.tenantName}</span>
-                              ) : (
-                                <span className="text-slate-300 font-normal">—</span>
-                              )}
-                            </td>
+                            {visibleColumns.tenantName && (
+                              <td className="px-3 py-3 text-slate-700 whitespace-nowrap">
+                                {res.ownershipType === 'إيجار' && res.tenantName ? (
+                                  <span className="text-amber-950 font-black">{res.tenantName}</span>
+                                ) : (
+                                  <span className="text-slate-300 font-normal">—</span>
+                                )}
+                              </td>
+                            )}
 
                             {/* Tenant Phone (Directly after Tenant Name) with calling link */}
-                            <td className="px-3 py-3 whitespace-nowrap text-slate-600" dir="ltr">
-                              {res.ownershipType === 'إيجار' && res.tenantPhone ? (
-                                <a
-                                  href={`tel:${formatMobileNumber(res.tenantPhone)}`}
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="inline-flex items-center gap-1 text-amber-800 hover:text-amber-950 hover:underline font-bold font-mono transition px-1.5 py-0.5 rounded-md hover:bg-amber-50 phone-number-display"
-                                  title={`اتصال هاتفياً بالمستأجر ${res.tenantName}: ${formatMobileNumber(res.tenantPhone)}`}
-                                  dir="ltr"
-                                >
-                                  <Phone className="w-3 h-3 text-amber-800 shrink-0" />
-                                  <span dir="ltr">{formatPhoneForDisplay(res.tenantPhone)}</span>
-                                </a>
-                              ) : (
-                                <span className="text-slate-300 font-normal">—</span>
-                              )}
-                            </td>
+                            {visibleColumns.tenantPhone && (
+                              <td className="px-3 py-3 text-slate-600" dir="ltr">
+                                {res.ownershipType === 'إيجار' && res.tenantPhone ? (
+                                  <div className="flex flex-col items-start gap-1">
+                                    {res.tenantPhone.split(/[,/;|\n]+/).map((part, pIdx) => {
+                                      const cleanPhone = formatMobileNumber(part);
+                                      if (!cleanPhone) return null;
+                                      return (
+                                        <a
+                                          key={pIdx}
+                                          href={`tel:${cleanPhone}`}
+                                          onClick={(e) => e.stopPropagation()}
+                                          className="inline-flex items-center gap-1 text-amber-800 hover:text-amber-950 hover:underline font-bold font-mono transition px-1.5 py-0.5 rounded-md hover:bg-amber-50 phone-number-display"
+                                          title={`اتصال هاتفياً بالمستأجر ${res.tenantName}: ${cleanPhone}`}
+                                          dir="ltr"
+                                        >
+                                          <Phone className="w-3 h-3 text-amber-800 shrink-0" />
+                                          <span dir="ltr">{formatPhoneForDisplay(part)}</span>
+                                        </a>
+                                      );
+                                    })}
+                                  </div>
+                                ) : (
+                                  <span className="text-slate-300 font-normal">—</span>
+                                )}
+                              </td>
+                            )}
 
                             {/* Monthly Fee */}
-                            <td className="px-3 py-3 text-center whitespace-nowrap">
-                              <span className="px-2 py-0.5 bg-slate-100 text-slate-800 rounded-md font-black text-xs">
-                                {fin.monthlyFee.toLocaleString()} ج.م
-                              </span>
-                            </td>
+                            {visibleColumns.monthlyFee && (
+                              <td className="px-3 py-3 text-center whitespace-nowrap">
+                                <span className="px-2 py-0.5 bg-slate-100 text-slate-800 rounded-md font-black text-xs">
+                                  {fin.monthlyFee.toLocaleString()} ج.م
+                                </span>
+                              </td>
+                            )}
 
                             {/* Balance */}
-                            <td className="px-3 py-3 text-center whitespace-nowrap" title={`محسوب لعدد ${fin.monthsElapsed} شهر: مستحق ${fin.expectedDues.toLocaleString()} ج.م | مسدد ${fin.totalPaid.toLocaleString()} ج.م`}>
-                              {isDebt ? (
-                                <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-rose-50 text-rose-600 border border-rose-200 rounded-lg font-black text-xs" dir="ltr">
-                                  <ArrowDownRight className="w-3.5 h-3.5" />
-                                  <span>-{Math.abs(fin.netBalance).toLocaleString()} ج.م</span>
-                                </span>
-                              ) : isSurplus ? (
-                                <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg font-black text-xs" dir="ltr">
-                                  <ArrowUpRight className="w-3.5 h-3.5" />
-                                  <span>+{fin.netBalance.toLocaleString()} ج.م</span>
-                                </span>
-                              ) : (
-                                <span className="px-2.5 py-1 bg-slate-100 text-slate-600 rounded-lg font-black text-xs">
-                                  0 ج.م
-                                </span>
-                              )}
-                            </td>
+                            {visibleColumns.balance && (
+                              <td className="px-3 py-3 text-center whitespace-nowrap" title={`محسوب لعدد ${fin.monthsElapsed} شهر: مستحق ${fin.expectedDues.toLocaleString()} ج.م | مسدد ${fin.totalPaid.toLocaleString()} ج.م`}>
+                                {isDebt ? (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-rose-50 text-rose-600 border border-rose-200 rounded-lg font-black text-xs" dir="ltr">
+                                    <ArrowDownRight className="w-3.5 h-3.5" />
+                                    <span>-{Math.abs(fin.netBalance).toLocaleString()} ج.م</span>
+                                  </span>
+                                ) : isSurplus ? (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg font-black text-xs" dir="ltr">
+                                    <ArrowUpRight className="w-3.5 h-3.5" />
+                                    <span>+{fin.netBalance.toLocaleString()} ج.م</span>
+                                  </span>
+                                ) : (
+                                  <span className="px-2.5 py-1 bg-slate-100 text-slate-600 rounded-lg font-black text-xs">
+                                    0 ج.م
+                                  </span>
+                                )}
+                              </td>
+                            )}
 
                             {/* Activity Type */}
-                            <td className="px-3 py-3 whitespace-nowrap">
-                              <span className="px-2 py-0.5 bg-slate-100 border border-slate-200 rounded text-[9px] text-slate-700 font-bold">
-                                {res.activityType}
-                              </span>
-                            </td>
+                            {visibleColumns.activityType && (
+                              <td className="px-3 py-3 whitespace-nowrap">
+                                <span className="px-2 py-0.5 bg-slate-100 border border-slate-200 rounded text-[9px] text-slate-700 font-bold">
+                                  {res.activityType}
+                                </span>
+                              </td>
+                            )}
 
                             {/* WhatsApp Invitations & Membership Status */}
-                            {role === 'ADMIN' && (
+                            {role === 'ADMIN' && visibleColumns.membership && (
                               <td className="px-3 py-3 text-center whitespace-nowrap">
                                 <div className="flex flex-col items-center gap-1">
                                   {/* Account Status Badge */}
@@ -1399,7 +1578,7 @@ ${appUrl}
                                           e.stopPropagation();
                                           handleSendWhatsAppInvite(res, 'TENANT');
                                         }}
-                                        className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-amber-600 hover:bg-amber-700 text-white rounded text-[9px] font-bold transition cursor-pointer"
+                                        className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-amber-600 hover:bg-amber-700 text-white rounded text-[9px] font-bold transition shrink-0 cursor-pointer"
                                         title="دعوة المستأجر عبر الواتساب"
                                       >
                                         <Phone className="w-2.5 h-2.5 fill-current" />
@@ -1412,15 +1591,18 @@ ${appUrl}
                             )}
 
                             {/* Notes */}
-                            <td className="px-3 py-3 text-slate-500 max-w-[150px] truncate" title={displayNotes}>
-                              {displayNotes || <span className="text-slate-300 font-normal">—</span>}
-                            </td>
+                            {visibleColumns.notes && (
+                              <td className="px-3 py-3 text-slate-500 max-w-[150px] truncate" title={displayNotes}>
+                                {displayNotes || <span className="text-slate-300 font-normal">—</span>}
+                              </td>
+                            )}
 
                             {/* Actions */}
-                            {!isReadOnly && role !== 'ASSISTANT' && (
+                            {!isReadOnly && role !== 'ASSISTANT' && visibleColumns.actions && (
                               <td className="px-3 py-3 whitespace-nowrap">
                                 <div className="flex items-center justify-center gap-1.5">
                                   <button
+                                    type="button"
                                     onClick={(e) => { e.stopPropagation(); openEditModal(res); }}
                                     className="p-1.5 text-slate-500 hover:text-blue-900 hover:bg-slate-100 rounded-lg transition cursor-pointer"
                                     title="تعديل بيانات الساكن"
@@ -1428,6 +1610,7 @@ ${appUrl}
                                     <Edit className="w-3.5 h-3.5" />
                                   </button>
                                   <button
+                                    type="button"
                                     onClick={(e) => { e.stopPropagation(); handleDelete(res.id, res.name); }}
                                     className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition cursor-pointer"
                                     title="حذف الساكن"
@@ -1509,7 +1692,7 @@ ${appUrl}
               </div>
 
               {/* Row 2: Owner/Resident Name & Phone */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <label className="text-[10px] font-black text-slate-600">اسم المالك / الشاغل الأساسي *</label>
                   <input
@@ -1522,17 +1705,53 @@ ${appUrl}
                   />
                 </div>
 
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-slate-600">رقم هاتف المالك / الساكن</label>
-                  <input
-                    type="tel"
-                    placeholder="01xxxxxxxxx أو +966539313467"
-                    value={phone}
-                    onChange={(e) => setPhone(normalizePhoneInput(e.target.value))}
-                    onBlur={() => setPhone(formatMobileNumber(phone))}
-                    dir="ltr"
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 focus:bg-white rounded-xl text-xs focus:ring-2 focus:ring-blue-500/20 outline-none text-left font-mono font-bold transition placeholder:text-right placeholder:font-sans"
-                  />
+                <div className="space-y-1.5 min-w-0">
+                  <label className="text-[10px] font-black text-slate-600 block">أرقام هواتف المالك / الساكن</label>
+                  <div className="space-y-2">
+                    {phoneNumbers.map((num, index) => (
+                      <div key={index} className="flex items-center gap-1.5">
+                        <input
+                          type="text"
+                          placeholder="01xxxxxxxxx"
+                          value={num}
+                          onChange={(e) => {
+                            const updated = [...phoneNumbers];
+                            updated[index] = normalizePhoneInput(e.target.value);
+                            setPhoneNumbers(updated);
+                          }}
+                          onBlur={() => {
+                            const updated = [...phoneNumbers];
+                            updated[index] = formatMobileNumber(num);
+                            setPhoneNumbers(updated);
+                          }}
+                          dir="ltr"
+                          className="flex-1 min-w-0 px-3 py-2 bg-slate-50 border border-slate-200/80 focus:bg-white rounded-xl text-xs focus:ring-2 focus:ring-blue-500/20 outline-none text-left font-mono font-bold transition"
+                        />
+                        {index === phoneNumbers.length - 1 ? (
+                          <button
+                            type="button"
+                            onClick={() => setPhoneNumbers([...phoneNumbers, ''])}
+                            className="w-9 h-9 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center hover:bg-blue-100 transition shrink-0 cursor-pointer"
+                            title="إضافة رقم آخر"
+                          >
+                            <Plus className="w-4 h-4 stroke-[2.5]" />
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated = phoneNumbers.filter((_, i) => i !== index);
+                              setPhoneNumbers(updated.length > 0 ? updated : ['']);
+                            }}
+                            className="w-9 h-9 bg-rose-50 text-rose-500 rounded-xl flex items-center justify-center hover:bg-rose-100 transition shrink-0 cursor-pointer"
+                            title="حذف الرقم"
+                          >
+                            <Trash2 className="w-4 h-4 stroke-[1.5]" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
 
@@ -1544,7 +1763,7 @@ ${appUrl}
                     <span>بيانات المستأجر الحالي للوحدة</span>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="space-y-1">
                       <label className="text-[10px] font-black text-amber-950">اسم المستأجر</label>
                       <input
@@ -1556,17 +1775,53 @@ ${appUrl}
                       />
                     </div>
 
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-black text-amber-950">رقم تليفون المستأجر</label>
-                      <input
-                        type="tel"
-                        placeholder="01xxxxxxxxx أو +966539313467"
-                        value={tenantPhone}
-                        onChange={(e) => setTenantPhone(normalizePhoneInput(e.target.value))}
-                        onBlur={() => setTenantPhone(formatMobileNumber(tenantPhone))}
-                        dir="ltr"
-                        className="w-full px-3 py-2 bg-white border border-amber-200 focus:border-amber-500 rounded-xl text-xs outline-none text-left font-mono font-bold transition placeholder:text-right placeholder:font-sans"
-                      />
+                    <div className="space-y-1.5 min-w-0">
+                      <label className="text-[10px] font-black text-amber-950 block">أرقام هواتف المستأجر</label>
+                      <div className="space-y-2">
+                        {tenantPhoneNumbers.map((num, index) => (
+                          <div key={index} className="flex items-center gap-1.5">
+                            <input
+                              type="text"
+                              placeholder="01xxxxxxxxx"
+                              value={num}
+                              onChange={(e) => {
+                                const updated = [...tenantPhoneNumbers];
+                                updated[index] = normalizePhoneInput(e.target.value);
+                                setTenantPhoneNumbers(updated);
+                              }}
+                              onBlur={() => {
+                                const updated = [...tenantPhoneNumbers];
+                                updated[index] = formatMobileNumber(num);
+                                setTenantPhoneNumbers(updated);
+                              }}
+                              dir="ltr"
+                              className="flex-1 min-w-0 px-3 py-2 bg-white border border-amber-200 focus:border-amber-500 rounded-xl text-xs outline-none text-left font-mono font-bold transition"
+                            />
+                            {index === tenantPhoneNumbers.length - 1 ? (
+                              <button
+                                type="button"
+                                onClick={() => setTenantPhoneNumbers([...tenantPhoneNumbers, ''])}
+                                className="w-9 h-9 bg-amber-100/70 text-amber-900 rounded-xl flex items-center justify-center hover:bg-amber-200/80 transition shrink-0 cursor-pointer"
+                                title="إضافة رقم آخر"
+                              >
+                                <Plus className="w-4 h-4 stroke-[2.5]" />
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const updated = tenantPhoneNumbers.filter((_, i) => i !== index);
+                                  setTenantPhoneNumbers(updated.length > 0 ? updated : ['']);
+                                }}
+                                className="w-9 h-9 bg-rose-50 text-rose-500 rounded-xl flex items-center justify-center hover:bg-rose-100 transition shrink-0 cursor-pointer"
+                                title="حذف الرقم"
+                              >
+                                <Trash2 className="w-4 h-4 stroke-[1.5]" />
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1812,9 +2067,22 @@ ${appUrl}
                         <td className="p-3.5 text-slate-800">
                           <div>{res.name}</div>
                           {res.phone && (
-                            <div className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-1" dir="ltr">
-                              <Phone className="w-3 h-3 shrink-0" />
-                              <span className="font-mono">{formatPhoneForDisplay(res.phone)}</span>
+                            <div className="flex flex-col gap-1 mt-1 font-mono text-[10px]" dir="ltr">
+                              {res.phone.split(/[,/;|\n]+/).map((part, pIdx) => {
+                                const cleanP = formatMobileNumber(part);
+                                if (!cleanP) return null;
+                                return (
+                                  <a
+                                    key={pIdx}
+                                    href={`tel:${cleanP}`}
+                                    className="flex items-center gap-1 text-slate-500 hover:text-blue-900 transition"
+                                    title={`اتصال: ${cleanP}`}
+                                  >
+                                    <Phone className="w-3 h-3 shrink-0 text-slate-400" />
+                                    <span>{formatPhoneForDisplay(part)}</span>
+                                  </a>
+                                );
+                              })}
                             </div>
                           )}
                         </td>
@@ -1823,9 +2091,22 @@ ${appUrl}
                             <>
                               <div>{res.tenantName}</div>
                               {res.tenantPhone && (
-                                <div className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-1" dir="ltr">
-                                  <Phone className="w-3 h-3 shrink-0" />
-                                  <span className="font-mono">{formatPhoneForDisplay(res.tenantPhone)}</span>
+                                <div className="flex flex-col gap-1 mt-1 font-mono text-[10px]" dir="ltr">
+                                  {res.tenantPhone.split(/[,/;|\n]+/).map((part, pIdx) => {
+                                    const cleanP = formatMobileNumber(part);
+                                    if (!cleanP) return null;
+                                    return (
+                                      <a
+                                        key={pIdx}
+                                        href={`tel:${cleanP}`}
+                                        className="flex items-center gap-1 text-slate-500 hover:text-amber-800 transition"
+                                        title={`اتصال: ${cleanP}`}
+                                      >
+                                        <Phone className="w-3 h-3 shrink-0 text-slate-400" />
+                                        <span>{formatPhoneForDisplay(part)}</span>
+                                      </a>
+                                    );
+                                  })}
                                 </div>
                               )}
                             </>
@@ -1987,17 +2268,17 @@ ${appUrl}
                     if (isEditing) {
                       return (
                         <div key={floor.id} className="bg-slate-50 p-4 rounded-2xl border-2 border-blue-200 flex flex-col gap-3 relative shadow-xs">
-                          <div className="flex flex-col md:flex-row items-end md:items-center gap-3">
+                          <div className="flex flex-col md:flex-row items-end md:items-center gap-3 min-w-0 w-full">
                             <div className="flex-1 min-w-[140px] space-y-1 w-full md:w-auto">
                               <label className="text-[10px] font-black text-blue-900">نوع/اسم الدور</label>
-                              <div className="flex gap-1.5">
+                              <div className="flex gap-1.5 min-w-0">
                                 <select 
                                   value={floor.type}
                                   onChange={(e) => {
                                     const val = e.target.value as FloorConfig['type'];
                                     updateFloorConfig(floor.id, { type: val, floorLabel: floorTypeLabels[val] });
                                   }}
-                                  className="flex-1 px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none cursor-pointer"
+                                  className="flex-1 min-w-0 w-0 px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none cursor-pointer"
                                 >
                                   {Object.entries(floorTypeLabels).map(([key, label]) => (
                                     <option key={key} value={key}>{label}</option>
@@ -2007,30 +2288,30 @@ ${appUrl}
                                   type="text"
                                   value={floor.floorLabel}
                                   onChange={(e) => updateFloorConfig(floor.id, { floorLabel: e.target.value })}
-                                  className="flex-1 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none"
+                                  className="flex-1 min-w-0 w-0 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none"
                                   placeholder="اسم الدور"
                                 />
                               </div>
                             </div>
 
-                            <div className="w-full md:w-auto grid grid-cols-3 gap-2">
-                              <div className="space-y-1">
+                            <div className="w-full md:w-auto grid grid-cols-3 gap-2 min-w-0">
+                              <div className="space-y-1 min-w-0">
                                 <label className="text-[10px] font-black text-blue-900 text-center block">عدد الوحدات</label>
                                 <input 
                                   type="number"
                                   min="1"
                                   value={floorUnits.length}
                                   onChange={(e) => updateFloorConfig(floor.id, { unitsCount: parseInt(e.target.value) || 1 })}
-                                  className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none text-center"
+                                  className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none text-center min-w-0"
                                 />
                               </div>
 
-                              <div className="space-y-1">
+                              <div className="space-y-1 min-w-0">
                                 <label className="text-[10px] font-black text-blue-900 text-center block">النشاط الافتراضي</label>
                                 <select 
                                   value={floor.activityType}
                                   onChange={(e) => updateFloorConfig(floor.id, { activityType: e.target.value })}
-                                  className="w-full px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none cursor-pointer"
+                                  className="w-full px-1.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none cursor-pointer min-w-0"
                                 >
                                   {activityTypes.map(type => (
                                     <option key={type} value={type}>{type}</option>
@@ -2038,14 +2319,14 @@ ${appUrl}
                                 </select>
                               </div>
 
-                              <div className="space-y-1">
+                              <div className="space-y-1 min-w-0">
                                 <label className="text-[10px] font-black text-blue-900 text-center block">بداية الأرقام</label>
                                 <input 
                                   type="number"
                                   value={floor.startUnitNumber || ''}
                                   placeholder="مثلاً: 101"
                                   onChange={(e) => updateFloorConfig(floor.id, { startUnitNumber: parseInt(e.target.value) || 0 })}
-                                  className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none text-center"
+                                  className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none text-center min-w-0"
                                 />
                               </div>
                             </div>

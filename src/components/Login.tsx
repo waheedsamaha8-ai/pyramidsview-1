@@ -62,9 +62,6 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   // Main Portal Selector for Sign In: President vs Assistant vs Resident
   const [portalMode, setPortalMode] = useState<'PRESIDENT' | 'ASSISTANT' | 'RESIDENT'>('PRESIDENT');
 
-  // Sub-tabs for residents
-  const [residentTab, setResidentTab] = useState<'login' | 'register'>('login');
-
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -279,7 +276,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     };
     
     fetchBuildingResidents();
-  }, [selectedBuildingId, portalMode, residentTab]);
+  }, [selectedBuildingId, portalMode]);
 
   const handleFlatSelect = (val: string, currentResType = residentType) => {
     setFlatNumber(val);
@@ -411,7 +408,6 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
       } else if (isInvite || invitedFlat) {
         setTopTab('SIGN_IN');
         setPortalMode('RESIDENT');
-        setResidentTab('login');
         if (invitedFlat) setFlatNumber(invitedFlat);
         if (invitedName) setOwnerName(decodeURIComponent(invitedName));
         
@@ -830,61 +826,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     }
   };
 
-  // --------------------------------------------------------------------------
-  // 4. RESIDENT JOIN REQUEST HANDLER
-  // --------------------------------------------------------------------------
-  const handleResidentRegisterSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!flatNumber) {
-      setError('الرجاء إدخال رقم الشقة.');
-      return;
-    }
-    if (!ownerName || !ownerPhone) {
-      setError('الرجاء كتابة اسم مالك الوحدة ورقم تليفون الواتساب.');
-      return;
-    }
-    if (residentType === 'TENANT' && (!tenantName || !tenantPhone)) {
-      setError('الرجاء كتابة اسم المستأجر ورقم تليفون الواتساب.');
-      return;
-    }
-    if (!registerEmail || !registerPassword) {
-      setError('الرجاء إدخال البريد الإلكتروني وكلمة المرور المطلوب التسجيل بهما.');
-      return;
-    }
 
-    setLoading(true);
-    setError(null);
-    setSuccessMessage(null);
-
-    try {
-      const payload = {
-        flatNumber: /^\d+$/.test(flatNumber) ? parseInt(flatNumber, 10) : flatNumber,
-        residentType,
-        ownerName: ownerName.trim(),
-        ownerPhone: formatMobileNumber(ownerPhone),
-        tenantName: residentType === 'TENANT' ? tenantName.trim() : '',
-        tenantPhone: residentType === 'TENANT' ? formatMobileNumber(tenantPhone) : '',
-        email: registerEmail.trim(),
-        password: registerPassword,
-      };
-
-      const result = await submitJoinRequest(payload);
-
-      setSuccessMessage(result.message || 'تم إرسال طلب الانضمام بنجاح! طلبك قيد المراجعة والاعتماد حالياً من قبل رئيس الاتحاد.');
-      setFlatNumber('');
-      setOwnerName('');
-      setOwnerPhone('');
-      setTenantName('');
-      setTenantPhone('');
-      setRegisterEmail('');
-      setRegisterPassword('');
-      setResidentTab('login');
-    } catch (err: any) {
-      setError(err.message || 'خطأ أثناء إرسال طلب الانضمام.');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const currentActiveBuilding = buildings.find(b => b.id === selectedBuildingId) || getActiveBuilding();
 

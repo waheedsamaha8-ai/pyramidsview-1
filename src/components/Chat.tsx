@@ -23,7 +23,8 @@ import {
   Wrench,
   Users,
   PhoneCall,
-  Crown
+  Crown,
+  Share2
 } from 'lucide-react';
 import { ConfirmModal } from './ConfirmModal';
 import { CommunityHeader, CommunityCounts, CommunityServiceId } from './CommunityHeader';
@@ -115,6 +116,22 @@ export const Chat: React.FC<ChatProps> = ({
     }
     setEditingMessageId(null);
     setEditingMessageText('');
+  };
+
+  const handleShareComplaintWhatsApp = (comp: PublicComplaint) => {
+    let msg = `⚠️ *شكوى وموضوع نقاش عام جديد من السكان* ⚠️\n`;
+    msg += `-----------------------------------\n`;
+    msg += `🚪 *الوحدة:* ${comp.flatNumber ? `شقة ${comp.flatNumber}` : 'مجهول'}\n`;
+    msg += `👤 *الناشر:* ${comp.residentName}\n`;
+    msg += `📅 *تاريخ النشر:* ${comp.date}\n`;
+    msg += `-----------------------------------\n\n`;
+    msg += `📌 *موضوع الشكوى:* *${comp.title}*\n\n`;
+    msg += `📝 *التفاصيل:* \n${comp.description}\n\n`;
+    msg += `💬 يرجى الدخول للتطبيق والمناقشة أو اقتراح حلول لمساعدة الجيران.\n`;
+    msg += `إدارة اتحاد ملاك بيراميدز فيو ١`;
+
+    const shareUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
+    window.open(shareUrl, '_blank');
   };
 
   // Message reply states
@@ -1149,24 +1166,36 @@ export const Chat: React.FC<ChatProps> = ({
                         const canDeleteComplaint = role === 'ADMIN' || isMyComplaint;
 
                         return (
-                          <div className="flex items-center justify-between pt-2.5 border-t border-slate-100 dark:border-slate-800">
-                            {onDeleteComplaint && canDeleteComplaint && (
+                          <div className="flex items-center justify-between pt-2.5 border-t border-slate-100 dark:border-slate-800 flex-wrap gap-2">
+                            <div className="flex items-center gap-2">
+                              {onDeleteComplaint && canDeleteComplaint && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    openConfirm(
+                                      'حذف الشكوى',
+                                      `هل تريد بالتأكيد إزالة الشكوى "${comp.title}"؟`,
+                                      () => onDeleteComplaint(comp.id)
+                                    );
+                                  }}
+                                  className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1"
+                                  title="حذف الشكوى"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span>حذف الشكوى</span>
+                                </button>
+                              )}
+
                               <button
                                 type="button"
-                                onClick={() => {
-                                  openConfirm(
-                                    'حذف الشكوى',
-                                    `هل تريد بالتأكيد إزالة الشكوى "${comp.title}"؟`,
-                                    () => onDeleteComplaint(comp.id)
-                                  );
-                                }}
-                                className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1"
-                                title="حذف الشكوى"
+                                onClick={() => handleShareComplaintWhatsApp(comp)}
+                                className="p-1.5 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1 border border-emerald-100"
+                                title="مشاركة الشكوى عبر واتساب"
                               >
-                                <Trash2 className="w-3.5 h-3.5" />
-                                <span>حذف الشكوى</span>
+                                <Share2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                <span>مشاركة الشكوى</span>
                               </button>
-                            )}
+                            </div>
                             
                             <button
                               type="button"

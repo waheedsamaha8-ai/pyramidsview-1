@@ -12,7 +12,8 @@ import {
   Briefcase,
   Layers,
   ChevronRight,
-  ChevronLeft
+  ChevronLeft,
+  Share2
 } from 'lucide-react';
 import { BuildingEvent, UserRole } from '../types';
 import { ConfirmModal } from './ConfirmModal';
@@ -83,6 +84,27 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
     setType('MAINTENANCE');
     setTargetAudience('ALL');
     setShowAddForm(false);
+  };
+
+  const handleShareEventWhatsApp = (ev: BuildingEvent) => {
+    let msg = `📅 *أجندة وحدث هام بجدول أعمال العمارة* 📅\n`;
+    msg += `-----------------------------------\n`;
+    msg += `🏷️ *نوع الحدث:* ${getEventLabel(ev.type)}\n`;
+    msg += `📅 *التاريخ:* ${ev.date}\n`;
+    if (ev.time) {
+      msg += `⏰ *الوقت:* ${ev.time}\n`;
+    }
+    msg += `👥 *الجمهور المستهدف:* ${ev.targetAudience === 'ALL' ? 'جميع السكان والملاك' : ev.targetAudience === 'MANAGERS' ? 'مجلس الإدارة' : 'السكان فقط'}\n`;
+    msg += `-----------------------------------\n\n`;
+    msg += `📌 *موضوع الحدث:* *${ev.title}*\n\n`;
+    msg += `📝 *التفاصيل:* \n${ev.description}\n\n`;
+    if (ev.status === 'DONE') {
+      msg += `✅ *حالة التنفيذ:* تم الإنجاز والانتهاء بنجاح ✓\n\n`;
+    }
+    msg += `اتحاد ملاك عمارة بيراميدز فيو ١`;
+
+    const shareUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
+    window.open(shareUrl, '_blank');
   };
 
   // Get days of the month for visual calendar grid
@@ -438,10 +460,22 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                       <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed font-bold">{ev.description}</p>
                     </div>
 
-                    <div className="border-t border-slate-100 dark:border-slate-800 pt-2 flex items-center justify-between text-[10px] font-bold">
-                      <div className="flex items-center gap-1 text-slate-400 dark:text-slate-500">
-                        <Users className="w-3.5 h-3.5" />
-                        <span>الجمهور: {ev.targetAudience === 'ALL' ? 'الجميع' : ev.targetAudience === 'MANAGERS' ? 'مجلس الإدارة' : 'السكان'}</span>
+                    <div className="border-t border-slate-100 dark:border-slate-800 pt-2 flex items-center justify-between text-[10px] font-bold flex-wrap gap-2">
+                      <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1 text-slate-400 dark:text-slate-500">
+                          <Users className="w-3.5 h-3.5" />
+                          <span>الجمهور: {ev.targetAudience === 'ALL' ? 'الجميع' : ev.targetAudience === 'MANAGERS' ? 'مجلس الإدارة' : 'السكان'}</span>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleShareEventWhatsApp(ev)}
+                          className="p-1 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded-lg transition cursor-pointer flex items-center gap-1 border border-emerald-100 text-[9px] font-bold"
+                          title="مشاركة الحدث عبر واتساب"
+                        >
+                          <Share2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                          <span>مشاركة الحدث</span>
+                        </button>
                       </div>
 
                       {/* Status controller for Managers */}

@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { generateElementImage } from '../utils/imageExport';
 import { Resident, Payment, AppConfig, UserRole, FloorConfig } from '../types';
 import { ReceiptClaimModal, ReceiptClaimData } from './ReceiptClaimModal';
-import { deriveFloorConfigsFromResidents, getUnitNumbersForFloor, compareFlatNumbers } from '../utils/buildingStructure';
+import { deriveFloorConfigsFromResidents, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber } from '../utils/buildingStructure';
 import { 
   calculateResidentFinancials, 
   getCarriedPreviousBalance, 
@@ -301,7 +301,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
 
     effectiveFloorConfigs.forEach((floor) => {
       const unitNumbers = getUnitNumbersForFloor(floor, residents);
-      const floorDebtors = residentsWithDebt.filter(item => unitNumbers.includes(item.resident.flatNumber));
+      const floorDebtors = residentsWithDebt.filter(item => unitNumbers.some(u => isSameFlatNumber(u, item.resident.flatNumber)));
       floorDebtors.forEach(item => assignedResidentIds.add(item.resident.id));
       if (floorDebtors.length > 0) {
         groups.push({ floor, debtors: floorDebtors });
@@ -332,7 +332,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
 
     effectiveFloorConfigs.forEach((floor) => {
       const unitNumbers = getUnitNumbersForFloor(floor, residents);
-      const floorDebtors = allDebtorsList.filter(item => unitNumbers.includes(item.resident.flatNumber));
+      const floorDebtors = allDebtorsList.filter(item => unitNumbers.some(u => isSameFlatNumber(u, item.resident.flatNumber)));
       floorDebtors.forEach(item => assignedResidentIds.add(item.resident.id));
       if (floorDebtors.length > 0) {
         groups.push({ floor, debtors: floorDebtors });
