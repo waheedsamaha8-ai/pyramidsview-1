@@ -582,7 +582,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       receiptNumber,
       notes,
       fileId: base64Image ? '' : (existingFileUrl ? (selectedPayment?.fileId || '') : ''),
-      fileUrl: base64Image ? base64Image : (existingFileUrl || undefined),
+      fileUrl: base64Image ? base64Image : (existingFileUrl || ''),
       date: selectedPayment ? selectedPayment.date : new Date().toISOString().split('T')[0],
       isManuallyPaid: false,
     };

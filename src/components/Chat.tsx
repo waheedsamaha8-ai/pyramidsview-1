@@ -45,6 +45,9 @@ interface ChatProps {
   onDeleteComplaint?: (complaintId: string) => void;
   onDeleteMessage?: (messageId: string) => void;
   onEditMessage?: (messageId: string, newText: string) => void;
+  onAddMessageReply?: (messageId: string, text: string) => void;
+  onEditMessageReply?: (messageId: string, replyId: string, text: string) => void;
+  onDeleteMessageReply?: (messageId: string, replyId: string) => void;
   onPreviewImage?: (url: string) => void;
   onNavigateCommunity?: (serviceId: string) => void;
   communityCounts?: CommunityCounts;
@@ -66,6 +69,9 @@ export const Chat: React.FC<ChatProps> = ({
   onDeleteComplaint,
   onDeleteMessage,
   onEditMessage,
+  onAddMessageReply,
+  onEditMessageReply,
+  onDeleteMessageReply,
   onPreviewImage,
   onNavigateCommunity,
   communityCounts,
@@ -109,6 +115,50 @@ export const Chat: React.FC<ChatProps> = ({
     }
     setEditingMessageId(null);
     setEditingMessageText('');
+  };
+
+  // Message reply states
+  const [replyingToMessageId, setReplyingToMessageId] = useState<string | null>(null);
+  const [replyTextMap, setReplyTextMap] = useState<{ [messageId: string]: string }>({});
+
+  // Editing reply states
+  const [editingReplyKey, setEditingReplyKey] = useState<{ messageId: string; replyId: string } | null>(null);
+  const [editingReplyText, setEditingReplyText] = useState('');
+
+  const handleSendReply = (messageId: string) => {
+    const text = replyTextMap[messageId];
+    if (!text || !text.trim()) return;
+    if (onAddMessageReply) {
+      onAddMessageReply(messageId, text.trim());
+    }
+    setReplyTextMap(prev => ({ ...prev, [messageId]: '' }));
+    setReplyingToMessageId(null);
+  };
+
+  const startEditingReply = (messageId: string, replyId: string, currentText: string) => {
+    setEditingReplyKey({ messageId, replyId });
+    setEditingReplyText(currentText);
+  };
+
+  const handleSaveEditedReply = (messageId: string, replyId: string) => {
+    if (!editingReplyText.trim()) return;
+    if (onEditMessageReply) {
+      onEditMessageReply(messageId, replyId, editingReplyText.trim());
+    }
+    setEditingReplyKey(null);
+    setEditingReplyText('');
+  };
+
+  const handleDeleteReply = (messageId: string, replyId: string) => {
+    openConfirm(
+      'حذف الرد',
+      'هل تريد بالتأكيد حذف هذا الرد؟',
+      () => {
+        if (onDeleteMessageReply) {
+          onDeleteMessageReply(messageId, replyId);
+        }
+      }
+    );
   };
 
   // Complaints Board states
@@ -594,6 +644,175 @@ export const Chat: React.FC<ChatProps> = ({
                         </p>
                       )
                     )}
+
+                    {/* Replies & Threading Section */}
+                    <div className="pt-2 mt-2 border-t border-black/5 dark:border-white/5 space-y-2">
+                      {/* Replies List */}
+                      {msg.replies && msg.replies.length > 0 && (
+                        <div className="space-y-2 pr-4 border-r-2 border-blue-500/30">
+                          {msg.replies.map((reply) => {
+                            const isReplyMe = Boolean(
+                              (reply.senderName && userName && reply.senderName.trim().toLowerCase() === userName.trim().toLowerCase()) ||
+                              (reply.flatNumber && flatNumber && String(reply.flatNumber).trim() === String(flatNumber).trim()) ||
+                              (role === 'ASSISTANT' && (reply.senderName === 'المساعد الفني' || reply.flatNumber === 'فني الصيانة'))
+                            );
+                            const canModifyReply = isReplyMe || role === 'ADMIN';
+                            const isEditingReply = editingReplyKey?.messageId === msg.id && editingReplyKey?.replyId === reply.id;
+
+                            return (
+                              <div 
+                                key={reply.id} 
+                                className={`rounded-xl p-2 text-xs leading-relaxed space-y-1 shadow-3xs ${
+                                  isReplyMe 
+                                    ? 'bg-blue-800/40 text-blue-50 border border-blue-700/30' 
+                                    : 'bg-slate-50 dark:bg-slate-800/60 text-slate-700 dark:text-slate-200 border border-slate-100 dark:border-slate-800/40'
+                                }`}
+                              >
+                                {/* Reply Header */}
+                                <div className="flex items-center justify-between pb-1 border-b border-black/5 dark:border-white/5 text-[10px] font-black flex-wrap gap-1">
+                                  <div className="flex items-center gap-1">
+                                    <span className={isReplyMe ? 'text-blue-200' : 'text-slate-900 dark:text-slate-100'}>
+                                      {reply.senderName}
+                                    </span>
+                                    {reply.flatNumber && 
+                                     reply.flatNumber !== 'إدارة الاتحاد' && 
+                                     reply.flatNumber !== 'فني الصيانة' && (
+                                      <span className="px-1 py-0.1 bg-black/10 dark:bg-white/10 rounded text-[8.5px]">
+                                        شقة {reply.flatNumber}
+                                      </span>
+                                    )}
+                                    {reply.senderRole === 'ADMIN' && (
+                                      <span className="text-[8.5px] text-amber-500 dark:text-amber-400 font-bold">
+                                        (رئيس الاتحاد 👑)
+                                      </span>
+                                    )}
+                                    {reply.senderRole === 'ASSISTANT' && (
+                                      <span className="text-[8.5px] text-indigo-500 dark:text-indigo-400 font-bold">
+                                        (المساعد 🔧)
+                                      </span>
+                                    )}
+                                  </div>
+                                  <span className="text-[9px] text-slate-400">
+                                    {new Date(reply.timestamp).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
+                                  </span>
+                                </div>
+
+                                {/* Reply Body */}
+                                {isEditingReply ? (
+                                  <div className="space-y-1.5 pt-1">
+                                    <input 
+                                      type="text"
+                                      value={editingReplyText}
+                                      onChange={(e) => setEditingReplyText(e.target.value)}
+                                      className="w-full p-2 text-xs font-bold bg-white text-slate-900 border border-blue-400 rounded-lg outline-none"
+                                    />
+                                    <div className="flex justify-end gap-1.5">
+                                      <button 
+                                        type="button"
+                                        onClick={() => setEditingReplyKey(null)}
+                                        className="px-2 py-1 text-[10px] font-bold bg-slate-300 dark:bg-slate-750 text-slate-700 dark:text-slate-250 rounded"
+                                      >
+                                        إلغاء
+                                      </button>
+                                      <button 
+                                        type="button"
+                                        onClick={() => handleSaveEditedReply(msg.id, reply.id)}
+                                        className="px-2 py-1 text-[10px] font-black bg-emerald-600 text-white rounded"
+                                      >
+                                        حفظ
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-start justify-between gap-2 pt-0.5">
+                                    <p className="font-bold flex-1">{reply.text}</p>
+                                    
+                                    {/* Action Buttons for Reply (Only if canModifyReply) */}
+                                    {canModifyReply && (
+                                      <div className="flex items-center gap-1 shrink-0">
+                                        <button 
+                                          type="button"
+                                          onClick={() => startEditingReply(msg.id, reply.id, reply.text)}
+                                          className="p-1 hover:bg-black/10 dark:hover:bg-white/10 rounded transition text-blue-500 hover:text-blue-400"
+                                          title="تعديل الرد"
+                                        >
+                                          <Edit className="w-3 h-3" />
+                                        </button>
+                                        <button 
+                                          type="button"
+                                          onClick={() => handleDeleteReply(msg.id, reply.id)}
+                                          className="p-1 hover:bg-black/10 dark:hover:bg-white/10 rounded transition text-red-500 hover:text-red-400"
+                                          title="حذف الرد"
+                                        >
+                                          <Trash2 className="w-3 h-3" />
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* Reply Input Form & Trigger Button */}
+                      <div className="flex items-center justify-between gap-2 pt-1">
+                        {replyingToMessageId === msg.id ? (
+                          <div className="flex items-center gap-1.5 w-full">
+                            <input 
+                              type="text"
+                              placeholder="اكتب ردك هنا..."
+                              value={replyTextMap[msg.id] || ''}
+                              onChange={(e) => setReplyTextMap(prev => ({ ...prev, [msg.id]: e.target.value }))}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  handleSendReply(msg.id);
+                                }
+                              }}
+                              className={`flex-1 px-3 py-1.5 text-xs font-bold rounded-xl outline-none border focus:ring-2 focus:ring-blue-500/20 transition text-right ${
+                                isMe 
+                                  ? 'bg-blue-800 border-blue-700 focus:bg-blue-800 text-white placeholder-blue-300/60' 
+                                  : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 placeholder-slate-400'
+                              }`}
+                            />
+                            <button 
+                              type="button"
+                              onClick={() => handleSendReply(msg.id)}
+                              disabled={!(replyTextMap[msg.id] || '').trim()}
+                              className={`p-2 rounded-xl transition cursor-pointer active:scale-95 shrink-0 ${
+                                isMe 
+                                  ? 'bg-blue-100 hover:bg-blue-50 text-blue-900 disabled:opacity-40' 
+                                  : 'bg-blue-900 hover:bg-blue-950 text-white disabled:opacity-40'
+                              }`}
+                            >
+                              <Send className="w-3.5 h-3.5 transform rotate-180" />
+                            </button>
+                            <button 
+                              type="button"
+                              onClick={() => setReplyingToMessageId(null)}
+                              className="px-2.5 py-1.5 text-[10px] font-black border border-black/10 dark:border-white/10 rounded-xl hover:bg-black/5 dark:hover:bg-white/5 shrink-0"
+                            >
+                              إلغاء
+                            </button>
+                          </div>
+                        ) : (
+                          <button 
+                            type="button"
+                            onClick={() => setReplyingToMessageId(msg.id)}
+                            className={`flex items-center gap-1.5 px-3 py-1 text-[10.5px] font-black rounded-xl transition-all cursor-pointer shadow-3xs border ${
+                              isMe 
+                                ? 'bg-blue-800 border-blue-700 hover:bg-blue-750 text-blue-100 hover:text-white' 
+                                : 'bg-slate-50 dark:bg-slate-800 border-slate-200/80 dark:border-slate-750 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300'
+                            }`}
+                          >
+                            <MessageSquare className="w-3.5 h-3.5" />
+                            <span>إضافة رد مالي / استفسار 💬</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 );
               })

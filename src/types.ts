@@ -236,6 +236,15 @@ export interface BuildingEvent {
   status: 'SCHEDULED' | 'DONE' | 'CANCELLED';
 }
 
+export interface ChatMessageReply {
+  id: string;
+  senderName: string;
+  senderRole?: UserRole;
+  flatNumber?: number | string;
+  text: string;
+  timestamp: string;
+}
+
 export interface ChatMessage {
   id: string;
   senderName: string;
@@ -247,6 +256,7 @@ export interface ChatMessage {
   timestamp: string;
   imageUrl?: string;
   isImportant?: boolean;
+  replies?: ChatMessageReply[];
 }
 
 export interface ComplaintComment {

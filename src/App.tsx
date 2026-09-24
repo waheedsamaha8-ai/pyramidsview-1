@@ -2608,6 +2608,89 @@ export default function App() {
     }
   };
 
+  const handleAddMessageReply = (messageId: string, text: string) => {
+    const reply = {
+      id: `rep_${Date.now()}`,
+      senderName: getUserDisplayName(),
+      senderRole: role,
+      flatNumber: getUserFlatLabel(),
+      text,
+      timestamp: new Date().toISOString()
+    };
+
+    let targetMsg: ChatMessage | null = null;
+    const updated = messages.map(m => {
+      if (m.id === messageId) {
+        const oldReplies = m.replies || [];
+        targetMsg = {
+          ...m,
+          replies: [...oldReplies, reply]
+        };
+        return targetMsg;
+      }
+      return m;
+    });
+
+    setMessages(updated);
+    offlineSync.saveCachedData('chat_messages', updated);
+
+    if (targetMsg) {
+      firestoreService.saveChatMessageToFirestore(targetMsg).catch(err => {
+        logError(err, 'handleAddMessageReply');
+      });
+    }
+  };
+
+  const handleEditMessageReply = (messageId: string, replyId: string, text: string) => {
+    let targetMsg: ChatMessage | null = null;
+    const updated = messages.map(m => {
+      if (m.id === messageId) {
+        const oldReplies = m.replies || [];
+        const updatedReplies = oldReplies.map(r => r.id === replyId ? { ...r, text } : r);
+        targetMsg = {
+          ...m,
+          replies: updatedReplies
+        };
+        return targetMsg;
+      }
+      return m;
+    });
+
+    setMessages(updated);
+    offlineSync.saveCachedData('chat_messages', updated);
+
+    if (targetMsg) {
+      firestoreService.saveChatMessageToFirestore(targetMsg).catch(err => {
+        logError(err, 'handleEditMessageReply');
+      });
+    }
+  };
+
+  const handleDeleteMessageReply = (messageId: string, replyId: string) => {
+    let targetMsg: ChatMessage | null = null;
+    const updated = messages.map(m => {
+      if (m.id === messageId) {
+        const oldReplies = m.replies || [];
+        const updatedReplies = oldReplies.filter(r => r.id !== replyId);
+        targetMsg = {
+          ...m,
+          replies: updatedReplies
+        };
+        return targetMsg;
+      }
+      return m;
+    });
+
+    setMessages(updated);
+    offlineSync.saveCachedData('chat_messages', updated);
+
+    if (targetMsg) {
+      firestoreService.saveChatMessageToFirestore(targetMsg).catch(err => {
+        logError(err, 'handleDeleteMessageReply');
+      });
+    }
+  };
+
   // Stats summaries
   const totalReceived = payments
     .filter((p) => p.year === currentYear && (viewMode === 'year' || p.month === String(currentMonth + 1).padStart(2, '0')))
@@ -3982,6 +4065,9 @@ export default function App() {
             onDeleteComplaint={handleDeleteComplaint}
             onDeleteMessage={handleDeleteChatMessage}
             onEditMessage={handleEditChatMessage}
+            onAddMessageReply={handleAddMessageReply}
+            onEditMessageReply={handleEditMessageReply}
+            onDeleteMessageReply={handleDeleteMessageReply}
             onPreviewImage={handlePreviewImage}
             onNavigateCommunity={handleNavigateCommunity}
             communityCounts={communityCounts}

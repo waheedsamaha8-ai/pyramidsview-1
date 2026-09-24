@@ -248,26 +248,27 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   const [registerEmail, setRegisterEmail] = useState('');
   const [registerPassword, setRegisterPassword] = useState('');
 
-  const handleAutoLogin = async (email: string, pass: string, bldId: string) => {
+  const handleAutoLogin = async (email: string, pass: string, bldId: string, customRole: UserRole = 'RESIDENT') => {
     setLoading(true);
     setError(null);
-    setSuccessMessage('جاري تسجيل دخول الساكن تلقائياً والاتصال بالاتحاد السحابي... 🚀');
+    const roleLabel = customRole === 'ASSISTANT' ? 'المساعد الفني' : 'الساكن';
+    setSuccessMessage(`جاري تسجيل دخول ${roleLabel} تلقائياً والاتصال بالاتحاد السحابي... 🚀`);
     try {
       const data = await loginWithEmail(email, pass, bldId);
       if (data.success) {
         if (data.flatNumber) {
           localStorage.setItem('resident_flat_number', data.flatNumber.toString());
         }
-        localStorage.setItem('user_role', 'RESIDENT');
-        localStorage.setItem('app_user_role', 'RESIDENT');
+        localStorage.setItem('user_role', customRole);
+        localStorage.setItem('app_user_role', customRole);
 
         const bldName = buildings.find(b => b.id === bldId)?.name || 'اتحاد ملاك بيراميدز فيو 1';
         const user = {
           email: data.email,
           displayName: data.name,
           uid: data.email,
-          role: 'RESIDENT' as UserRole,
-          flatNumber: data.flatNumber,
+          role: customRole,
+          flatNumber: data.flatNumber || (customRole === 'ASSISTANT' ? 'ASSISTANT' : ''),
           buildingId: bldId,
           buildingName: bldName,
         };
@@ -295,6 +296,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     try {
       const params = new URLSearchParams(window.location.search);
       const isInvite = params.get('invite') === 'true';
+      const isAssistantInvite = params.get('invite_assistant') === 'true';
       const invitedFlat = params.get('flat');
       const invitedName = params.get('name');
       const invitedBuilding = params.get('bld');
@@ -305,7 +307,22 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         setSelectedBuildingId(invitedBuilding);
       }
 
-      if (isInvite || invitedFlat) {
+      if (isAssistantInvite) {
+        setTopTab('SIGN_IN');
+        setPortalMode('ASSISTANT');
+        if (urlEmail && urlPass) {
+          setIsAutoLoginInvite(true);
+          setLoginEmail(urlEmail);
+          setLoginPassword(urlPass);
+          const bldId = invitedBuilding || selectedBuildingId || DEFAULT_BUILDING_ID;
+          
+          setTimeout(() => {
+            handleAutoLogin(urlEmail, urlPass, bldId, 'ASSISTANT');
+          }, 600);
+        } else {
+          setSuccessMessage(`مرحباً بكم! تم تجهيز لوحة تسجيل المساعد الفني بدعوة كريمة من إدارة اتحاد الملاك.`);
+        }
+      } else if (isInvite || invitedFlat) {
         setTopTab('SIGN_IN');
         setPortalMode('RESIDENT');
         setResidentTab('login');
@@ -319,7 +336,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
           const bldId = invitedBuilding || selectedBuildingId || DEFAULT_BUILDING_ID;
           
           setTimeout(() => {
-            handleAutoLogin(urlEmail, urlPass, bldId);
+            handleAutoLogin(urlEmail, urlPass, bldId, 'RESIDENT');
           }, 600);
         } else {
           setSuccessMessage(`مرحباً بكم! تم تجهيز طلب الانضمام لشقة رقم ${invitedFlat || ''} بدعوة كريمة من مجلس إدارة اتحاد الملاك.`);
@@ -328,7 +345,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     } catch (e) {
       console.warn('Failed to parse invitation params:', e);
     }
-  }, []);
+  }, [buildings]);
 
   const handleCopyDomain = (text: string) => {
     navigator.clipboard.writeText(text).then(() => {
@@ -1076,7 +1093,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         {topTab === 'SIGN_IN' && (
           <div className="space-y-4">
             {/* Building Switcher Dropdown (Shown if buildings exist) */}
-            {buildings.length > 0 ? (
+            {buildings.length > 0 && !isAutoLoginInvite ? (
               <div className="p-3.5 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 rounded-2xl border border-blue-200 dark:border-blue-900/50 space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="text-slate-700 dark:text-slate-200 text-[11px] font-black flex items-center gap-1.5">

@@ -11,12 +11,31 @@ export interface UserContext {
  * - Resident / Assistant: Can only delete messages they authored.
  */
 export function canDeleteChatMessage(
-  _msg: ChatMessage,
+  msg: ChatMessage,
   role: UserRole,
-  _user?: UserContext | null,
-  _flatNumber?: number | string
+  user?: UserContext | null,
+  flatNumber?: number | string
 ): boolean {
-  return role === 'ADMIN' || role === 'MANAGER';
+  if (role === 'ADMIN' || role === 'MANAGER') {
+    return true;
+  }
+  
+  // Check if authored by current user
+  if (flatNumber && msg.flatNumber && String(flatNumber).trim() === String(msg.flatNumber).trim()) {
+    return true;
+  }
+  
+  if (role === 'ASSISTANT' && (msg.senderName === 'المساعد الفني' || msg.flatNumber === 'فني الصيانة')) {
+    return true;
+  }
+
+  const userEmail = user?.email?.toLowerCase().trim();
+  const senderEmail = (msg as any).senderEmail?.toLowerCase().trim();
+  if (userEmail && senderEmail && userEmail === senderEmail) {
+    return true;
+  }
+  
+  return false;
 }
 
 export function canDeleteComplaint(

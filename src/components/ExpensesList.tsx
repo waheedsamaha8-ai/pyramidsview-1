@@ -282,7 +282,7 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({
       amount: Number(amount),
       notes,
       fileId: base64Image ? '' : (existingFileUrl ? (selectedExpense?.fileId || '') : ''),
-      fileUrl: base64Image ? base64Image : (existingFileUrl || undefined),
+      fileUrl: base64Image ? base64Image : (existingFileUrl || ''),
       date: selectedExpense ? selectedExpense.date : new Date().toISOString().split('T')[0],
     };
 
