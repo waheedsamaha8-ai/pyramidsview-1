@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Resident, UserRole, FloorConfig, Payment, AppConfig, JoinRequest } from '../types';
-import { Search, Phone, Edit, Trash2, Home, AlertCircle, LayoutGrid, List, Settings2, Plus, X, Building2, Save, User, KeyRound, Wallet, ArrowDownRight, ArrowUpRight, CheckCircle2, UserCheck, UserX, Clock, Share2, RefreshCw, ShieldCheck, SlidersHorizontal } from 'lucide-react';
+import { Search, Phone, Edit, Trash2, Home, AlertCircle, LayoutGrid, List, Settings2, Plus, X, Building2, Save, User, KeyRound, Wallet, ArrowDownRight, ArrowUpRight, CheckCircle2, UserCheck, UserX, Clock, Share2, RefreshCw, ShieldCheck, SlidersHorizontal, Contact } from 'lucide-react';
 import { deriveFloorConfigsFromResidents, floorTypeLabels, getFloorName, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber, parseFlatNumber } from '../utils/buildingStructure';
 import * as googleApi from '../services/googleApi';
 import { 
@@ -16,7 +16,7 @@ import {
   getResidentMonthlyFee, 
   exportCarriedBalancesForYear 
 } from '../utils/financialCalculations';
-import { formatMobileNumber, formatPhoneForDisplay, normalizePhoneInput } from '../utils/phoneUtils';
+import { formatMobileNumber, formatPhoneForDisplay, normalizePhoneInput, pickContactFromDevice } from '../utils/phoneUtils';
 import { getActiveFirebaseConfig } from '../services/firebaseConfig';
 
 export { 
@@ -337,6 +337,38 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
     setTenantPassword('');
     setError(null);
     setShowModal(true);
+  };
+
+  const handlePickContactForOwner = async (index: number) => {
+    const res = await pickContactFromDevice();
+    if (res && res.supported === false) {
+      alert('خاصية استيراد الأرقام من جهات الاتصال مدعومة على متصفحات الهواتف المحمولة (مثل Google Chrome على Android).');
+      return;
+    }
+    if (res && res.tel) {
+      const updated = [...phoneNumbers];
+      updated[index] = res.tel;
+      setPhoneNumbers(updated);
+      if (!name.trim() && res.name) {
+        setName(res.name);
+      }
+    }
+  };
+
+  const handlePickContactForTenant = async (index: number) => {
+    const res = await pickContactFromDevice();
+    if (res && res.supported === false) {
+      alert('خاصية استيراد الأرقام من جهات الاتصال مدعومة على متصفحات الهواتف المحمولة (مثل Google Chrome على Android).');
+      return;
+    }
+    if (res && res.tel) {
+      const updated = [...tenantPhoneNumbers];
+      updated[index] = res.tel;
+      setTenantPhoneNumbers(updated);
+      if (!tenantName.trim() && res.name) {
+        setTenantName(res.name);
+      }
+    }
   };
 
   const openEditModal = (resident: Resident) => {
@@ -1727,6 +1759,14 @@ ${appUrl}
                           dir="ltr"
                           className="flex-1 min-w-0 px-3 py-2 bg-slate-50 border border-slate-200/80 focus:bg-white rounded-xl text-xs focus:ring-2 focus:ring-blue-500/20 outline-none text-left font-mono font-bold transition"
                         />
+                        <button
+                          type="button"
+                          onClick={() => handlePickContactForOwner(index)}
+                          className="w-9 h-9 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200/80 rounded-xl flex items-center justify-center transition shrink-0 cursor-pointer shadow-2xs"
+                          title="استيراد الرقم من سجل جهات اتصال الهاتف"
+                        >
+                          <Contact className="w-4 h-4 stroke-[2]" />
+                        </button>
                         {index === phoneNumbers.length - 1 ? (
                           <button
                             type="button"
@@ -1797,6 +1837,14 @@ ${appUrl}
                               dir="ltr"
                               className="flex-1 min-w-0 px-3 py-2 bg-white border border-amber-200 focus:border-amber-500 rounded-xl text-xs outline-none text-left font-mono font-bold transition"
                             />
+                            <button
+                              type="button"
+                              onClick={() => handlePickContactForTenant(index)}
+                              className="w-9 h-9 bg-amber-100/80 hover:bg-amber-200 text-amber-900 border border-amber-300/80 rounded-xl flex items-center justify-center transition shrink-0 cursor-pointer shadow-2xs"
+                              title="استيراد الرقم من سجل جهات اتصال الهاتف"
+                            >
+                              <Contact className="w-4 h-4 stroke-[2]" />
+                            </button>
                             {index === tenantPhoneNumbers.length - 1 ? (
                               <button
                                 type="button"

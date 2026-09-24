@@ -23,10 +23,11 @@ import {
   MessageCircle,
   ExternalLink,
   Check,
-  Share2
+  Share2,
+  Contact
 } from 'lucide-react';
 import { CommunityHeader, CommunityCounts, CommunityServiceId } from './CommunityHeader';
-import { formatMobileNumber, formatPhoneForDisplay, normalizePhoneInput, toWhatsAppNumber } from '../utils/phoneUtils';
+import { formatMobileNumber, formatPhoneForDisplay, normalizePhoneInput, toWhatsAppNumber, pickContactFromDevice } from '../utils/phoneUtils';
 
 const specialtyLabels: Record<string, string> = {
   'سباكة': 'سباكة 💧',
@@ -127,6 +128,38 @@ export const MaintenanceRequests: React.FC<MaintenanceRequestsProps> = ({
   const [craftsmanPhone, setCraftsmanPhone] = useState('');
   const [craftsmanPhones, setCraftsmanPhones] = useState<string[]>(['']);
   const [craftsmanNotes, setCraftsmanNotes] = useState('');
+
+  const handlePickContactForCraftsman = async (index: number) => {
+    const res = await pickContactFromDevice();
+    if (res && res.supported === false) {
+      alert('خاصية استيراد الأرقام من جهات الاتصال مدعومة على متصفحات الهواتف المحمولة (مثل Google Chrome على Android).');
+      return;
+    }
+    if (res && res.tel) {
+      const updated = [...craftsmanPhones];
+      updated[index] = res.tel;
+      setCraftsmanPhones(updated);
+      if (!craftsmanName.trim() && res.name) {
+        setCraftsmanName(res.name);
+      }
+    }
+  };
+
+  const handlePickContactForEditCraftsman = async (index: number) => {
+    const res = await pickContactFromDevice();
+    if (res && res.supported === false) {
+      alert('خاصية استيراد الأرقام من جهات الاتصال مدعومة على متصفحات الهواتف المحمولة (مثل Google Chrome على Android).');
+      return;
+    }
+    if (res && res.tel) {
+      const updated = [...editPhones];
+      updated[index] = res.tel;
+      setEditPhones(updated);
+      if (!editName.trim() && res.name) {
+        setEditName(res.name);
+      }
+    }
+  };
 
   // WhatsApp Link Formatter
   const formatWhatsAppLink = (phone: string, specialty: string, name: string) => {
@@ -920,6 +953,14 @@ export const MaintenanceRequests: React.FC<MaintenanceRequestsProps> = ({
                           dir="ltr"
                           className="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 rounded-xl text-xs font-mono font-bold outline-none focus:border-blue-500 transition text-left"
                         />
+                        <button
+                          type="button"
+                          onClick={() => handlePickContactForCraftsman(index)}
+                          className="w-9 h-9 bg-amber-50 hover:bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300 dark:hover:bg-amber-900/40 border border-amber-200/80 dark:border-amber-700/60 rounded-xl flex items-center justify-center transition shrink-0 cursor-pointer shadow-2xs"
+                          title="استيراد الرقم من سجل جهات اتصال الهاتف"
+                        >
+                          <Contact className="w-4 h-4 stroke-[2]" />
+                        </button>
                         {index === craftsmanPhones.length - 1 ? (
                           <button
                             type="button"
@@ -1252,6 +1293,14 @@ export const MaintenanceRequests: React.FC<MaintenanceRequestsProps> = ({
                           dir="ltr"
                           className="flex-1 px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 rounded-xl text-xs font-mono font-bold outline-none focus:bg-white dark:focus:bg-slate-900 focus:border-blue-500 transition text-left"
                         />
+                        <button
+                          type="button"
+                          onClick={() => handlePickContactForEditCraftsman(index)}
+                          className="w-9 h-9 bg-amber-50 hover:bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300 dark:hover:bg-amber-900/40 border border-amber-200/80 dark:border-amber-700/60 rounded-xl flex items-center justify-center transition shrink-0 cursor-pointer shadow-2xs"
+                          title="استيراد الرقم من سجل جهات اتصال الهاتف"
+                        >
+                          <Contact className="w-4 h-4 stroke-[2]" />
+                        </button>
                         {index === editPhones.length - 1 ? (
                           <button
                             type="button"

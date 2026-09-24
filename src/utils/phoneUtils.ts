@@ -271,3 +271,51 @@ function formatSinglePhoneForDisplay(part: string): string {
   return formatted;
 }
 
+export interface DeviceContactResult {
+  tel?: string;
+  name?: string;
+  supported: boolean;
+}
+
+/**
+ * Picks a contact from the device's native contacts book using the Web Contact Picker API.
+ * Supported in modern mobile browsers (such as Google Chrome on Android).
+ */
+export async function pickContactFromDevice(): Promise<DeviceContactResult | null> {
+  const nav = typeof navigator !== 'undefined' ? (navigator as any) : null;
+  if (!nav || !('contacts' in nav) || typeof nav.contacts.select !== 'function') {
+    return { supported: false };
+  }
+  try {
+    let supportedProps: string[] = ['tel'];
+    if (typeof nav.contacts.getProperties === 'function') {
+      try {
+        const available = await nav.contacts.getProperties();
+        if (Array.isArray(available) && available.includes('name')) {
+          supportedProps.push('name');
+        }
+      } catch (e) {
+        // fallback to tel
+      }
+    }
+    const contacts = await nav.contacts.select(supportedProps, { multiple: false });
+    if (contacts && contacts.length > 0) {
+      const c = contacts[0];
+      const rawTel = (c.tel && c.tel.length > 0 ? c.tel[0] : '') || '';
+      const rawName = (c.name && c.name.length > 0 ? c.name[0] : '') || '';
+      return {
+        tel: formatMobileNumber(rawTel),
+        name: String(rawName).trim(),
+        supported: true,
+      };
+    }
+    return null; // User cancelled
+  } catch (err: any) {
+    if (err && err.name === 'AbortError') {
+      return null;
+    }
+    console.warn('Contact picker error:', err);
+    return null;
+  }
+}
+
