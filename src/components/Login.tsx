@@ -87,14 +87,39 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     const loadBuildingsAndAuth = async () => {
       try {
         const list = await getAllBuildings();
-        setBuildings(list);
-        if (list.length > 0) {
-          const active = getActiveBuilding();
-          if (active && active.id && list.some(b => b.id === active.id)) {
-            setSelectedBuildingId(active.id);
+        
+        // Try to read query params FIRST!
+        const params = new URLSearchParams(window.location.search);
+        const invitedBuilding = params.get('bld');
+        
+        if (invitedBuilding) {
+          const matched = list.find(b => b.id === invitedBuilding);
+          if (matched) {
+            setBuildings([matched]); // Lock/filter to ONLY the invited building
+            setSelectedBuildingId(matched.id);
+            setActiveBuilding(matched);
           } else {
-            setSelectedBuildingId(list[0].id);
-            setActiveBuilding(list[0]);
+            setBuildings(list);
+            if (list.length > 0) {
+              const active = getActiveBuilding();
+              if (active && active.id && list.some(b => b.id === active.id)) {
+                setSelectedBuildingId(active.id);
+              } else {
+                setSelectedBuildingId(list[0].id);
+                setActiveBuilding(list[0]);
+              }
+            }
+          }
+        } else {
+          setBuildings(list);
+          if (list.length > 0) {
+            const active = getActiveBuilding();
+            if (active && active.id && list.some(b => b.id === active.id)) {
+              setSelectedBuildingId(active.id);
+            } else {
+              setSelectedBuildingId(list[0].id);
+              setActiveBuilding(list[0]);
+            }
           }
         }
 
@@ -196,6 +221,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   // Sign In inputs
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [isAutoLoginInvite, setIsAutoLoginInvite] = useState(false);
 
   // Register New Building inputs (Commercial / Multi-tenant Flow)
   const [newBuildingName, setNewBuildingName] = useState('');
@@ -222,6 +248,48 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   const [registerEmail, setRegisterEmail] = useState('');
   const [registerPassword, setRegisterPassword] = useState('');
 
+  const handleAutoLogin = async (email: string, pass: string, bldId: string) => {
+    setLoading(true);
+    setError(null);
+    setSuccessMessage('جاري تسجيل دخول الساكن تلقائياً والاتصال بالاتحاد السحابي... 🚀');
+    try {
+      const data = await loginWithEmail(email, pass, bldId);
+      if (data.success) {
+        if (data.flatNumber) {
+          localStorage.setItem('resident_flat_number', data.flatNumber.toString());
+        }
+        localStorage.setItem('user_role', 'RESIDENT');
+        localStorage.setItem('app_user_role', 'RESIDENT');
+
+        const bldName = buildings.find(b => b.id === bldId)?.name || 'اتحاد ملاك بيراميدز فيو 1';
+        const user = {
+          email: data.email,
+          displayName: data.name,
+          uid: data.email,
+          role: 'RESIDENT' as UserRole,
+          flatNumber: data.flatNumber,
+          buildingId: bldId,
+          buildingName: bldName,
+        };
+        localStorage.setItem('custom_user_session', JSON.stringify(user));
+        
+        // Clean up URL parameters
+        window.history.replaceState({}, document.title, window.location.pathname);
+        
+        setSuccessMessage('تم تسجيل الدخول بنجاح! نرحب بكم في المنظومة السحابية.');
+        setTimeout(() => {
+          onLoginSuccess(user, 'local-token');
+        }, 500);
+      } else {
+        setError('فشل تسجيل الدخول التلقائي. يرجى مراجعة رئيس الاتحاد.');
+      }
+    } catch (err: any) {
+      setError(err.message || 'خطأ أثناء تسجيل الدخول التلقائي.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Auto-detect invitation links (?invite=true&flat=204&name=...&bld=...)
   useEffect(() => {
     try {
@@ -230,6 +298,8 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
       const invitedFlat = params.get('flat');
       const invitedName = params.get('name');
       const invitedBuilding = params.get('bld');
+      const urlEmail = params.get('email');
+      const urlPass = params.get('pass');
 
       if (invitedBuilding) {
         setSelectedBuildingId(invitedBuilding);
@@ -238,10 +308,22 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
       if (isInvite || invitedFlat) {
         setTopTab('SIGN_IN');
         setPortalMode('RESIDENT');
-        setResidentTab('register');
+        setResidentTab('login');
         if (invitedFlat) setFlatNumber(invitedFlat);
         if (invitedName) setOwnerName(decodeURIComponent(invitedName));
-        setSuccessMessage(`مرحباً بكم! تم تجهيز طلب الانضمام لشقة رقم ${invitedFlat || ''} بدعوة كريمة من مجلس إدارة اتحاد الملاك.`);
+        
+        if (urlEmail && urlPass) {
+          setIsAutoLoginInvite(true);
+          setLoginEmail(urlEmail);
+          setLoginPassword(urlPass);
+          const bldId = invitedBuilding || selectedBuildingId || DEFAULT_BUILDING_ID;
+          
+          setTimeout(() => {
+            handleAutoLogin(urlEmail, urlPass, bldId);
+          }, 600);
+        } else {
+          setSuccessMessage(`مرحباً بكم! تم تجهيز طلب الانضمام لشقة رقم ${invitedFlat || ''} بدعوة كريمة من مجلس إدارة اتحاد الملاك.`);
+        }
       }
     } catch (e) {
       console.warn('Failed to parse invitation params:', e);
@@ -724,41 +806,43 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         {/* ========================================================================= */}
         {/* TOP LEVEL NAVIGATION: SIGN IN VS REGISTER NEW BUILDING                   */}
         {/* ========================================================================= */}
-        <div className="grid grid-cols-2 gap-1.5 p-1.5 bg-slate-100 dark:bg-slate-800/80 rounded-2xl border border-slate-200/70 dark:border-slate-700 mb-5">
-          <button
-            type="button"
-            onClick={() => {
-              setTopTab('SIGN_IN');
-              setError(null);
-              setSuccessMessage(null);
-            }}
-            className={`py-2.5 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
-              topTab === 'SIGN_IN'
-                ? 'bg-blue-900 text-white shadow-md shadow-blue-900/30'
-                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-700/50'
-            }`}
-          >
-            <LogIn className="w-4 h-4" />
-            <span>تسجيل الدخول</span>
-          </button>
+        {!isAutoLoginInvite && (
+          <div className="grid grid-cols-2 gap-1.5 p-1.5 bg-slate-100 dark:bg-slate-800/80 rounded-2xl border border-slate-200/70 dark:border-slate-700 mb-5">
+            <button
+              type="button"
+              onClick={() => {
+                setTopTab('SIGN_IN');
+                setError(null);
+                setSuccessMessage(null);
+              }}
+              className={`py-2.5 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                topTab === 'SIGN_IN'
+                  ? 'bg-blue-900 text-white shadow-md shadow-blue-900/30'
+                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-700/50'
+              }`}
+            >
+              <LogIn className="w-4 h-4" />
+              <span>تسجيل الدخول</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => {
-              setTopTab('REGISTER_BUILDING');
-              setError(null);
-              setSuccessMessage(null);
-            }}
-            className={`py-2.5 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
-              topTab === 'REGISTER_BUILDING'
-                ? 'bg-emerald-700 text-white shadow-md shadow-emerald-700/30'
-                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-700/50'
-            }`}
-          >
-            <PlusCircle className="w-4 h-4 text-emerald-300" />
-            <span>تسجيل عمارة جديدة ✨</span>
-          </button>
-        </div>
+            <button
+              type="button"
+              onClick={() => {
+                setTopTab('REGISTER_BUILDING');
+                setError(null);
+                setSuccessMessage(null);
+              }}
+              className={`py-2.5 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                topTab === 'REGISTER_BUILDING'
+                  ? 'bg-emerald-700 text-white shadow-md shadow-emerald-700/30'
+                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-700/50'
+              }`}
+            >
+              <PlusCircle className="w-4 h-4 text-emerald-300" />
+              <span>تسجيل عمارة جديدة ✨</span>
+            </button>
+          </div>
+        )}
 
         {/* Global Feedback Notifications */}
         {error && (
@@ -993,30 +1077,59 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
           <div className="space-y-4">
             {/* Building Switcher Dropdown (Shown if buildings exist) */}
             {buildings.length > 0 ? (
-              <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-2">
+              <div className="p-3.5 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 rounded-2xl border border-blue-200 dark:border-blue-900/50 space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="text-slate-700 dark:text-slate-200 text-[11px] font-black flex items-center gap-1.5">
-                    <Building2 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                    <Building2 className="w-3.5 h-3.5 text-blue-700 dark:text-blue-400" />
                     <span>العمارة / اتحاد الملاك النشط:</span>
-                    <span className="text-blue-600 dark:text-blue-400 text-[10px] font-bold">
-                      ({buildings.length} مسجل)
-                    </span>
                   </label>
+                  {buildings.length > 1 && (
+                    <span className="text-blue-700 dark:text-blue-400 text-[10px] font-black bg-blue-100 dark:bg-blue-900/40 px-2 py-0.5 rounded-md border border-blue-200 dark:border-blue-800/40">
+                      {buildings.length} مسجل
+                    </span>
+                  )}
+                  {buildings.length === 1 && (
+                    <span className="text-emerald-700 dark:text-emerald-400 text-[10px] font-black bg-emerald-100 dark:bg-emerald-900/40 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800/40 animate-pulse">
+                      ✨ رابط دعوة نشط
+                    </span>
+                  )}
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <select
-                    value={selectedBuildingId}
-                    onChange={(e) => handleSelectBuilding(e.target.value)}
-                    className="w-full py-2 px-3 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl font-black text-slate-800 dark:text-white focus:outline-none focus:border-blue-800"
-                  >
-                    {buildings.map((b) => (
-                      <option key={b.id} value={b.id}>
-                        {b.name} ({b.code}) - رئيس الاتحاد: {b.presidentName || 'غير محدد'}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                {buildings.length > 1 ? (
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={selectedBuildingId}
+                      onChange={(e) => handleSelectBuilding(e.target.value)}
+                      className="w-full py-2 px-3 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl font-black text-slate-800 dark:text-white focus:outline-none focus:border-blue-800"
+                    >
+                      {buildings.map((b) => (
+                        <option key={b.id} value={b.id}>
+                          {b.name} ({b.code}) - رئيس الاتحاد: {b.presidentName || 'غير محدد'}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : (
+                  <div className="p-2.5 bg-white dark:bg-slate-900 rounded-xl border border-blue-100 dark:border-blue-900/40 flex flex-wrap items-center justify-between gap-2 text-right">
+                    <div className="text-right">
+                      <p className="text-xs font-black text-slate-900 dark:text-white">{buildings[0].name}</p>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold mt-0.5">كود الاتحاد: {buildings[0].code} • رئيس الاتحاد: {buildings[0].presidentName || 'غير محدد'}</p>
+                    </div>
+                    {new URLSearchParams(window.location.search).get('bld') && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          // Allow resetting the filter if they wish to see other buildings
+                          window.history.replaceState({}, document.title, window.location.pathname);
+                          window.location.reload();
+                        }}
+                        className="text-[10px] font-black text-blue-800 dark:text-blue-300 hover:underline cursor-pointer bg-blue-50 dark:bg-blue-900/50 px-2.5 py-1 rounded-lg"
+                      >
+                        عرض جميع الاتحادات
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             ) : (
               <div className="space-y-3">
@@ -1055,82 +1168,84 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
             )}
 
             {/* Portal Role Selector */}
-            <div className="grid grid-cols-3 gap-1.5 p-1.5 bg-slate-100 dark:bg-slate-800/80 rounded-2xl border border-slate-200/60 dark:border-slate-700">
-              <button
-                type="button"
-                onClick={() => {
-                  setPortalMode('PRESIDENT');
-                  setError(null);
-                  setSuccessMessage(null);
-                  if (currentActiveBuilding?.presidentEmail) {
-                    setLoginEmail(currentActiveBuilding.presidentEmail);
-                  } else {
+            {!isAutoLoginInvite && (
+              <div className="grid grid-cols-3 gap-1.5 p-1.5 bg-slate-100 dark:bg-slate-800/80 rounded-2xl border border-slate-200/60 dark:border-slate-700">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPortalMode('PRESIDENT');
+                    setError(null);
+                    setSuccessMessage(null);
+                    if (currentActiveBuilding?.presidentEmail) {
+                      setLoginEmail(currentActiveBuilding.presidentEmail);
+                    } else {
+                      setLoginEmail('');
+                    }
+                  }}
+                  className={`py-2 px-1 rounded-xl font-black text-[11px] sm:text-xs flex flex-col items-center justify-center gap-0.5 transition-all cursor-pointer ${
+                    portalMode === 'PRESIDENT'
+                      ? 'bg-blue-900 text-white shadow-md shadow-blue-900/30'
+                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  <div className="flex items-center gap-1">
+                    <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
+                    <span>رئيس الاتحاد</span>
+                  </div>
+                  <span className={`text-[9px] font-bold ${portalMode === 'PRESIDENT' ? 'text-blue-200' : 'text-slate-400'}`}>
+                    مجلس الإدارة
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPortalMode('ASSISTANT');
+                    setError(null);
+                    setSuccessMessage(null);
+                    setLoginEmail('assistant@pyramids.com');
+                    setLoginPassword('assistant123');
+                  }}
+                  className={`py-2 px-1 rounded-xl font-black text-[11px] sm:text-xs flex flex-col items-center justify-center gap-0.5 transition-all cursor-pointer ${
+                    portalMode === 'ASSISTANT'
+                      ? 'bg-indigo-900 text-white shadow-md shadow-indigo-900/30'
+                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  <div className="flex items-center gap-1">
+                    <Wrench className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>المساعد الفني</span>
+                  </div>
+                  <span className={`text-[9px] font-bold ${portalMode === 'ASSISTANT' ? 'text-indigo-200' : 'text-slate-400'}`}>
+                    تحصيل ومصروفات
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPortalMode('RESIDENT');
+                    setError(null);
+                    setSuccessMessage(null);
                     setLoginEmail('');
-                  }
-                }}
-                className={`py-2 px-1 rounded-xl font-black text-[11px] sm:text-xs flex flex-col items-center justify-center gap-0.5 transition-all cursor-pointer ${
-                  portalMode === 'PRESIDENT'
-                    ? 'bg-blue-900 text-white shadow-md shadow-blue-900/30'
-                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
-                }`}
-              >
-                <div className="flex items-center gap-1">
-                  <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
-                  <span>رئيس الاتحاد</span>
-                </div>
-                <span className={`text-[9px] font-bold ${portalMode === 'PRESIDENT' ? 'text-blue-200' : 'text-slate-400'}`}>
-                  مجلس الإدارة
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setPortalMode('ASSISTANT');
-                  setError(null);
-                  setSuccessMessage(null);
-                  setLoginEmail('assistant@pyramids.com');
-                  setLoginPassword('assistant123');
-                }}
-                className={`py-2 px-1 rounded-xl font-black text-[11px] sm:text-xs flex flex-col items-center justify-center gap-0.5 transition-all cursor-pointer ${
-                  portalMode === 'ASSISTANT'
-                    ? 'bg-indigo-900 text-white shadow-md shadow-indigo-900/30'
-                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
-                }`}
-              >
-                <div className="flex items-center gap-1">
-                  <Wrench className="w-3.5 h-3.5 text-indigo-400" />
-                  <span>المساعد الفني</span>
-                </div>
-                <span className={`text-[9px] font-bold ${portalMode === 'ASSISTANT' ? 'text-indigo-200' : 'text-slate-400'}`}>
-                  تحصيل ومصروفات
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setPortalMode('RESIDENT');
-                  setError(null);
-                  setSuccessMessage(null);
-                  setLoginEmail('');
-                  setLoginPassword('');
-                }}
-                className={`py-2 px-1 rounded-xl font-black text-[11px] sm:text-xs flex flex-col items-center justify-center gap-0.5 transition-all cursor-pointer ${
-                  portalMode === 'RESIDENT'
-                    ? 'bg-blue-900 text-white shadow-md shadow-blue-900/30'
-                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
-                }`}
-              >
-                <div className="flex items-center gap-1">
-                  <Users className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>السكان</span>
-                </div>
-                <span className={`text-[9px] font-bold ${portalMode === 'RESIDENT' ? 'text-blue-200' : 'text-slate-400'}`}>
-                  كشوف الحساب
-                </span>
-              </button>
-            </div>
+                    setLoginPassword('');
+                  }}
+                  className={`py-2 px-1 rounded-xl font-black text-[11px] sm:text-xs flex flex-col items-center justify-center gap-0.5 transition-all cursor-pointer ${
+                    portalMode === 'RESIDENT'
+                      ? 'bg-blue-900 text-white shadow-md shadow-blue-900/30'
+                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  <div className="flex items-center gap-1">
+                    <Users className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>السكان</span>
+                  </div>
+                  <span className={`text-[9px] font-bold ${portalMode === 'RESIDENT' ? 'text-blue-200' : 'text-slate-400'}`}>
+                    كشوف الحساب
+                  </span>
+                </button>
+              </div>
+            )}
 
             {/* Authorized Domain Alert helper */}
             {unauthorizedDomain && (
@@ -1388,30 +1503,32 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
             {portalMode === 'RESIDENT' && (
               <div className="space-y-4">
                 {/* Sub-tabs: Resident Login vs Join Request */}
-                <div className="flex border-b border-slate-200 dark:border-slate-700 mb-3">
-                  <button
-                    type="button"
-                    onClick={() => setResidentTab('login')}
-                    className={`flex-1 py-2 font-bold text-xs border-b-2 text-center transition cursor-pointer ${
-                      residentTab === 'login'
-                        ? 'border-blue-900 text-blue-950 dark:text-white font-black'
-                        : 'border-transparent text-slate-400 hover:text-slate-600'
-                    }`}
-                  >
-                    تسجيل دخول الساكن
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setResidentTab('register')}
-                    className={`flex-1 py-2 font-bold text-xs border-b-2 text-center transition cursor-pointer ${
-                      residentTab === 'register'
-                        ? 'border-blue-900 text-blue-950 dark:text-white font-black'
-                        : 'border-transparent text-slate-400 hover:text-slate-600'
-                    }`}
-                  >
-                    طلب انضمام لعمارة 📝
-                  </button>
-                </div>
+                {!isAutoLoginInvite && (
+                  <div className="flex border-b border-slate-200 dark:border-slate-700 mb-3">
+                    <button
+                      type="button"
+                      onClick={() => setResidentTab('login')}
+                      className={`flex-1 py-2 font-bold text-xs border-b-2 text-center transition cursor-pointer ${
+                        residentTab === 'login'
+                          ? 'border-blue-900 text-blue-950 dark:text-white font-black'
+                          : 'border-transparent text-slate-400 hover:text-slate-600'
+                      }`}
+                    >
+                      تسجيل دخول الساكن
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setResidentTab('register')}
+                      className={`flex-1 py-2 font-bold text-xs border-b-2 text-center transition cursor-pointer ${
+                        residentTab === 'register'
+                          ? 'border-blue-900 text-blue-950 dark:text-white font-black'
+                          : 'border-transparent text-slate-400 hover:text-slate-600'
+                      }`}
+                    >
+                      طلب انضمام لعمارة 📝
+                    </button>
+                  </div>
+                )}
 
                 {residentTab === 'login' ? (
                   <form onSubmit={handleEmailLogin} className="space-y-3.5">

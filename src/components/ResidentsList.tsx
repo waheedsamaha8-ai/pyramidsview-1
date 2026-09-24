@@ -17,6 +17,7 @@ import {
   exportCarriedBalancesForYear 
 } from '../utils/financialCalculations';
 import { formatMobileNumber, formatPhoneForDisplay, normalizePhoneInput } from '../utils/phoneUtils';
+import { getActiveFirebaseConfig } from '../services/firebaseConfig';
 
 export { 
   calculateResidentFinancials, 
@@ -341,7 +342,14 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
       : (resident.password || `pyr${resident.flatNumber}#2026`);
 
     const cleanPhone = rawPhone ? formatMobileNumber(rawPhone).replace(/[^\d+]/g, '') : '';
-    const appUrl = 'https://waheedsamaha8-ai.github.io/pyramids2/';
+    
+    // Inject Firebase config and building ID
+    const activeBId = (typeof window !== 'undefined' && localStorage.getItem('active_building_id')) || '';
+    const fbConfig = getActiveFirebaseConfig();
+    const apiKeyParam = fbConfig.apiKey ? `&apiKey=${encodeURIComponent(fbConfig.apiKey)}` : '';
+    const projectIdParam = fbConfig.projectId ? `&projectId=${encodeURIComponent(fbConfig.projectId)}` : '';
+    
+    const appUrl = `https://waheedsamaha8-ai.github.io/pyramidsview-1/?invite=true&bld=${encodeURIComponent(activeBId)}${apiKeyParam}${projectIdParam}&flat=${encodeURIComponent(resident.flatNumber || '')}&name=${encodeURIComponent(recipientName || '')}&email=${encodeURIComponent(resEmail)}&pass=${encodeURIComponent(resPassword)}`;
 
     const message = `مرحباً بك أستاذ/ة ${recipientName} 👋
 
@@ -353,7 +361,7 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
 ✉️ البريد الإلكتروني: ${resEmail}
 🔑 كلمة المرور: ${resPassword}
 
-رابط دخول التطبيق:
+رابط دخول التطبيق المباشر (مفعل بالكامل لمبنى سيادتكم):
 ${appUrl}
 
 نتمنى لك تجربة متميزة!`;

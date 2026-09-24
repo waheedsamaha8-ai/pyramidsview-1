@@ -15,6 +15,20 @@ export interface CustomFirebaseConfig {
 
 export function getActiveFirebaseConfig(): CustomFirebaseConfig {
   try {
+    // Automatically intercept and save Firebase params from URL if present
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const urlApiKey = params.get('apiKey');
+      const urlProjectId = params.get('projectId');
+      if (urlApiKey && urlProjectId) {
+        localStorage.setItem('custom_firebase_config', JSON.stringify({
+          apiKey: urlApiKey,
+          projectId: urlProjectId,
+          authDomain: `${urlProjectId}.firebaseapp.com`
+        }));
+      }
+    }
+
     const raw = localStorage.getItem('custom_firebase_config');
     if (raw) {
       const parsed = JSON.parse(raw);

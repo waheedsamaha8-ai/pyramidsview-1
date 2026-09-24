@@ -13,7 +13,8 @@ import {
   ExternalLink,
   Sparkles
 } from 'lucide-react';
-import { formatMobileNumber, formatPhoneForDisplay } from '../utils/phoneUtils';
+import { formatMobileNumber, formatPhoneForDisplay, toWhatsAppNumber } from '../utils/phoneUtils';
+import { getActiveFirebaseConfig } from '../services/firebaseConfig';
 
 interface ResidentInviteModalProps {
   isOpen: boolean;
@@ -60,8 +61,16 @@ const ResidentInviteModalContent: React.FC<{
   };
 
   // Generate invite URL
-  const baseUrl = window.location.origin;
-  const inviteUrl = `${baseUrl}/?invite=true&flat=${encodeURIComponent(selectedFlat || '')}&name=${encodeURIComponent(residentName || '')}`;
+  const activeBId = (typeof window !== 'undefined' && localStorage.getItem('active_building_id')) || '';
+  const activeBCode = (typeof window !== 'undefined' && localStorage.getItem('active_building_code')) || 'union';
+  const foundResident = residents.find(r => String(r.flatNumber) === String(selectedFlat));
+  const resEmail = foundResident?.email || `flat${selectedFlat}@${activeBCode.toLowerCase()}.com`;
+  const resPassword = foundResident?.password || `pyr${selectedFlat}#2026`;
+
+  const fbConfig = getActiveFirebaseConfig();
+  const apiKeyParam = fbConfig.apiKey ? `&apiKey=${encodeURIComponent(fbConfig.apiKey)}` : '';
+  const projectIdParam = fbConfig.projectId ? `&projectId=${encodeURIComponent(fbConfig.projectId)}` : '';
+  const inviteUrl = `https://waheedsamaha8-ai.github.io/pyramidsview-1/?invite=true&bld=${encodeURIComponent(activeBId)}${apiKeyParam}${projectIdParam}&flat=${encodeURIComponent(selectedFlat || '')}&name=${encodeURIComponent(residentName || '')}&email=${encodeURIComponent(resEmail)}&pass=${encodeURIComponent(resPassword)}`;
 
   // Formatted Invitation Text
   const buildingName = (typeof window !== 'undefined' && localStorage.getItem('active_building_name')) || 'العمارة';
@@ -73,13 +82,10 @@ ${selectedFlat ? `الوحدة رقم: ${selectedFlat} (${residentType === 'OWNE
 تحية طيبة وبعد،،
 يسر مجلس إدارة اتحاد شاغلي وملاك ${buildingName} دعوتكم للانضمام إلى المنظومة الرقمية الرسمية للعمارة.
 
-✨ *مزايا المنظومة:*
-• متابعة كشف الحساب والاشتراكات الشهرية وإيصالات السداد المعتمدة
-• تقديم ومتابعة بلاغات الصيانة لخدمات العمارة
-• المشاركة في التصويتات والقرارات التشاركية
-• التواصل المباشر مع إدارة الاتحاد والمساعد الفني ودردشة السكان
+✉️ البريد الإلكتروني الخاص بك: ${resEmail}
+🔑 كلمة المرور الخاصة بك: ${resPassword}
 
-📲 *رابط الانضمام والتسجيل المباشر:*
+📲 *رابط الدخول التلقائي والمباشر دون الحاجة لكتابة بيانات:*
 ${inviteUrl}
 
 نتشرف بانضمامكم لخدمة وتطوير عمارتنا.
@@ -96,12 +102,7 @@ ${inviteUrl}
   };
 
   const handleSendWhatsApp = () => {
-    let cleanPhone = residentPhone.replace(/\D/g, '');
-    if (cleanPhone.startsWith('0')) {
-      cleanPhone = '2' + cleanPhone; // Egypt country code
-    } else if (!cleanPhone.startsWith('20') && cleanPhone.length === 10) {
-      cleanPhone = '20' + cleanPhone;
-    }
+    const cleanPhone = toWhatsAppNumber(residentPhone);
 
     const waUrl = cleanPhone
       ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(inviteMessage)}`

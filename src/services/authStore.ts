@@ -1,5 +1,5 @@
 // Unified Auth & Join Requests store with automatic fallback for static hosting (Netlify) and offline PWA
-import { getLocalBuildings } from './buildingStore';
+import { getLocalBuildings, getActiveBuilding } from './buildingStore';
 import { db, isUsingCustomFirebase } from './firebaseConfig';
 import { collection, getDocs } from 'firebase/firestore';
 
