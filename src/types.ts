@@ -51,6 +51,7 @@ export interface Resident {
   tenantPassword?: string;
   tenantAccountStatus?: 'ACTIVE' | 'INVITED' | 'REVOKED';
   lastLoginAt?: string;
+  tenantLastLoginAt?: string;
 }
 
 export interface Payment {

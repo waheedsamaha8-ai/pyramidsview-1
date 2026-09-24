@@ -19,6 +19,7 @@ import {
   deleteAllBuildings,
   DEFAULT_BUILDING_ID 
 } from '../services/buildingStore';
+import { getResidentsFromFirestore, saveResidentToFirestore } from '../services/firestoreService';
 import { Building as BuildingType, UserRole } from '../types';
 import { formatMobileNumber } from '../utils/phoneUtils';
 import { 
@@ -248,6 +249,88 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   const [registerEmail, setRegisterEmail] = useState('');
   const [registerPassword, setRegisterPassword] = useState('');
 
+  // Load building residents for registration dropdown
+  const [availableResidents, setAvailableResidents] = useState<any[]>([]);
+
+  useEffect(() => {
+    const fetchBuildingResidents = async () => {
+      try {
+        if (!selectedBuildingId) return;
+        const originalActiveId = localStorage.getItem('active_building_id');
+        localStorage.setItem('active_building_id', selectedBuildingId);
+        
+        const list = await getResidentsFromFirestore();
+        if (originalActiveId) {
+          localStorage.setItem('active_building_id', originalActiveId);
+        } else {
+          localStorage.removeItem('active_building_id');
+        }
+        
+        list.sort((a, b) => {
+          const numA = parseInt(String(a.flatNumber)) || 0;
+          const numB = parseInt(String(b.flatNumber)) || 0;
+          return numA - numB;
+        });
+        
+        setAvailableResidents(list);
+      } catch (err) {
+        console.error('Error loading building residents for selection:', err);
+      }
+    };
+    
+    fetchBuildingResidents();
+  }, [selectedBuildingId, portalMode, residentTab]);
+
+  const handleFlatSelect = (val: string, currentResType = residentType) => {
+    setFlatNumber(val);
+    const matched = availableResidents.find(r => String(r.flatNumber) === String(val));
+    if (matched) {
+      const isPlaceholderName = matched.name?.startsWith('شاغل ') || matched.name?.startsWith('شاغل') || matched.name?.trim() === '';
+      setOwnerName(isPlaceholderName ? '' : (matched.name || ''));
+      setOwnerPhone(matched.phone || '');
+      
+      if (currentResType === 'TENANT') {
+        const isTenantPlaceholder = matched.tenantName?.startsWith('شاغل ') || matched.tenantName?.startsWith('شاغل') || matched.tenantName?.trim() === '';
+        setTenantName(isTenantPlaceholder ? '' : (matched.tenantName || ''));
+        setTenantPhone(matched.tenantPhone || '');
+      } else {
+        setTenantName('');
+        setTenantPhone('');
+      }
+    } else {
+      setOwnerName('');
+      setOwnerPhone('');
+      setTenantName('');
+      setTenantPhone('');
+    }
+  };
+
+  const handleResidentTypeChange = (type: 'OWNER' | 'TENANT') => {
+    setResidentType(type);
+    if (flatNumber) {
+      handleFlatSelect(flatNumber, type);
+    }
+  };
+
+  const updateResidentLoginStatus = async (flatNum: string | number, resType?: string) => {
+    try {
+      const allResidents = await getResidentsFromFirestore();
+      const target = allResidents.find(r => String(r.flatNumber) === String(flatNum));
+      if (target) {
+        const isTenant = resType === 'TENANT';
+        const updated = { ...target };
+        if (isTenant) {
+          updated.tenantLastLoginAt = new Date().toISOString();
+        } else {
+          updated.lastLoginAt = new Date().toISOString();
+        }
+        await saveResidentToFirestore(updated);
+      }
+    } catch (e) {
+      console.warn('Error updating resident login status:', e);
+    }
+  };
+
   const handleAutoLogin = async (email: string, pass: string, bldId: string, customRole: UserRole = 'RESIDENT') => {
     setLoading(true);
     setError(null);
@@ -258,6 +341,9 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
       if (data.success) {
         if (data.flatNumber) {
           localStorage.setItem('resident_flat_number', data.flatNumber.toString());
+          if (data.role === 'RESIDENT' || customRole === 'RESIDENT') {
+            await updateResidentLoginStatus(data.flatNumber, data.residentType);
+          }
         }
         localStorage.setItem('user_role', customRole);
         localStorage.setItem('app_user_role', customRole);
@@ -546,6 +632,9 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
       if (data.success) {
         if (data.flatNumber) {
           localStorage.setItem('resident_flat_number', data.flatNumber.toString());
+          if (data.role === 'RESIDENT' || portalMode === 'RESIDENT') {
+            await updateResidentLoginStatus(data.flatNumber, data.residentType);
+          }
         }
         const activeB = getActiveBuilding();
         const userRole: UserRole = (data.role as UserRole) || (portalMode === 'PRESIDENT' ? 'ADMIN' : portalMode === 'ASSISTANT' ? 'ASSISTANT' : 'RESIDENT');
@@ -769,7 +858,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
 
     try {
       const payload = {
-        flatNumber: parseInt(flatNumber),
+        flatNumber: /^\d+$/.test(flatNumber) ? parseInt(flatNumber, 10) : flatNumber,
         residentType,
         ownerName: ownerName.trim(),
         ownerPhone: formatMobileNumber(ownerPhone),
@@ -1519,205 +1608,50 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
             {/* RESIDENT PORTAL */}
             {portalMode === 'RESIDENT' && (
               <div className="space-y-4">
-                {/* Sub-tabs: Resident Login vs Join Request */}
-                {!isAutoLoginInvite && (
-                  <div className="flex border-b border-slate-200 dark:border-slate-700 mb-3">
-                    <button
-                      type="button"
-                      onClick={() => setResidentTab('login')}
-                      className={`flex-1 py-2 font-bold text-xs border-b-2 text-center transition cursor-pointer ${
-                        residentTab === 'login'
-                          ? 'border-blue-900 text-blue-950 dark:text-white font-black'
-                          : 'border-transparent text-slate-400 hover:text-slate-600'
-                      }`}
-                    >
-                      تسجيل دخول الساكن
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setResidentTab('register')}
-                      className={`flex-1 py-2 font-bold text-xs border-b-2 text-center transition cursor-pointer ${
-                        residentTab === 'register'
-                          ? 'border-blue-900 text-blue-950 dark:text-white font-black'
-                          : 'border-transparent text-slate-400 hover:text-slate-600'
-                      }`}
-                    >
-                      طلب انضمام لعمارة 📝
-                    </button>
-                  </div>
-                )}
-
-                {residentTab === 'login' ? (
-                  <form onSubmit={handleEmailLogin} className="space-y-3.5">
-                    <div>
-                      <label className="block text-slate-700 dark:text-slate-300 text-xs font-bold mb-1 text-right">البريد الإلكتروني للساكن</label>
-                      <div className="relative">
-                        <span className="absolute inset-y-0 right-0 pr-3.5 flex items-center pointer-events-none">
-                          <Mail className="h-4 w-4 text-slate-400" />
-                        </span>
-                        <input
-                          type="email"
-                          required
-                          value={loginEmail}
-                          onChange={(e) => setLoginEmail(e.target.value)}
-                          placeholder="name@example.com أو flat101@pyramids.com"
-                          className="w-full pl-4 pr-10 py-2.5 text-sm bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-xl focus:border-blue-900 focus:outline-none text-right font-medium dark:text-white"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-slate-700 dark:text-slate-300 text-xs font-bold mb-1 text-right">كلمة المرور</label>
-                      <div className="relative">
-                        <span className="absolute inset-y-0 right-0 pr-3.5 flex items-center pointer-events-none">
-                          <Lock className="h-4 w-4 text-slate-400" />
-                        </span>
-                        <input
-                          type="password"
-                          required
-                          value={loginPassword}
-                          onChange={(e) => setLoginPassword(e.target.value)}
-                          placeholder="••••••••"
-                          className="w-full pl-4 pr-10 py-2.5 text-sm bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-xl focus:border-blue-900 focus:outline-none text-right font-medium dark:text-white"
-                        />
-                      </div>
-                    </div>
-
-                    <button
-                      type="submit"
-                      disabled={loading}
-                      className="w-full py-3 bg-blue-900 hover:bg-blue-800 text-white rounded-xl text-sm font-black transition flex items-center justify-center gap-2 cursor-pointer shadow-md"
-                    >
-                      <LogIn className="w-4 h-4" />
-                      <span>تسجيل دخول الساكن</span>
-                    </button>
-                  </form>
-                ) : (
-                  <form onSubmit={handleResidentRegisterSubmit} className="space-y-3">
-                    <div>
-                      <label className="block text-slate-700 dark:text-slate-300 text-xs font-bold mb-1 text-right">رقم الشقة / الوحدة</label>
-                      <input
-                        type="number"
-                        required
-                        value={flatNumber}
-                        onChange={(e) => setFlatNumber(e.target.value)}
-                        placeholder="مثال: 101 أو 204"
-                        className="w-full p-2.5 text-sm bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-xl focus:border-blue-900 focus:outline-none text-right font-medium dark:text-white"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-slate-700 dark:text-slate-300 text-xs font-bold mb-1 text-right">صفة الساكن</label>
-                      <div className="grid grid-cols-2 gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setResidentType('OWNER')}
-                          className={`py-2 text-xs font-bold rounded-xl border transition cursor-pointer ${
-                            residentType === 'OWNER'
-                              ? 'bg-blue-900 text-white border-blue-900'
-                              : 'bg-slate-50 text-slate-600 border-slate-200'
-                          }`}
-                        >
-                          مالك الشقة
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setResidentType('TENANT')}
-                          className={`py-2 text-xs font-bold rounded-xl border transition cursor-pointer ${
-                            residentType === 'TENANT'
-                              ? 'bg-blue-900 text-white border-blue-900'
-                              : 'bg-slate-50 text-slate-600 border-slate-200'
-                          }`}
-                        >
-                          مستأجر
-                        </button>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-slate-700 dark:text-slate-300 text-xs font-bold mb-1 text-right">اسم المالك</label>
-                      <input
-                        type="text"
-                        required
-                        value={ownerName}
-                        onChange={(e) => setOwnerName(e.target.value)}
-                        placeholder="الاسم الثلاثي لمالك الوحدة"
-                        className="w-full p-2.5 text-sm bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-xl focus:border-blue-900 focus:outline-none text-right font-medium dark:text-white"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-slate-700 dark:text-slate-300 text-xs font-bold mb-1 text-right">رقم هاتف المالك (واتساب)</label>
-                      <input
-                        type="tel"
-                        required
-                        value={ownerPhone}
-                        onChange={(e) => setOwnerPhone(e.target.value)}
-                        placeholder="010XXXXXXXX"
-                        className="w-full p-2.5 text-sm bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-xl focus:border-blue-900 focus:outline-none text-right font-medium dark:text-white"
-                      />
-                    </div>
-
-                    {residentType === 'TENANT' && (
-                      <>
-                        <div>
-                          <label className="block text-slate-700 dark:text-slate-300 text-xs font-bold mb-1 text-right">اسم المستأجر</label>
-                          <input
-                            type="text"
-                            required
-                            value={tenantName}
-                            onChange={(e) => setTenantName(e.target.value)}
-                            placeholder="الاسم الكامل للمستأجر"
-                            className="w-full p-2.5 text-sm bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-xl focus:border-blue-900 focus:outline-none text-right font-medium dark:text-white"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-slate-700 dark:text-slate-300 text-xs font-bold mb-1 text-right">رقم هاتف المستأجر (واتساب)</label>
-                          <input
-                            type="tel"
-                            required
-                            value={tenantPhone}
-                            onChange={(e) => setTenantPhone(e.target.value)}
-                            placeholder="01XXXXXXXXX"
-                            className="w-full p-2.5 text-sm bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-xl focus:border-blue-900 focus:outline-none text-right font-medium dark:text-white"
-                          />
-                        </div>
-                      </>
-                    )}
-
-                    <div>
-                      <label className="block text-slate-700 dark:text-slate-300 text-xs font-bold mb-1 text-right">البريد الإلكتروني المطلوب للتسجيل</label>
+                <form onSubmit={handleEmailLogin} className="space-y-3.5">
+                  <div>
+                    <label className="block text-slate-700 dark:text-slate-300 text-xs font-bold mb-1 text-right">البريد الإلكتروني للساكن</label>
+                    <div className="relative">
+                      <span className="absolute inset-y-0 right-0 pr-3.5 flex items-center pointer-events-none">
+                        <Mail className="h-4 w-4 text-slate-400" />
+                      </span>
                       <input
                         type="email"
                         required
-                        value={registerEmail}
-                        onChange={(e) => setRegisterEmail(e.target.value)}
-                        placeholder="example@gmail.com"
-                        className="w-full p-2.5 text-sm bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-xl focus:border-blue-900 focus:outline-none text-right font-medium dark:text-white"
+                        value={loginEmail}
+                        onChange={(e) => setLoginEmail(e.target.value)}
+                        placeholder="name@example.com أو flat101@pyramids.com"
+                        className="w-full pl-4 pr-10 py-2.5 text-sm bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-xl focus:border-blue-900 focus:outline-none text-right font-medium dark:text-white"
                       />
                     </div>
+                  </div>
 
-                    <div>
-                      <label className="block text-slate-700 dark:text-slate-300 text-xs font-bold mb-1 text-right">كلمة المرور المطلوبة</label>
+                  <div>
+                    <label className="block text-slate-700 dark:text-slate-300 text-xs font-bold mb-1 text-right">كلمة المرور</label>
+                    <div className="relative">
+                      <span className="absolute inset-y-0 right-0 pr-3.5 flex items-center pointer-events-none">
+                        <Lock className="h-4 w-4 text-slate-400" />
+                      </span>
                       <input
                         type="password"
                         required
-                        value={registerPassword}
-                        onChange={(e) => setRegisterPassword(e.target.value)}
+                        value={loginPassword}
+                        onChange={(e) => setLoginPassword(e.target.value)}
                         placeholder="••••••••"
-                        className="w-full p-2.5 text-sm bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-xl focus:border-blue-900 focus:outline-none text-right font-medium dark:text-white"
+                        className="w-full pl-4 pr-10 py-2.5 text-sm bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-xl focus:border-blue-900 focus:outline-none text-right font-medium dark:text-white"
                       />
                     </div>
+                  </div>
 
-                    <button
-                      type="submit"
-                      disabled={loading}
-                      className="w-full py-3 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-sm font-black transition flex items-center justify-center gap-2 cursor-pointer shadow-md"
-                    >
-                      <span>إرسال طلب الانضمام لاعتماده 📤</span>
-                    </button>
-                  </form>
-                )}
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full py-3 bg-blue-900 hover:bg-blue-800 text-white rounded-xl text-sm font-black transition flex items-center justify-center gap-2 cursor-pointer shadow-md"
+                  >
+                    <LogIn className="w-4 h-4" />
+                    <span>تسجيل دخول الساكن</span>
+                  </button>
+                </form>
               </div>
             )}
           </div>

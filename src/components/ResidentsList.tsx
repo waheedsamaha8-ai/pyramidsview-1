@@ -86,6 +86,34 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [inviteResidentTarget, setInviteResidentTarget] = useState<Resident | null>(null);
 
+  const activatedResidents = useMemo(() => {
+    return residents.filter(r => {
+      // Must have logged in at least once
+      const ownerHasLoggedIn = !!r.lastLoginAt;
+      const tenantHasLoggedIn = r.ownershipType === 'إيجار' && !!r.tenantLastLoginAt;
+      return ownerHasLoggedIn || tenantHasLoggedIn;
+    }).sort((a, b) => compareFlatNumbers(a.flatNumber, b.flatNumber));
+  }, [residents]);
+
+  const handleDeleteJoin = (resident: Resident) => {
+    const updated: Resident = {
+      ...resident,
+      accountStatus: 'ACTIVE', // reverts to inactive placeholder
+      email: `flat${resident.flatNumber}@pyramids.com`,
+      password: `pyr-${Math.floor(1000 + Math.random() * 9000)}`, // refresh password
+      lastLoginAt: '', // clear login status
+    };
+    if (resident.ownershipType === 'إيجار') {
+      updated.tenantAccountStatus = 'ACTIVE';
+      updated.tenantEmail = `tenant${resident.flatNumber}@pyramids.com`;
+      updated.tenantPassword = `pyr-${Math.floor(1000 + Math.random() * 9000)}`;
+      updated.tenantLastLoginAt = ''; // clear login status
+    }
+    onEdit(updated);
+    setToastMsg(`تم حذف وإلغاء تفعيل انضمام الوحدة ${resident.flatNumber} بالكامل بنجاح.`);
+    setTimeout(() => setToastMsg(null), 4000);
+  };
+
   const fetchRequests = async () => {
     try {
       setLoadingRequests(true);
@@ -110,39 +138,25 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
     try {
       setProcessingId(request.id);
       
+      // Check if unit exists first to enforce "Units are always registered by the president"
+      const existingResident = residents.find(r => isSameFlatNumber(r.flatNumber, request.flatNumber));
+      if (!existingResident) {
+        throw new Error(`الوحدة رقم (${request.flatNumber}) غير مسجلة في هيكل العمارة. يجب على رئيس الاتحاد تسجيل هذه الوحدة في كشف الوحدات أولاً قبل الموافقة على طلب الانضمام.`);
+      }
+      
       // 1. Call authStore to update status to APPROVED
       await updateJoinRequestStatus(request.id, 'APPROVED');
 
-      // 2. Auto sync/create the resident in the residents list
-      const existingResident = residents.find(r => r.flatNumber === request.flatNumber);
-      if (existingResident) {
-        // Edit existing
-        const updatedResident: Resident = {
-          ...existingResident,
-          name: request.ownerName || existingResident.name,
-          phone: formatMobileNumber(request.ownerPhone) || existingResident.phone,
-          ownershipType: request.residentType === 'OWNER' ? 'تمليك' : 'إيجار',
-          tenantName: request.residentType === 'TENANT' ? request.tenantName : existingResident.tenantName,
-          tenantPhone: formatMobileNumber(request.tenantPhone) || existingResident.tenantPhone,
-        };
-        onEdit(updatedResident);
-      } else {
-        // Create new
-        const newRes: Resident = {
-          id: `res_${Date.now()}`,
-          flatNumber: request.flatNumber,
-          name: request.residentType === 'OWNER' ? request.ownerName : (request.tenantName || 'ساكن جديد'),
-          phone: formatMobileNumber(request.residentType === 'OWNER' ? request.ownerPhone : (request.tenantPhone || '')),
-          activityType: 'سكني',
-          notes: `تم الانضمام عبر طلب التسجيل الإلكتروني`,
-          ownershipType: request.residentType === 'OWNER' ? 'تمليك' : 'إيجار',
-          tenantName: request.residentType === 'TENANT' ? request.tenantName : '',
-          tenantPhone: formatMobileNumber(request.residentType === 'TENANT' ? request.tenantPhone : ''),
-          monthlyFee: config?.defaultMonthlyFee || 400,
-          initialBalance: 0,
-        };
-        onAdd(newRes);
-      }
+      // 2. Auto sync the resident in the residents list
+      const updatedResident: Resident = {
+        ...existingResident,
+        name: request.residentType === 'OWNER' && request.ownerName ? request.ownerName : existingResident.name,
+        phone: request.residentType === 'OWNER' && request.ownerPhone ? formatMobileNumber(request.ownerPhone) : existingResident.phone,
+        ownershipType: request.residentType === 'OWNER' ? 'تمليك' : 'إيجار',
+        tenantName: request.residentType === 'TENANT' ? request.tenantName : existingResident.tenantName,
+        tenantPhone: request.residentType === 'TENANT' && request.tenantPhone ? formatMobileNumber(request.tenantPhone) : existingResident.tenantPhone,
+      };
+      onEdit(updatedResident);
 
       alert('تمت الموافقة على طلب الانضمام وتفعيل الحساب وتحديث قائمة السكان بنجاح!');
       fetchRequests();
@@ -334,12 +348,12 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
     const isTenant = targetType === 'TENANT';
     const recipientName = isTenant ? (resident.tenantName || resident.name) : resident.name;
     const rawPhone = isTenant ? (resident.tenantPhone || resident.phone) : resident.phone;
+    
+    // Generate a fresh random password of form: pyr-XXXX (X is random digit)
+    const newPassword = `pyr-${Math.floor(1000 + Math.random() * 9000)}`;
     const resEmail = isTenant 
       ? (resident.tenantEmail || `tenant${resident.flatNumber}@pyramids.com`)
       : (resident.email || `flat${resident.flatNumber}@pyramids.com`);
-    const resPassword = isTenant
-      ? (resident.tenantPassword || `pyr${resident.flatNumber}#2026`)
-      : (resident.password || `pyr${resident.flatNumber}#2026`);
 
     const cleanPhone = rawPhone ? formatMobileNumber(rawPhone).replace(/[^\d+]/g, '') : '';
     
@@ -349,7 +363,7 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
     const apiKeyParam = fbConfig.apiKey ? `&apiKey=${encodeURIComponent(fbConfig.apiKey)}` : '';
     const projectIdParam = fbConfig.projectId ? `&projectId=${encodeURIComponent(fbConfig.projectId)}` : '';
     
-    const appUrl = `https://waheedsamaha8-ai.github.io/pyramidsview-1/?invite=true&bld=${encodeURIComponent(activeBId)}${apiKeyParam}${projectIdParam}&flat=${encodeURIComponent(resident.flatNumber || '')}&name=${encodeURIComponent(recipientName || '')}&email=${encodeURIComponent(resEmail)}&pass=${encodeURIComponent(resPassword)}`;
+    const appUrl = `https://waheedsamaha8-ai.github.io/pyramidsview-1/?invite=true&bld=${encodeURIComponent(activeBId)}${apiKeyParam}${projectIdParam}&flat=${encodeURIComponent(resident.flatNumber || '')}&name=${encodeURIComponent(recipientName || '')}&email=${encodeURIComponent(resEmail)}&pass=${encodeURIComponent(newPassword)}`;
 
     const message = `مرحباً بك أستاذ/ة ${recipientName} 👋
 
@@ -359,28 +373,34 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
 📍 رقم الشقة: ${resident.flatNumber}
 👤 الاسم: ${recipientName}
 ✉️ البريد الإلكتروني: ${resEmail}
-🔑 كلمة المرور: ${resPassword}
+🔑 كلمة المرور الجديدة: ${newPassword}
 
 رابط دخول التطبيق المباشر (مفعل بالكامل لمبنى سيادتكم):
 ${appUrl}
 
 نتمنى لك تجربة متميزة!`;
 
-    // Mark status as INVITED
+    // Save the new password and update account status to INVITED
     const updatedRes = { ...resident };
     if (isTenant) {
+      updatedRes.tenantPassword = newPassword;
       updatedRes.tenantAccountStatus = 'INVITED';
     } else {
+      updatedRes.password = newPassword;
       updatedRes.accountStatus = 'INVITED';
     }
     onEdit(updatedRes);
 
     if (cleanPhone) {
-      const waUrl = `https://wa.me/${cleanPhone.startsWith('+') ? cleanPhone.slice(1) : cleanPhone}?text=${encodeURIComponent(message)}`;
+      let formatted = cleanPhone;
+      if (formatted.startsWith('01') && formatted.length === 11) {
+        formatted = '2' + formatted; // Egypt code
+      }
+      const waUrl = `https://wa.me/${formatted.startsWith('+') ? formatted.slice(1) : formatted}?text=${encodeURIComponent(message)}`;
       window.open(waUrl, '_blank');
     } else {
       navigator.clipboard.writeText(message);
-      setToastMsg(`تم نسخ رسالة الدعوة وبيانات الدخول للساكن بنجاح! يمكنك إرسالها عبر الواتساب.`);
+      setToastMsg(`تم نسخ رسالة الدعوة بكلمة المرور الجديدة (${newPassword}) بنجاح! يمكنك إرسالها عبر الواتساب.`);
     }
   };
 
@@ -784,13 +804,8 @@ ${appUrl}
                 : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'
             }`}
           >
-            <Clock className="w-4 h-4" />
-            <span>طلبات الانضمام الجديدة</span>
-            {joinRequests.filter(r => r.status === 'PENDING').length > 0 && (
-              <span className="bg-red-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full animate-pulse">
-                {joinRequests.filter(r => r.status === 'PENDING').length}
-              </span>
-            )}
+            <UserCheck className="w-4 h-4" />
+            <span>الوحدات المفعلة ({activatedResidents.length})</span>
           </button>
         </div>
       )}
@@ -1752,152 +1767,149 @@ ${appUrl}
         </>
       )}
 
-      {/* Join Requests Tab View */}
+      {/* Activated Units (الوحدات المفعلة) Tab View */}
       {role === 'ADMIN' && subTab === 'join-requests' && (
         <div className="bg-white rounded-3xl border border-slate-100 shadow-xl p-5 sm:p-6 space-y-6">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-slate-100 pb-4 gap-3">
             <div>
-              <h2 className="text-lg font-extrabold text-blue-900">طلبات الانضمام والتحقق من الهوية</h2>
-              <p className="text-xs text-slate-500 font-bold mt-1">تظهر هنا طلبات شواغل الوحدات (ملاك / مستأجرين) لتفعيل حساباتهم وتحديث قائمة السكان</p>
+              <h2 className="text-lg font-extrabold text-blue-900">الوحدات المفعلة والنشطة في الاتحاد</h2>
+              <p className="text-xs text-slate-500 font-bold mt-1">تظهر هنا جميع الوحدات التي تم تفعيل انضمامها للتطبيق ودعوتها عبر نظام كشف الوحدات أو الواتساب.</p>
             </div>
-            <button
-              onClick={fetchRequests}
-              className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-xl text-xs font-black text-slate-700 transition cursor-pointer"
-              disabled={loadingRequests}
-            >
-              {loadingRequests ? 'جاري التحديث...' : 'تحديث القائمة'}
-            </button>
+            <div className="text-xs font-black bg-blue-50 text-blue-900 px-3.5 py-1.5 rounded-xl border border-blue-100">
+              إجمالي المفعلين: {activatedResidents.length} وحدة
+            </div>
           </div>
 
-          {loadingRequests ? (
-            <div className="flex flex-col items-center justify-center py-12 gap-3 text-slate-400">
-              <div className="w-8 h-8 border-3 border-blue-900 border-t-transparent rounded-full animate-spin"></div>
-              <p className="text-xs font-bold">جاري تحميل طلبات الانضمام المعلقة...</p>
-            </div>
-          ) : joinRequests.length === 0 ? (
+          {activatedResidents.length === 0 ? (
             <div className="text-center py-16 text-slate-400 flex flex-col items-center justify-center gap-2">
-              <Clock className="w-12 h-12 text-slate-300 stroke-[1.5]" />
-              <p className="text-sm font-bold text-slate-500">لا توجد طلبات انضمام في النظام حالياً.</p>
+              <UserCheck className="w-12 h-12 text-slate-300 stroke-[1.5]" />
+              <p className="text-sm font-bold text-slate-500">لا توجد وحدات مفعلة أو نشطة حالياً في النظام.</p>
+              <p className="text-[11px] text-slate-400">قم بدعوة ساكن من كشف الوحدات أو عبر زر الدعوة بالأعلى للبدء.</p>
             </div>
           ) : (
             <div className="overflow-x-auto rounded-2xl border border-slate-150 shadow-2xs">
               <table className="w-full text-right border-collapse text-xs">
                 <thead>
                   <tr className="bg-slate-50 text-slate-700 font-black border-b border-slate-100">
-                    <th className="p-3.5 text-center">الوحدة</th>
-                    <th className="p-3.5">نوع شغل الوحدة</th>
-                    <th className="p-3.5">بيانات المالك</th>
-                    <th className="p-3.5">بيانات المستأجر</th>
-                    <th className="p-3.5">البريد الإلكتروني المطلوب</th>
-                    <th className="p-3.5 text-center">تاريخ التقديم</th>
-                    <th className="p-3.5 text-center">الحالة</th>
+                    <th className="p-3.5 text-center">رقم الوحدة</th>
+                    <th className="p-3.5">اسم المالك</th>
+                    <th className="p-3.5">اسم المستأجر</th>
+                    <th className="p-3.5 text-center">نوع السكن</th>
+                    <th className="p-3.5 text-center">حالة الدخول</th>
                     <th className="p-3.5 text-center">الإجراءات</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-bold">
-                  {joinRequests.map((req) => (
-                    <tr key={req.id} className="hover:bg-slate-50/50 transition">
-                      <td className="p-3.5 text-center text-blue-950 font-black">
-                        <span className="bg-blue-50 text-blue-950 px-2.5 py-1 rounded-lg border border-blue-100/40">
-                          شقة {req.flatNumber}
-                        </span>
-                      </td>
-                      <td className="p-3.5">
-                        {req.residentType === 'OWNER' ? (
-                          <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-100/40">مالك</span>
-                        ) : (
-                          <span className="text-amber-700 bg-amber-50 px-2 py-0.5 rounded-lg border border-amber-100/40">مستأجر</span>
-                        )}
-                      </td>
-                      <td className="p-3.5 text-slate-800">
-                        <div>{req.ownerName}</div>
-                        {req.ownerPhone && (
-                          <div className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-1 phone-number-display" dir="ltr">
-                            <Phone className="w-3 h-3 shrink-0" />
-                            <span dir="ltr" className="font-mono">{formatPhoneForDisplay(req.ownerPhone)}</span>
-                          </div>
-                        )}
-                      </td>
-                      <td className="p-3.5 text-slate-800">
-                        {req.residentType === 'TENANT' ? (
-                          <>
-                            <div>{req.tenantName}</div>
-                            {req.tenantPhone && (
-                              <div className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-1 phone-number-display" dir="ltr">
-                                <Phone className="w-3 h-3 shrink-0" />
-                                <span dir="ltr" className="font-mono">{formatPhoneForDisplay(req.tenantPhone)}</span>
-                              </div>
-                            )}
-                          </>
-                        ) : (
-                          <span className="text-slate-300">-</span>
-                        )}
-                      </td>
-                      <td className="p-3.5 text-slate-600 font-medium font-mono" dir="ltr">
-                        {req.email}
-                      </td>
-                      <td className="p-3.5 text-center text-slate-500">
-                        {new Date(req.createdAt).toLocaleDateString('ar-EG', { dateStyle: 'short' })}
-                      </td>
-                      <td className="p-3.5 text-center">
-                        {req.status === 'PENDING' && (
-                          <span className="bg-amber-100 text-amber-800 px-2.5 py-1 rounded-xl text-[10px] font-black inline-flex items-center gap-1.5">
-                            <Clock className="w-3 h-3 shrink-0" />
-                            قيد الانتظار
+                  {activatedResidents.map((res) => {
+                    const isRevoked = res.accountStatus === 'REVOKED' || (res.ownershipType === 'إيجار' && res.tenantAccountStatus === 'REVOKED');
+                    return (
+                      <tr key={res.id} className="hover:bg-slate-50/50 transition">
+                        <td className="p-3.5 text-center text-blue-950 font-black">
+                          <span className="bg-blue-50 text-blue-950 px-3 py-1 rounded-lg border border-blue-100/40 font-mono text-xs">
+                            شقة {res.flatNumber}
                           </span>
-                        )}
-                        {req.status === 'APPROVED' && (
-                          <span className="bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-xl text-[10px] font-black inline-flex items-center gap-1.5">
-                            <CheckCircle2 className="w-3 h-3 shrink-0 animate-pulse" />
-                            مقبول ومفعّل
-                          </span>
-                        )}
-                        {req.status === 'DECLINED' && (
-                          <span className="bg-rose-100 text-rose-800 px-2.5 py-1 rounded-xl text-[10px] font-black inline-flex items-center gap-1.5">
-                            <UserX className="w-3 h-3 shrink-0" />
-                            مرفوض
-                          </span>
-                        )}
-                      </td>
-                      <td className="p-3.5 text-center">
-                        <div className="flex items-center justify-center gap-1.5">
-                          {req.status === 'PENDING' ? (
+                        </td>
+                        <td className="p-3.5 text-slate-800">
+                          <div>{res.name}</div>
+                          {res.phone && (
+                            <div className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-1" dir="ltr">
+                              <Phone className="w-3 h-3 shrink-0" />
+                              <span className="font-mono">{formatPhoneForDisplay(res.phone)}</span>
+                            </div>
+                          )}
+                        </td>
+                        <td className="p-3.5 text-slate-800">
+                          {res.ownershipType === 'إيجار' && res.tenantName ? (
                             <>
-                              <button
-                                onClick={() => handleApproveRequest(req)}
-                                disabled={processingId !== null}
-                                className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition inline-flex items-center gap-1 font-black cursor-pointer shadow-xs disabled:opacity-50"
-                                title="قبول وتفعيل حساب المستخدم"
-                              >
-                                <UserCheck className="w-3.5 h-3.5" />
-                                <span>قبول</span>
-                              </button>
-                              <button
-                                onClick={() => setRequestToDecline(req)}
-                                disabled={processingId !== null}
-                                className="px-2.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition inline-flex items-center gap-1 font-black cursor-pointer shadow-xs disabled:opacity-50"
-                                title="رفض الطلب"
-                              >
-                                <UserX className="w-3.5 h-3.5" />
-                                <span>رفض</span>
-                              </button>
+                              <div>{res.tenantName}</div>
+                              {res.tenantPhone && (
+                                <div className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-1" dir="ltr">
+                                  <Phone className="w-3 h-3 shrink-0" />
+                                  <span className="font-mono">{formatPhoneForDisplay(res.tenantPhone)}</span>
+                                </div>
+                              )}
                             </>
                           ) : (
-                            <span className="text-[10px] text-slate-400 bg-slate-100 px-2 py-1 rounded-md">تم الحسم</span>
+                            <span className="text-slate-300">-</span>
                           )}
-                          <button
-                            onClick={() => setRequestToDelete(req)}
-                            disabled={processingId !== null}
-                            className="px-2.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg transition inline-flex items-center gap-1 font-black cursor-pointer shadow-xs disabled:opacity-50"
-                            title="حذف طلب الانضمام والمستخدم نهائياً"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                            <span>حذف</span>
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td className="p-3.5 text-center">
+                          <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-black rounded-md border">
+                            {res.ownershipType || 'تمليك'}
+                          </span>
+                        </td>
+                        <td className="p-3.5 text-center">
+                          {isRevoked ? (
+                            <span className="bg-red-50 text-red-700 px-2 py-1 rounded-lg text-[10px] font-black border border-red-150 inline-flex items-center gap-1">
+                              <UserX className="w-3.5 h-3.5" />
+                              موقوف مؤقتاً
+                            </span>
+                          ) : (
+                            <div className="flex flex-col items-center gap-1.5">
+                              <span className="bg-emerald-50 text-emerald-700 px-2 py-1 rounded-lg text-[10px] font-black border border-emerald-150 inline-flex items-center gap-1">
+                                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 animate-pulse" />
+                                نشط ومفعّل
+                              </span>
+                              {(res.ownershipType === 'إيجار' ? res.tenantLastLoginAt : res.lastLoginAt) ? (
+                                <span className="text-[10px] text-slate-500 font-bold bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100" dir="ltr">
+                                  {new Date(res.ownershipType === 'إيجار' ? res.tenantLastLoginAt! : res.lastLoginAt!).toLocaleDateString('ar-EG', {
+                                    dateStyle: 'short',
+                                    timeStyle: 'short'
+                                  })}
+                                </span>
+                              ) : (
+                                <span className="text-[9px] text-slate-400 font-bold">دخول مباشر</span>
+                              )}
+                            </div>
+                          )}
+                        </td>
+                        <td className="p-3.5 text-center">
+                          <div className="flex items-center justify-center gap-2">
+                            {/* إيقاف / تفعيل الانضمام */}
+                            {isRevoked ? (
+                              <button
+                                onClick={() => handleToggleRevokeMembership(res, 'ACTIVE')}
+                                className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-black cursor-pointer transition flex items-center gap-1 shadow-2xs"
+                                title="تفعيل الانضمام والسماح بالدخول"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                                <span className="whitespace-nowrap">تفعيل الدخول</span>
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleToggleRevokeMembership(res, 'REVOKED')}
+                                className="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-[11px] font-black cursor-pointer transition flex items-center gap-1 shadow-2xs"
+                                title="إيقاف الانضمام وحظر الدخول مؤقتاً"
+                              >
+                                <UserX className="w-3.5 h-3.5 shrink-0" />
+                                <span className="whitespace-nowrap">إيقاف الانضمام</span>
+                              </button>
+                            )}
+
+                            {/* حذف الانضمام */}
+                            <button
+                              onClick={() => handleDeleteJoin(res)}
+                              className="px-2.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-[11px] font-black cursor-pointer transition flex items-center gap-1 shadow-2xs"
+                              title="حذف تفويض الدخول ومسح كلمة المرور"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                              <span className="whitespace-nowrap">حذف الدخول</span>
+                            </button>
+
+                            {/* إعادة إرسال دعوة بكلمة مرور عشوائية جديدة */}
+                            <button
+                              onClick={() => handleSendWhatsAppInvite(res, res.ownershipType === 'إيجار' ? 'TENANT' : 'OWNER')}
+                              className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-lg text-[11px] font-black cursor-pointer transition flex items-center gap-1 shadow-2xs"
+                              title="إرسال دعوة جديدة برمز مرور عشوائي"
+                            >
+                              <Share2 className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
+                              <span className="whitespace-nowrap">إرسال دعوة (جديد)</span>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

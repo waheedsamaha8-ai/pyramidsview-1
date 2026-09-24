@@ -15,7 +15,7 @@ export interface StoredAdmin {
 
 export interface StoredJoinRequest {
   id: string;
-  flatNumber: number;
+  flatNumber: number | string;
   residentType: 'OWNER' | 'TENANT';
   ownerName: string;
   ownerPhone: string;
@@ -113,7 +113,7 @@ export async function loginWithEmail(emailInput: string, passwordInput: string, 
   role: 'ADMIN' | 'RESIDENT' | 'ASSISTANT' | 'MANAGER';
   email: string;
   name: string;
-  flatNumber?: number;
+  flatNumber?: number | string;
   residentType?: string;
 }> {
   const email = emailInput.trim().toLowerCase();
@@ -408,7 +408,7 @@ export async function registerAdmin(payload: {
  * Submit Resident Join Request.
  */
 export async function submitJoinRequest(payload: {
-  flatNumber: number;
+  flatNumber: number | string;
   residentType: 'OWNER' | 'TENANT';
   ownerName: string;
   ownerPhone: string;
