@@ -58,7 +58,7 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({
   const actualCurrentMonth = String(new Date().getMonth() + 1).padStart(2, '0');
 
   // Form states
-  const [month, setMonth] = useState('09');
+  const [month, setMonth] = useState(actualCurrentMonth);
   const [expenseType, setExpenseType] = useState('');
   const [amount, setAmount] = useState<number | ''>('');
   const [notes, setNotes] = useState('');
@@ -269,8 +269,14 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({
     e.preventDefault();
     setError(null);
 
-    if (!expenseType || !amount || isNaN(Number(amount)) || Number(amount) <= 0) {
+    const numAmount = Number(amount);
+    if (!expenseType || !amount || isNaN(numAmount) || numAmount <= 0) {
       setError('يرجى تعبئة جميع الحقول المطلوبة بمبلغ صحيح وموجب.');
+      return;
+    }
+
+    if (numAmount > 10000000) {
+      setError('المبلغ المدخل كبير جداً، يرجى التأكد من كتابة المبلغ الصحيح.');
       return;
     }
 
@@ -278,9 +284,9 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({
       id: selectedExpense ? selectedExpense.id : `exp_${Date.now()}`,
       year: currentYear,
       month,
-      expenseType,
-      amount: Number(amount),
-      notes,
+      expenseType: expenseType.trim(),
+      amount: numAmount,
+      notes: (notes || '').trim(),
       fileId: base64Image ? '' : (existingFileUrl ? (selectedExpense?.fileId || '') : ''),
       fileUrl: base64Image ? base64Image : (existingFileUrl || ''),
       date: selectedExpense ? selectedExpense.date : new Date().toISOString().split('T')[0],

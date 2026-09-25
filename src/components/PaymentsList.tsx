@@ -62,7 +62,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
 
   // Form states
   const [residentId, setResidentId] = useState('');
-  const [month, setMonth] = useState('09');
+  const [month, setMonth] = useState(actualCurrentMonth);
   const [paymentType, setPaymentType] = useState('');
   const [amount, setAmount] = useState<number | ''>('');
   const [receiptNumber, setReceiptNumber] = useState('');
@@ -559,8 +559,14 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
     e.preventDefault();
     setError(null);
 
-    if (!residentId || !paymentType || !amount || isNaN(Number(amount)) || Number(amount) <= 0) {
+    const numAmount = Number(amount);
+    if (!residentId || !paymentType || !amount || isNaN(numAmount) || numAmount <= 0) {
       setError('يرجى ملء جميع الحقول المطلوبة (الساكن، نوع التحصيل، مبلغ صحيح وموجب).');
+      return;
+    }
+
+    if (numAmount > 10000000) {
+      setError('المبلغ المدخل كبير جداً، يرجى التأكد من كتابة المبلغ الصحيح.');
       return;
     }
 
@@ -578,9 +584,9 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       residentName: resident.name,
       flatNumber: resident.flatNumber,
       paymentType,
-      amount: Number(amount),
-      receiptNumber,
-      notes,
+      amount: numAmount,
+      receiptNumber: (receiptNumber || '').trim(),
+      notes: (notes || '').trim(),
       fileId: base64Image ? '' : (existingFileUrl ? (selectedPayment?.fileId || '') : ''),
       fileUrl: base64Image ? base64Image : (existingFileUrl || ''),
       date: selectedPayment ? selectedPayment.date : new Date().toISOString().split('T')[0],

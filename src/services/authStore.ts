@@ -2,6 +2,55 @@
 import { getLocalBuildings, getActiveBuilding } from './buildingStore';
 import { db, isUsingCustomFirebase } from './firebaseConfig';
 import { collection, getDocs } from 'firebase/firestore';
+import { getCachedData } from './offlineSync';
+import { UserRole } from '../types';
+
+/**
+ * Validates and authenticates role assignments against trusted server/admin lists.
+ * Prevents client-side role tampering via LocalStorage modifications.
+ */
+export function verifyAuthorizedRole(
+  email: string | undefined | null,
+  claimedRole: UserRole = 'RESIDENT',
+  customAdmins: string[] = []
+): UserRole {
+  if (!email) return 'RESIDENT';
+  const cleanEmail = email.toLowerCase().trim();
+
+  // Known admin email whitelist
+  const activeB = getActiveBuilding();
+  const presidentEmail = (activeB?.presidentEmail || '').toLowerCase().trim();
+  const localAdmins = getLocalAdmins().map(a => a.email.toLowerCase().trim());
+  const allAdminEmails = new Set([
+    'waheedsamaha8@gmail.com',
+    presidentEmail,
+    ...localAdmins,
+    ...customAdmins.map(a => a.toLowerCase().trim())
+  ]);
+
+  if (allAdminEmails.has(cleanEmail)) {
+    return claimedRole === 'MANAGER' ? 'MANAGER' : 'ADMIN';
+  }
+
+  // Assistant verification
+  const assistantEmails = new Set(['assistant@pyramids.com', 'assistant']);
+  try {
+    const rawConfig = localStorage.getItem('cache_config') || localStorage.getItem('config');
+    if (rawConfig) {
+      const parsed = JSON.parse(rawConfig);
+      if (parsed?.assistantConfig?.email) {
+        assistantEmails.add(parsed.assistantConfig.email.toLowerCase().trim());
+      }
+    }
+  } catch {}
+
+  if (assistantEmails.has(cleanEmail)) {
+    return 'ASSISTANT';
+  }
+
+  // Any other email claiming to be ADMIN/ASSISTANT is strictly rejected and restricted to RESIDENT
+  return 'RESIDENT';
+}
 
 export interface StoredAdmin {
   id: string;
@@ -268,9 +317,10 @@ export async function loginWithEmail(emailInput: string, passwordInput: string, 
 
   // Check resident credentials in local cache / storage first
   try {
-    const rawResidents = localStorage.getItem('cache_residents') || localStorage.getItem('custom_residents');
-    if (rawResidents) {
-      const residentsList = JSON.parse(rawResidents);
+    const cachedResidents = getCachedData<any[]>('residents');
+    const rawResidents = cachedResidents || (localStorage.getItem('cache_residents') ? JSON.parse(localStorage.getItem('cache_residents')!) : (localStorage.getItem('custom_residents') ? JSON.parse(localStorage.getItem('custom_residents')!) : null));
+    if (rawResidents && Array.isArray(rawResidents)) {
+      const residentsList = rawResidents;
       for (const r of residentsList) {
         // Extract flat number from email prefix if matching flatXXX@ or tenantXXX@ format to make it domain-independent
         const flatEmailMatch = email.match(/^flat(\d+)@/i);

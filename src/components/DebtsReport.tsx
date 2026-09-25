@@ -2,11 +2,13 @@ import React, { useMemo, useState } from 'react';
 import { generateElementImage } from '../utils/imageExport';
 import { Resident, Payment, AppConfig, UserRole, FloorConfig } from '../types';
 import { ReceiptClaimModal, ReceiptClaimData } from './ReceiptClaimModal';
+import { useDebtsCalculations } from '../hooks/useDebtsCalculations';
 import { deriveFloorConfigsFromResidents, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber } from '../utils/buildingStructure';
 import { 
   calculateResidentFinancials, 
   getCarriedPreviousBalance, 
-  exportCarriedBalancesForYear 
+  exportCarriedBalancesForYear,
+  buildPaymentLookupIndex 
 } from '../utils/financialCalculations';
 import { formatMobileNumber, formatPhoneForDisplay, formatPhoneForText, toWhatsAppNumber } from '../utils/phoneUtils';
 import { 
@@ -189,27 +191,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
   };
 
   const accountingStartDate = config?.accountingStartDate || '2026-01-01';
-  const defaultMonthlyFee = config?.defaultMonthlyFee || 400;
-  const activityDefaultFees = config?.activityDefaultFees;
-
-  const startYear = useMemo(() => {
-    const s = new Date(accountingStartDate);
-    return isNaN(s.getFullYear()) ? 2026 : s.getFullYear();
-  }, [accountingStartDate]);
-
-  // Available fiscal years list
-  const availableYears = useMemo(() => {
-    const years = new Set<number>();
-    years.add(startYear);
-    years.add(currentYear);
-    payments.forEach(p => {
-      const y = Number(p.year) || (p.date ? new Date(p.date).getFullYear() : 0);
-      if (y >= startYear) years.add(y);
-    });
-    // Add next upcoming year as well for future planning
-    years.add(currentYear + 1);
-    return Array.from(years).sort((a, b) => a - b);
-  }, [startYear, currentYear, payments]);
+  const startYear = new Date(accountingStartDate).getFullYear() || 2026;
 
   // Calculate current date info
   const currentDateStr = new Date().toLocaleDateString('ar-EG', {
@@ -218,34 +200,26 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
     day: 'numeric',
   });
 
-  // Complete list of all residents with debt (netBalance < 0) for report generation and print
-  const allDebtorsList = useMemo(() => {
-    const targetYear = selectedYearFilter === 'all' ? undefined : selectedYearFilter;
+  const {
+    paymentIndex,
+    allDebtorsList,
+    totalDebt,
+    totalDebtorsCount,
+    maxDebtItem,
+    availableYears,
+  } = useDebtsCalculations(
+    residents,
+    payments,
+    config,
+    currentYear,
+    selectedYearFilter
+  );
 
-    return residents
-      .map((res) => {
-        const fin = calculateResidentFinancials(
-          res,
-          payments,
-          accountingStartDate,
-          defaultMonthlyFee,
-          activityDefaultFees,
-          targetYear
-        );
-
-        const carriedBal = targetYear !== undefined
-          ? fin.carriedPreviousBalance
-          : (res.initialBalance || 0);
-
-        return {
-          resident: res,
-          financials: fin,
-          carriedBalance: carriedBal,
-        };
-      })
-      .filter((item) => item.financials.netBalance < 0)
-      .sort((a, b) => compareFlatNumbers(a.resident.flatNumber, b.resident.flatNumber));
-  }, [residents, payments, accountingStartDate, defaultMonthlyFee, activityDefaultFees, selectedYearFilter]);
+  const stats = useMemo(() => ({
+    totalDebt,
+    totalDebtorsCount,
+    maxDebtItem,
+  }), [totalDebt, totalDebtorsCount, maxDebtItem]);
 
   // Screen filtered residents with debt (based on search term, activity filter, sort order)
   const residentsWithDebt = useMemo(() => {
@@ -355,47 +329,6 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
 
     return groups;
   }, [effectiveFloorConfigs, residents, allDebtorsList]);
-
-  // Aggregate stats
-  const stats = useMemo(() => {
-    const targetYear = selectedYearFilter === 'all' ? undefined : selectedYearFilter;
-    let totalDebt = 0;
-    let maxDebtItem: typeof residentsWithDebt[0] | null = null;
-    
-    residents.forEach((res) => {
-      const fin = calculateResidentFinancials(
-        res,
-        payments,
-        accountingStartDate,
-        defaultMonthlyFee,
-        activityDefaultFees,
-        targetYear
-      );
-      if (fin.netBalance < 0) {
-        const debt = Math.abs(fin.netBalance);
-        totalDebt += debt;
-        
-        if (!maxDebtItem || debt > Math.abs(maxDebtItem.financials.netBalance)) {
-          maxDebtItem = { 
-            resident: res, 
-            financials: fin, 
-            carriedBalance: targetYear !== undefined ? fin.carriedPreviousBalance : (res.initialBalance || 0) 
-          };
-        }
-      }
-    });
-
-    const totalDebtorsCount = residents.filter(res => {
-      const fin = calculateResidentFinancials(res, payments, accountingStartDate, defaultMonthlyFee, activityDefaultFees, targetYear);
-      return fin.netBalance < 0;
-    }).length;
-
-    return {
-      totalDebt,
-      totalDebtorsCount,
-      maxDebtItem,
-    };
-  }, [residents, payments, accountingStartDate, defaultMonthlyFee, activityDefaultFees, selectedYearFilter]);
 
   const handleCopyConsolidatedReport = () => {
     if (residentsWithDebt.length === 0) return;
@@ -739,17 +672,10 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
             onClick={() => setSelectedActivity('all')}
             className={`px-3 py-1 rounded-lg text-[10px] font-extrabold transition cursor-pointer ${selectedActivity === 'all' ? 'bg-blue-900 text-white shadow-2xs' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'}`}
           >
-            كل الأنشطة ({residents.filter(r => {
-              const fin = calculateResidentFinancials(r, payments, accountingStartDate, defaultMonthlyFee, activityDefaultFees, selectedYearFilter === 'all' ? undefined : selectedYearFilter);
-              return fin.netBalance < 0;
-            }).length})
+            كل الأنشطة ({allDebtorsList.length})
           </button>
           {(config?.activityTypes || ['سكني', 'سكني مغلق', 'مفروش', 'إداري', 'تجاري']).map((act) => {
-            const count = residents.filter(r => {
-              if (r.activityType !== act) return false;
-              const fin = calculateResidentFinancials(r, payments, accountingStartDate, defaultMonthlyFee, activityDefaultFees, selectedYearFilter === 'all' ? undefined : selectedYearFilter);
-              return fin.netBalance < 0;
-            }).length;
+            const count = allDebtorsList.filter(d => d.resident.activityType === act).length;
             if (count === 0) return null;
             return (
               <button
@@ -768,7 +694,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
       {viewMode === 'table' ? (
         <div className="bg-white rounded-2xl border border-slate-100 shadow-xs overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-right border-collapse">
+            <table className="w-full text-right border-collapse min-w-[700px]">
               <thead>
                 <tr className="bg-slate-50/90 text-slate-500 font-extrabold text-[10px] border-b border-slate-200">
                   {/* Unit Number - Sticky */}

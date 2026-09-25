@@ -279,16 +279,48 @@ function normalizeKeyAliases(key: string): string[] {
   return [key];
 }
 
-function getBuildingCacheKey(k: string): string {
-  return `cache_${k}`;
+export function getActiveBuildingId(): string {
+  try {
+    return localStorage.getItem('active_building_id') || 'union_main_01';
+  } catch {
+    return 'union_main_01';
+  }
+}
+
+export function getBuildingCacheKey(k: string): string {
+  const bId = getActiveBuildingId();
+  return `cache_${bId}_${k}`;
+}
+
+// Safely sanitize an item or array of items to prune heavy base64 strings when storage quota is reached
+function pruneHeavyMediaForCache(data: any): any {
+  if (!data) return data;
+  if (Array.isArray(data)) {
+    return data.map(item => pruneHeavyMediaForCache(item));
+  }
+  if (typeof data === 'object') {
+    const clone = { ...data };
+    for (const key of Object.keys(clone)) {
+      if (typeof clone[key] === 'string' && clone[key].startsWith('data:image/') && clone[key].length > 5000) {
+        // Strip large data URL to preserve essential numerical and text metadata
+        clone[key] = '';
+      }
+    }
+    return clone;
+  }
+  return data;
 }
 
 // Standard getters and setters for local cache with automatic key alias synchronization
 export function getCachedData<T>(key: string): T | null {
   const keys = normalizeKeyAliases(key);
+  const bId = getActiveBuildingId();
   for (const k of keys) {
-    const cacheKey = getBuildingCacheKey(k);
-    const json = localStorage.getItem(cacheKey);
+    const isolatedKey = `cache_${bId}_${k}`;
+    const legacyKey = `cache_${k}`;
+    
+    // Check isolated building key first, then fallback to legacy key
+    const json = localStorage.getItem(isolatedKey) || localStorage.getItem(legacyKey);
     if (json) {
       try {
         return JSON.parse(json);
@@ -306,8 +338,15 @@ export function saveCachedData(key: string, data: any) {
     const cacheKey = getBuildingCacheKey(k);
     try {
       localStorage.setItem(cacheKey, JSON.stringify(data));
-    } catch (e) {
-      console.warn('LocalStorage save warning:', e);
+    } catch (e: any) {
+      console.warn('LocalStorage save warning, attempting quota recovery:', e);
+      try {
+        // Quota exceeded recovery: Prune heavy base64 photos to save critical financial/records data
+        const pruned = pruneHeavyMediaForCache(data);
+        localStorage.setItem(cacheKey, JSON.stringify(pruned));
+      } catch (err2) {
+        console.error('LocalStorage critical quota failure:', err2);
+      }
     }
   }
 

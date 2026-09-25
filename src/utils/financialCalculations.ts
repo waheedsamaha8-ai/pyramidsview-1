@@ -25,6 +25,101 @@ export function getResidentMonthlyFee(
   }
 }
 
+export interface PaymentLookupIndex {
+  byFlat: Map<string, Payment[]>;
+  byId: Map<string, Payment[]>;
+  all: Payment[];
+}
+
+/**
+ * Builds an O(1) indexed lookup table for payments by resident ID and flat number.
+ * Dramatically speeds up resident dues calculations across large sets.
+ */
+export function buildPaymentLookupIndex(payments: Payment[] = []): PaymentLookupIndex {
+  const byFlat = new Map<string, Payment[]>();
+  const byId = new Map<string, Payment[]>();
+
+  for (let i = 0; i < payments.length; i++) {
+    const p = payments[i];
+    if (!p) continue;
+
+    if (p.residentId) {
+      const rId = String(p.residentId).trim();
+      let list = byId.get(rId);
+      if (!list) {
+        list = [];
+        byId.set(rId, list);
+      }
+      list.push(p);
+    }
+
+    if (p.flatNumber !== undefined && p.flatNumber !== null) {
+      const flatKey = String(p.flatNumber).trim();
+      let list = byFlat.get(flatKey);
+      if (!list) {
+        list = [];
+        byFlat.set(flatKey, list);
+      }
+      list.push(p);
+    }
+  }
+
+  return { byFlat, byId, all: payments };
+}
+
+/**
+ * Fast lookup of payments associated with a specific resident.
+ */
+export function getPaymentsForResident(
+  resident: Resident,
+  paymentsOrIndex: Payment[] | PaymentLookupIndex = []
+): Payment[] {
+  if (!Array.isArray(paymentsOrIndex)) {
+    // Using PaymentLookupIndex for instant retrieval
+    const index = paymentsOrIndex;
+    const rId = resident.id ? String(resident.id).trim() : '';
+    const flatKey = resident.flatNumber !== undefined && resident.flatNumber !== null ? String(resident.flatNumber).trim() : '';
+    
+    const byIdList = rId ? index.byId.get(rId) : undefined;
+    const byFlatList = flatKey ? index.byFlat.get(flatKey) : undefined;
+
+    if (!byIdList && !byFlatList) {
+      // Fallback in case of non-exact flat number format (e.g. 502 vs 502-1)
+      return index.all.filter(p => isSameFlatNumber(p.flatNumber, resident.flatNumber));
+    }
+
+    if (byIdList && !byFlatList) return byIdList;
+    if (!byIdList && byFlatList) return byFlatList;
+
+    // Merge unique payments from both lists
+    const seen = new Set<string>();
+    const merged: Payment[] = [];
+    if (byIdList) {
+      for (let i = 0; i < byIdList.length; i++) {
+        const item = byIdList[i];
+        seen.add(item.id);
+        merged.push(item);
+      }
+    }
+    if (byFlatList) {
+      for (let i = 0; i < byFlatList.length; i++) {
+        const item = byFlatList[i];
+        if (!seen.has(item.id)) {
+          seen.add(item.id);
+          merged.push(item);
+        }
+      }
+    }
+    return merged;
+  }
+
+  // Fallback to array filtering
+  return paymentsOrIndex.filter(p => 
+    isSameFlatNumber(p.flatNumber, resident.flatNumber) || 
+    (p.residentId && p.residentId === resident.id)
+  );
+}
+
 /**
  * Calculates the carried forward previous balance for a resident up to the start of targetYear.
  * 
@@ -41,7 +136,7 @@ export function getResidentMonthlyFee(
 export function getCarriedPreviousBalance(
   resident: Resident,
   targetYear: number,
-  payments: Payment[] = [],
+  paymentsOrIndex: Payment[] | PaymentLookupIndex = [],
   accountingStartDate: string = '2026-01-01',
   defaultMonthlyFee: number = 400,
   activityDefaultFees?: Record<string, number>
@@ -62,11 +157,12 @@ export function getCarriedPreviousBalance(
   const elapsedMonthsPrior = (yearsDiff * 12) + (12 - startMonth);
   const duesPrior = elapsedMonthsPrior * fee;
 
+  // Retrieve only this resident's payments
+  const residentPayments = getPaymentsForResident(resident, paymentsOrIndex);
+
   // Sum payments made before targetYear
-  const paymentsPrior = payments
+  const paymentsPrior = residentPayments
     .filter(p => {
-      const matchUnit = isSameFlatNumber(p.flatNumber, resident.flatNumber) || (p.residentId && p.residentId === resident.id);
-      if (!matchUnit) return false;
       const pYear = Number(p.year) || (p.date ? new Date(p.date).getFullYear() : startYear);
       return pYear < targetYear;
     })
@@ -86,20 +182,21 @@ export function getCarriedPreviousBalance(
  */
 export function calculateResidentFinancials(
   resident: Resident,
-  payments: Payment[] = [],
+  paymentsOrIndex: Payment[] | PaymentLookupIndex = [],
   accountingStartDate: string = '2026-01-01',
   defaultMonthlyFee: number = 400,
   activityDefaultFees?: Record<string, number>,
   targetYear?: number
 ) {
   const fee = getResidentMonthlyFee(resident, defaultMonthlyFee, activityDefaultFees);
+  const residentPayments = getPaymentsForResident(resident, paymentsOrIndex);
 
   if (targetYear !== undefined) {
     // Specific fiscal year calculation with automatic previous balance carry-over
     const carriedPreviousBalance = getCarriedPreviousBalance(
       resident,
       targetYear,
-      payments,
+      paymentsOrIndex,
       accountingStartDate,
       defaultMonthlyFee,
       activityDefaultFees
@@ -131,11 +228,9 @@ export function calculateResidentFinancials(
     // Expected dues in targetYear = (monthsInYear * fee) - carriedPreviousBalance
     const expectedDues = (monthsInYear * fee) - carriedPreviousBalance;
 
-    // Payments in targetYear
-    const totalPaid = payments
+    // Payments in targetYear from resident's payments
+    const totalPaid = residentPayments
       .filter(p => {
-        const matchUnit = isSameFlatNumber(p.flatNumber, resident.flatNumber) || (p.residentId && p.residentId === resident.id);
-        if (!matchUnit) return false;
         const pYear = Number(p.year) || (p.date ? new Date(p.date).getFullYear() : startYear);
         return pYear === targetYear;
       })
@@ -173,9 +268,7 @@ export function calculateResidentFinancials(
   const initialBal = resident.initialBalance || 0;
   const expectedDues = (monthsElapsed * fee) - initialBal;
 
-  const totalPaid = payments
-    .filter(p => isSameFlatNumber(p.flatNumber, resident.flatNumber) || (p.residentId && p.residentId === resident.id))
-    .reduce((sum, p) => sum + (p.amount || 0), 0);
+  const totalPaid = residentPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
 
   const netBalance = totalPaid - expectedDues;
 
@@ -190,6 +283,8 @@ export function calculateResidentFinancials(
     isSurplus: netBalance > 0,
   };
 }
+
+export type ResidentFinancials = ReturnType<typeof calculateResidentFinancials>;
 
 /**
  * Automatically exports and synchronizes the carried forward previous balances

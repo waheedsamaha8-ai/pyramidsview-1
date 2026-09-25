@@ -66,11 +66,12 @@ import * as firestoreService from './services/firestoreService';
 import * as backupService from './services/backupService';
 import * as googleApi from './services/googleApi';
 import * as offlineSync from './services/offlineSync';
-import { fetchAllJoinRequests } from './services/authStore';
+import { fetchAllJoinRequests, verifyAuthorizedRole } from './services/authStore';
 import { getActiveBuilding } from './services/buildingStore';
 import { UserRole, Resident, Payment, Expense, AppNotification, BuildingRules, AppConfig, MaintenanceRequest, Poll, AdminDecision, BuildingEvent, ChatMessage, PublicComplaint, ComplaintComment, FloorConfig, Craftsman, CraftsmanComment } from './types';
 
 // Importing Custom Components
+import { useAppSync } from './hooks/useAppSync';
 import { Login } from './components/Login';
 import { ResidentsList } from './components/ResidentsList';
 import { ExpensesList } from './components/ExpensesList';
@@ -86,6 +87,13 @@ import { SettingsTab } from './components/SettingsTab';
 import { ConfirmModal } from './components/ConfirmModal';
 import { DebtsReport } from './components/DebtsReport';
 import { ResidentAccountStatement } from './components/ResidentAccountStatement';
+import { Dashboard } from './components/Dashboard';
+import { AppHeader } from './components/layout/AppHeader';
+import { NavigationDrawer } from './components/layout/NavigationDrawer';
+import { PwaInstallPrompt } from './components/pwa/PwaInstallPrompt';
+import { ImagePreviewModal } from './components/modals/ImagePreviewModal';
+import { BuildingRulesModal } from './components/modals/BuildingRulesModal';
+import { ActivityUnitsModal } from './components/modals/ActivityUnitsModal';
 import { calculateResidentFinancials } from './utils/financialCalculations';
 import { removeUnitFromBuildingLayout, addUnitToBuildingLayout, compareFlatNumbers, isSameFlatNumber, parseFlatNumber, getUnitNumbersForFloor, deriveFloorConfigsFromResidents } from './utils/buildingStructure';
 import { formatMobileNumber, formatPhoneForDisplay } from './utils/phoneUtils';
@@ -117,23 +125,9 @@ const getInitialSavedToken = (): string | null => {
 };
 
 const getInitialRole = (initialUser: User | null): UserRole => {
-  try {
-    const savedRole = localStorage.getItem('user_role') || localStorage.getItem('app_user_role');
-    if (savedRole && ['ADMIN', 'MANAGER', 'ASSISTANT', 'RESIDENT'].includes(savedRole)) {
-      return savedRole as UserRole;
-    }
-  } catch {}
-  if (!initialUser) return 'ADMIN';
-  try {
-    if ((initialUser as any).role && ['ADMIN', 'MANAGER', 'ASSISTANT', 'RESIDENT'].includes((initialUser as any).role)) {
-      return (initialUser as any).role as UserRole;
-    }
-    const email = initialUser.email?.toLowerCase().trim();
-    const activeB = getActiveBuilding();
-    if (email && activeB?.presidentEmail && email === activeB.presidentEmail.toLowerCase().trim()) return 'ADMIN';
-    if (email === 'assistant@pyramids.com' || email === 'assistant') return 'ASSISTANT';
-  } catch {}
-  return 'RESIDENT';
+  if (!initialUser) return 'RESIDENT';
+  const savedRole = (localStorage.getItem('user_role') || localStorage.getItem('app_user_role') || 'RESIDENT') as UserRole;
+  return verifyAuthorizedRole(initialUser.email, savedRole);
 };
 
 const getInitialFlatNumber = (initialUser: User | null): number | string | undefined => {
@@ -407,248 +401,27 @@ export default function App() {
     }
   }, [residents]);
 
-  // Real-time Firestore Sync & local offline sync for chat messages and complaints
-  useEffect(() => {
-    let isMounted = true;
-    let isApiServerAvailable = typeof window !== 'undefined' && 
-      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-
-    // Subscribe to Firestore collections for real-time multi-user sync across all roles
-    const unsubChat = firestoreService.subscribeToChatMessages((firestoreMsgs) => {
-      if (!isMounted || !Array.isArray(firestoreMsgs)) return;
-      const deletedMsgIds = deletedMessageIdsRef.current;
-      const validMsgs = firestoreMsgs.filter(m => m && m.id && !deletedMsgIds.has(m.id))
-        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-      setMessages(validMsgs);
-      offlineSync.saveCachedData('chat_messages', validMsgs);
-    });
-
-    const unsubComplaints = firestoreService.subscribeToComplaints((items) => {
-      if (!isMounted || !Array.isArray(items)) return;
-      const delSet = deletedComplaintIdsRef.current;
-      const validComps = items.filter(c => c && c.id && !delSet.has(c.id))
-        .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-      setComplaints(validComps);
-      offlineSync.saveCachedData('public_complaints', validComps);
-    });
-
-    const unsubMaintenance = firestoreService.subscribeToMaintenance((items) => {
-      if (!isMounted || !Array.isArray(items)) return;
-      const validItems = items.filter(m => m && m.id)
-        .sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
-      setMaintenanceRequests(validItems);
-      offlineSync.saveCachedData('maintenance', validItems);
-    });
-
-    const unsubPolls = firestoreService.subscribeToPolls((items) => {
-      if (!isMounted || !Array.isArray(items)) return;
-      const validItems = items.filter(p => p && p.id)
-        .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-      setPolls(validItems);
-      offlineSync.saveCachedData('polls', validItems);
-    });
-
-    const unsubDecisions = firestoreService.subscribeToDecisions((items) => {
-      if (!isMounted || !Array.isArray(items)) return;
-      const validItems = items.filter(d => d && d.id)
-        .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-      setDecisions(validItems);
-      offlineSync.saveCachedData('admin_decisions', validItems);
-    });
-
-    const unsubEvents = firestoreService.subscribeToEvents((items) => {
-      if (!isMounted || !Array.isArray(items)) return;
-      const validItems = items.filter(e => e && e.id)
-        .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
-      setEvents(validItems);
-      offlineSync.saveCachedData('events', validItems);
-    });
-
-    const unsubCraftsmen = firestoreService.subscribeToCraftsmen((items) => {
-      if (!isMounted || !Array.isArray(items)) return;
-      const validItems = items.filter(c => c && c.id);
-      setCraftsmen(validItems);
-      offlineSync.saveCachedData('craftsmen', validItems);
-    });
-
-    const unsubResidents = firestoreService.subscribeToResidents((items) => {
-      if (!isMounted || !Array.isArray(items)) return;
-      const validItems = items.filter(r => r && r.id);
-      setResidents(validItems);
-      offlineSync.saveCachedData('residents', validItems);
-    });
-
-    const unsubPayments = firestoreService.subscribeToPayments((items) => {
-      if (!isMounted || !Array.isArray(items)) return;
-      const validItems = items.filter(p => p && p.id);
-      setPayments(validItems);
-      offlineSync.saveCachedData('payments', validItems);
-    });
-
-    const unsubExpenses = firestoreService.subscribeToExpenses((items) => {
-      if (!isMounted || !Array.isArray(items)) return;
-      const validItems = items.filter(e => e && e.id);
-      setExpenses(validItems);
-      offlineSync.saveCachedData('expenses', validItems);
-    });
-
-    const unsubConfig = firestoreService.subscribeToConfig((conf) => {
-      if (!isMounted || !conf) return;
-      setConfig(conf);
-      offlineSync.saveCachedData('config', conf);
-      if (Array.isArray(conf.buildingLayout)) {
-        setBuildingLayout(conf.buildingLayout);
-        offlineSync.saveCachedData('building_layout', conf.buildingLayout);
-      }
-    });
-
-    const unsubRules = firestoreService.subscribeToRules((r) => {
-      if (!isMounted || !Array.isArray(r)) return;
-      setRules(r);
-      offlineSync.saveCachedData('rules', { rules: r });
-    });
-
-    const fetchLatestChatAndComplaints = async () => {
-      if (!isApiServerAvailable) return;
-      try {
-        const [chatRes, compRes] = await Promise.all([
-          fetch('/api/chat').then(r => {
-            if (r.status === 404) isApiServerAvailable = false;
-            return r.ok ? r.json() : null;
-          }).catch(() => {
-            isApiServerAvailable = false;
-            return null;
-          }),
-          fetch('/api/complaints').then(r => {
-            if (r.status === 404) isApiServerAvailable = false;
-            return r.ok ? r.json() : null;
-          }).catch(() => {
-            isApiServerAvailable = false;
-            return null;
-          }),
-        ]);
-
-        if (!isMounted || !isApiServerAvailable) return;
-
-        const deletedMsgIds = deletedMessageIdsRef.current;
-        const deletedCompIds = deletedComplaintIdsRef.current;
-
-        if (chatRes && Array.isArray(chatRes)) {
-          setMessages(prev => {
-            const validServer = chatRes.filter((m: any) => m && m.id && !deletedMsgIds.has(m.id));
-            const serverIdSet = new Set(validServer.map(m => m.id));
-            const map = new Map<string, ChatMessage>();
-
-            const now = Date.now();
-            prev.forEach(m => {
-              if (m && m.id && !deletedMsgIds.has(m.id)) {
-                const msgTime = new Date(m.timestamp).getTime();
-                const isRecent = (now - msgTime) < 15000;
-                if (serverIdSet.has(m.id) || isRecent) {
-                  map.set(m.id, m);
-                }
-              }
-            });
-
-            validServer.forEach((m: ChatMessage) => {
-              const existing = map.get(m.id);
-              if (existing) {
-                map.set(m.id, {
-                  ...existing,
-                  ...m,
-                  imageUrl: (m.imageUrl && !m.imageUrl.startsWith('data:')) ? m.imageUrl : (existing.imageUrl || m.imageUrl),
-                });
-              } else {
-                map.set(m.id, m);
-              }
-            });
-
-            const merged = Array.from(map.values())
-              .filter(m => m && m.id && !deletedMsgIds.has(m.id))
-              .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-
-            const isDifferent = merged.length !== prev.length || 
-              merged.some((m, idx) => !prev[idx] || prev[idx].id !== m.id || prev[idx].text !== m.text || prev[idx].imageUrl !== m.imageUrl);
-
-            if (isDifferent) {
-              offlineSync.saveCachedData('chat_messages', merged);
-              return merged;
-            }
-            return prev;
-          });
-        }
-
-        if (compRes && Array.isArray(compRes)) {
-          setComplaints(prev => {
-            const validServer = compRes.filter((c: any) => c && c.id && !deletedCompIds.has(c.id));
-            const serverIdSet = new Set(validServer.map(c => c.id));
-            const map = new Map<string, PublicComplaint>();
-
-            const now = Date.now();
-            prev.forEach(c => {
-              if (c && c.id && !deletedCompIds.has(c.id)) {
-                const compTime = new Date(c.date).getTime();
-                const isRecent = (now - compTime) < 15000;
-                if (serverIdSet.has(c.id) || isRecent) {
-                  map.set(c.id, c);
-                }
-              }
-            });
-
-            validServer.forEach((c: PublicComplaint) => {
-              const existing = map.get(c.id);
-              if (existing) {
-                map.set(c.id, {
-                  ...existing,
-                  ...c,
-                  imageUrl: (c.imageUrl && !c.imageUrl.startsWith('data:')) ? c.imageUrl : (existing.imageUrl || c.imageUrl),
-                  comments: c.comments || existing.comments || [],
-                });
-              } else {
-                map.set(c.id, c);
-              }
-            });
-
-            const merged = Array.from(map.values())
-              .filter(c => c && c.id && !deletedCompIds.has(c.id))
-              .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-
-            const isDifferent = merged.length !== prev.length || 
-              merged.some((c, idx) => !prev[idx] || prev[idx].id !== c.id || prev[idx].title !== c.title || (prev[idx].comments?.length || 0) !== (c.comments?.length || 0));
-
-            if (isDifferent) {
-              offlineSync.saveCachedData('public_complaints', merged);
-              return merged;
-            }
-            return prev;
-          });
-        }
-      } catch {
-        isApiServerAvailable = false;
-      }
-    };
-
-    if (isApiServerAvailable) {
-      fetchLatestChatAndComplaints();
-    }
-    const interval = isApiServerAvailable ? setInterval(fetchLatestChatAndComplaints, 8000) : null;
-    return () => {
-      isMounted = false;
-      unsubChat();
-      unsubComplaints();
-      unsubMaintenance();
-      unsubPolls();
-      unsubDecisions();
-      unsubEvents();
-      unsubCraftsmen();
-      unsubResidents();
-      unsubPayments();
-      unsubExpenses();
-      unsubConfig();
-      unsubRules();
-      if (interval) clearInterval(interval);
-    };
-  }, [user?.email, (user as any)?.buildingId, role]);
+  // Real-time Firestore Sync & local offline sync
+  useAppSync({
+    userEmail: user?.email,
+    buildingId: (user as any)?.buildingId,
+    role,
+    deletedMessageIdsRef,
+    deletedComplaintIdsRef,
+    setMessages,
+    setComplaints,
+    setMaintenanceRequests,
+    setPolls,
+    setDecisions,
+    setEvents,
+    setCraftsmen,
+    setResidents,
+    setPayments,
+    setExpenses,
+    setConfig,
+    setBuildingLayout,
+    setRules,
+  });
 
   const [selectedActivityModal, setSelectedActivityModal] = useState<string | null>(null);
   const [maintenanceSubTab, setMaintenanceSubTab] = useState<'requests' | 'directory'>('requests');
@@ -669,125 +442,6 @@ export default function App() {
   const [mobileMenuOpen, setMenuOpen] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
-  const [previewZoom, setPreviewZoom] = useState(1);
-  const [previewRotation, setPreviewRotation] = useState(0);
-  const [previewPan, setPreviewPan] = useState({ x: 0, y: 0 });
-
-  // Touch gesture & mouse dragging refs for image preview
-  const touchStartDistRef = useRef<number | null>(null);
-  const touchStartZoomRef = useRef<number>(1);
-  const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
-  const touchStartPanRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-  const isPinchingRef = useRef<boolean>(false);
-  const isMouseDownRef = useRef<boolean>(false);
-  const mouseStartPosRef = useRef<{ x: number; y: number } | null>(null);
-  const mouseStartPanRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-  const lastTapRef = useRef<number>(0);
-
-  const handleStageTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
-    if (e.touches.length === 2) {
-      isPinchingRef.current = true;
-      const dist = Math.hypot(
-        e.touches[0].clientX - e.touches[1].clientX,
-        e.touches[0].clientY - e.touches[1].clientY
-      );
-      touchStartDistRef.current = dist;
-      touchStartZoomRef.current = previewZoom;
-    } else if (e.touches.length === 1) {
-      isPinchingRef.current = false;
-      touchStartPosRef.current = {
-        x: e.touches[0].clientX,
-        y: e.touches[0].clientY,
-      };
-      touchStartPanRef.current = { ...previewPan };
-
-      // Double-tap toggle zoom
-      const now = Date.now();
-      if (now - lastTapRef.current < 300) {
-        if (previewZoom > 1) {
-          setPreviewZoom(1);
-          setPreviewPan({ x: 0, y: 0 });
-        } else {
-          setPreviewZoom(2.5);
-        }
-        lastTapRef.current = 0;
-      } else {
-        lastTapRef.current = now;
-      }
-    }
-  };
-
-  const handleStageTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
-    if (e.touches.length === 2 && touchStartDistRef.current !== null) {
-      const currentDist = Math.hypot(
-        e.touches[0].clientX - e.touches[1].clientX,
-        e.touches[0].clientY - e.touches[1].clientY
-      );
-      if (touchStartDistRef.current > 0) {
-        const ratio = currentDist / touchStartDistRef.current;
-        const newZoom = Math.min(5, Math.max(0.5, touchStartZoomRef.current * ratio));
-        setPreviewZoom(newZoom);
-        if (newZoom <= 1) {
-          setPreviewPan({ x: 0, y: 0 });
-        }
-      }
-    } else if (
-      e.touches.length === 1 &&
-      !isPinchingRef.current &&
-      touchStartPosRef.current &&
-      previewZoom > 1
-    ) {
-      const dx = e.touches[0].clientX - touchStartPosRef.current.x;
-      const dy = e.touches[0].clientY - touchStartPosRef.current.y;
-      setPreviewPan({
-        x: touchStartPanRef.current.x + dx,
-        y: touchStartPanRef.current.y + dy,
-      });
-    }
-  };
-
-  const handleStageTouchEnd = (e: React.TouchEvent<HTMLDivElement>) => {
-    if (e.touches.length < 2) {
-      touchStartDistRef.current = null;
-    }
-    if (e.touches.length === 0) {
-      touchStartPosRef.current = null;
-      isPinchingRef.current = false;
-    }
-  };
-
-  const handleStageMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (previewZoom > 1) {
-      isMouseDownRef.current = true;
-      mouseStartPosRef.current = { x: e.clientX, y: e.clientY };
-      mouseStartPanRef.current = { ...previewPan };
-    }
-  };
-
-  const handleStageMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (isMouseDownRef.current && mouseStartPosRef.current && previewZoom > 1) {
-      const dx = e.clientX - mouseStartPosRef.current.x;
-      const dy = e.clientY - mouseStartPosRef.current.y;
-      setPreviewPan({
-        x: mouseStartPanRef.current.x + dx,
-        y: mouseStartPanRef.current.y + dy,
-      });
-    }
-  };
-
-  const handleStageMouseUp = () => {
-    isMouseDownRef.current = false;
-    mouseStartPosRef.current = null;
-  };
-
-  const handleStageWheel = (e: React.WheelEvent<HTMLDivElement>) => {
-    const delta = -e.deltaY;
-    setPreviewZoom((prev) => {
-      const next = Math.min(5, Math.max(0.5, prev + (delta > 0 ? 0.25 : -0.25)));
-      if (next <= 1) setPreviewPan({ x: 0, y: 0 });
-      return next;
-    });
-  };
 
   // Theme state permanently locked to Light Mode as requested by the user
   const isDarkMode = false;
@@ -847,9 +501,6 @@ export default function App() {
   
   const handlePreviewImage = async (url: string) => {
     if (!url) return;
-    setPreviewZoom(1);
-    setPreviewRotation(0);
-    setPreviewPan({ x: 0, y: 0 });
     
     // Check if it's a Google Drive URL
     const driveMatch = url.match(/id=([^&]+)/);
@@ -880,9 +531,6 @@ export default function App() {
     }
     setPreviewImage(null);
     setPreviewLoading(false);
-    setPreviewZoom(1);
-    setPreviewRotation(0);
-    setPreviewPan({ x: 0, y: 0 });
   };
   
   // Custom Building Rules views
@@ -896,7 +544,6 @@ export default function App() {
   // PWA Install state
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [pwaInstalled, setPwaInstalled] = useState(false);
-  const [showIosPwaGuide, setShowIosPwaGuide] = useState(false);
   const isIosDevice = typeof window !== 'undefined' && /iphone|ipad|ipod/.test(window.navigator.userAgent.toLowerCase());
 
   // Sidebar categories state (default: all sections closed)
@@ -1283,33 +930,21 @@ export default function App() {
         return;
       }
 
-      // 2. Detect user role instantly
+      // 2. Detect and verify user role against trusted identity
       const email = currentUser.email?.toLowerCase().trim() || '';
-      let detectedRole: UserRole = role;
+      let claimedRole: UserRole = role;
 
       if ((currentUser as any).role && ['ADMIN', 'MANAGER', 'ASSISTANT', 'RESIDENT'].includes((currentUser as any).role)) {
-        detectedRole = (currentUser as any).role as UserRole;
+        claimedRole = (currentUser as any).role as UserRole;
       } else {
         const savedRole = localStorage.getItem('user_role') || localStorage.getItem('app_user_role');
         if (savedRole && ['ADMIN', 'MANAGER', 'ASSISTANT', 'RESIDENT'].includes(savedRole)) {
-          detectedRole = savedRole as UserRole;
-        } else {
-          const activeB = getActiveBuilding();
-          const isPresident = (activeB.presidentEmail && email === activeB.presidentEmail.toLowerCase().trim()) || (cachedConfig?.admins || []).some(a => a.toLowerCase().trim() === email);
-
-          if (
-            (cachedConfig?.assistantConfig && cachedConfig.assistantConfig.email?.toLowerCase().trim() === email) ||
-            email === 'assistant@pyramids.com' ||
-            email === 'assistant'
-          ) {
-            detectedRole = 'ASSISTANT';
-          } else if (isPresident) {
-            detectedRole = 'ADMIN';
-          } else {
-            detectedRole = 'RESIDENT';
-          }
+          claimedRole = savedRole as UserRole;
         }
       }
+
+      // Cryptographically / identity-verified role enforcement - eliminates LocalStorage tampering
+      const detectedRole = verifyAuthorizedRole(email, claimedRole, cachedConfig?.admins || []);
 
       setRole(detectedRole);
       localStorage.setItem('user_role', detectedRole);
@@ -3044,860 +2679,88 @@ export default function App() {
     <div className="min-h-screen flex flex-col bg-slate-100 dark:bg-[#0b1329]">
       
       {/* Top responsive banner / header */}
-      <header className="sticky top-0 z-40 bg-white border-b border-slate-100 shadow-sm shadow-slate-100/40">
-        <div className="max-w-full mx-auto px-2 sm:px-4 h-16 flex items-center justify-between" dir="rtl">
-          
-          {/* Right Section: Building Title, User Info & Firebase Status Dot */}
-          <div className="flex items-center gap-2.5 sm:gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-blue-900 to-indigo-900 text-white rounded-2xl flex items-center justify-center font-black shadow-xs shrink-0">
-              <Building2 className="w-5 h-5" />
-            </div>
-            <div className="flex flex-col text-right">
-              <div className="flex items-center gap-2">
-                <h1 className="text-sm sm:text-base font-black text-blue-950 tracking-tight leading-tight">
-                  {config?.buildingName || localStorage.getItem('active_building_name') || 'بيراميدز فيو ١'}
-                </h1>
+      <AppHeader
+        buildingName={config?.buildingName || localStorage.getItem("active_building_name") || "بيراميدز فيو ١"}
+        firebaseStatus={firebaseStatus}
+        onRetrySync={triggerBackgroundSync}
+        userDisplayName={getUserDisplayName()}
+        userRoleLabel={role === "ADMIN" ? "إدارة الملاك" : role === "ASSISTANT" ? "المساعد الفني" : role === "MANAGER" ? "مدير العمارة" : getUserFlatLabel()}
+        isBackgroundSyncing={isBackgroundSyncing}
+        isOnline={isOnline}
+        syncing={syncing}
+        activeTab={activeTab}
+        onNavigateTab={setActiveTab}
+        unreadNotificationsCount={visibleNotifications.length}
+        onOpenNotifications={() => setShowNotifications(true)}
+        isMenuOpen={mobileMenuOpen}
+        onToggleMenu={() => setMenuOpen(!mobileMenuOpen)}
+      />
 
-                {/* Firebase Status Dot Indicator (Clean dot only, no text) */}
-                <div 
-                  className={`flex items-center justify-center p-1 rounded-full border transition shadow-2xs cursor-pointer select-none shrink-0 ${
-                    firebaseStatus === 'success' 
-                      ? 'bg-emerald-50 border-emerald-200/80 dark:bg-emerald-950/40 dark:border-emerald-800' 
-                      : firebaseStatus === 'error'
-                      ? 'bg-red-50 border-red-200/80 dark:bg-red-950/40 dark:border-red-800'
-                      : 'bg-amber-50 border-amber-200/80 dark:bg-amber-950/40 dark:border-amber-800'
-                  }`}
-                  onClick={() => {
-                    if (firebaseStatus === 'error') {
-                      triggerBackgroundSync();
-                    }
-                  }}
-                  title={
-                    firebaseStatus === 'success'
-                      ? 'جميع البيانات تُسجّل وتُحفظ على الفيربيز بنجاح'
-                      : firebaseStatus === 'error'
-                      ? 'توجد مشكلة في الحفظ على الفيربيز - انقر لإعادة المحاولة'
-                      : 'جاري حفظ ومزامنة البيانات مع الفيربيز...'
-                  }
-                >
-                  <span className="relative flex h-2.5 w-2.5 shrink-0">
-                    {firebaseStatus === 'success' && (
-                      <>
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 shadow-xs shadow-emerald-500"></span>
-                      </>
-                    )}
-                    {firebaseStatus === 'error' && (
-                      <>
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500 shadow-xs shadow-red-500"></span>
-                      </>
-                    )}
-                    {firebaseStatus === 'syncing' && (
-                      <>
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500 shadow-xs shadow-amber-500"></span>
-                      </>
-                    )}
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-1.5 mt-0.5">
-                <span className="text-[11px] font-bold text-slate-700">
-                  {getUserDisplayName()}
-                </span>
-                <span className="text-[10px] text-slate-400 font-bold">
-                  ({role === 'ADMIN' ? 'إدارة الملاك' : role === 'ASSISTANT' ? 'المساعد الفني' : role === 'MANAGER' ? 'مدير العمارة' : getUserFlatLabel()})
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Left Section: The ONLY 3 buttons on the top bar + online indicator */}
-          <div className="flex items-center gap-2 sm:gap-3">
-            {/* Background Fast Sync indicator */}
-            {isBackgroundSyncing && (
-              <div 
-                className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200/80 animate-pulse shadow-xs"
-                title="جاري تحديث البيانات السحابية في الخلفية بسلاسة دون مقاطعة"
-              >
-                <RefreshCw className="w-3 h-3 animate-spin text-blue-600" />
-                <span>مزامنة سريعة...</span>
-              </div>
-            )}
-
-            {/* Connection/Sync status indicator badge */}
-            <div 
-              onClick={triggerBackgroundSync}
-              className={`hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[11px] font-bold transition shadow-xs cursor-pointer ${
-                isOnline 
-                  ? syncing 
-                    ? 'bg-blue-50 text-blue-700 animate-pulse' 
-                    : 'bg-emerald-50 text-emerald-700' 
-                  : 'bg-amber-50 text-amber-700'
-              }`}
-              title={isOnline ? 'متصل بالسحابة وقاعدة البيانات' : 'وضع محلي غير متصل'}
-            >
-              {isOnline ? (
-                <>
-                  <Wifi className="w-3.5 h-3.5" />
-                  <span>{syncing ? 'مزامنة...' : 'متصل'}</span>
-                </>
-              ) : (
-                <>
-                  <WifiOff className="w-3.5 h-3.5" />
-                  <span>غير متصل</span>
-                </>
-              )}
-            </div>
-
-            {/* 1. زر الواجهة الرئيسية */}
-            <button 
-              type="button"
-              onClick={() => setActiveTab('dashboard')}
-              className={`px-3 py-2 sm:px-3.5 sm:py-2 rounded-xl transition font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-xs ${
-                activeTab === 'dashboard' 
-                  ? 'bg-blue-900 text-white shadow-md' 
-                  : 'bg-slate-50 text-slate-700 hover:bg-slate-100 hover:text-blue-900'
-              }`}
-              title="الواجهة الرئيسية"
-            >
-              <LayoutDashboard className="w-4 h-4" />
-              <span className="hidden sm:inline">الواجهة الرئيسية</span>
-            </button>
-
-            {/* 2. زر الإشعارات */}
-            <button 
-              type="button"
-              onClick={() => setShowNotifications(true)}
-              className="relative p-2 sm:p-2.5 bg-blue-50 text-blue-900 hover:bg-blue-100 rounded-xl transition cursor-pointer flex items-center justify-center shadow-xs"
-              title="تنبيهات وإشعارات النظام"
-            >
-              <Bell className="w-5 h-5 stroke-[2]" />
-              {visibleNotifications.length > 0 && (
-                <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[9px] font-black flex items-center justify-center rounded-full border-2 border-white animate-bounce">
-                  {visibleNotifications.length}
-                </span>
-              )}
-            </button>
-
-            {/* 3. زر القائمة الجانبية */}
-            <button 
-              type="button"
-              onClick={() => setMenuOpen(!mobileMenuOpen)}
-              className={`p-2 sm:px-3.5 sm:py-2 rounded-xl transition font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-xs ${
-                mobileMenuOpen
-                  ? 'bg-blue-900 text-white shadow-md'
-                  : 'bg-slate-50 text-slate-700 hover:bg-slate-100 hover:text-blue-900'
-              }`}
-              title="القائمة الجانبية للتطبيق"
-            >
-              {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-              <span className="hidden sm:inline">القائمة الجانبية</span>
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {/* Navigation Drawer (Opens on Sidebar Button click for all screen sizes) */}
-      {mobileMenuOpen && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex justify-end" onClick={() => setMenuOpen(false)}>
-          <div 
-            className="w-80 max-w-[85vw] h-full bg-white shadow-2xl p-5 flex flex-col justify-between animate-slide-left overflow-y-auto max-h-screen text-right"
-            dir="rtl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="space-y-4">
-              
-              {/* Drawer Header */}
-              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 bg-blue-900 text-white rounded-xl flex items-center justify-center font-black">
-                    <Building2 className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h3 className="font-extrabold text-slate-900 text-sm">قائمة النظام</h3>
-                    <p className="text-[10px] text-slate-400 font-bold">{config?.buildingName || localStorage.getItem('active_building_name') || 'بيراميدز فيو ١'}</p>
-                  </div>
-                </div>
-                <button 
-                  onClick={() => setMenuOpen(false)}
-                  className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition cursor-pointer"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              {/* Navigation Sections */}
-              <div className="flex flex-col gap-2">
-                
-                {/* 1. Main Interface */}
-                <button
-                  onClick={() => { setActiveTab('dashboard'); setMenuOpen(false); }}
-                  className={`flex items-center justify-between w-full py-3 px-3.5 rounded-2xl text-xs font-black transition cursor-pointer ${
-                    activeTab === 'dashboard' ? 'bg-blue-900 text-white shadow-md' : 'bg-slate-50 text-slate-700 hover:bg-slate-100'
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <LayoutDashboard className="w-4 h-4" />
-                    <span>الواجهة الرئيسية</span>
-                  </div>
-                  <ChevronLeft className="w-3.5 h-3.5 opacity-60" />
-                </button>
-
-                {/* 2. Collection & Finance Category */}
-                <div className="space-y-1">
-                  <button 
-                    onClick={() => toggleSection('collection')}
-                    className="w-full flex items-center justify-between py-2 px-3 bg-slate-50 rounded-xl text-xs font-black text-blue-950 transition cursor-pointer"
-                  >
-                    <div className="flex items-center gap-2">
-                      <Wallet className="w-4 h-4 text-emerald-600" />
-                      <span>قسم التحصيل والمالية</span>
-                    </div>
-                    <ChevronDown className={`w-3.5 h-3.5 transition-transform ${expandedSections.includes('collection') ? '' : '-rotate-90'}`} />
-                  </button>
-                  {expandedSections.includes('collection') && (
-                    <div className="pr-3 flex flex-col gap-1 mt-1 border-r-2 border-emerald-200 mr-2">
-                      <button
-                        onClick={() => { setActiveTab('payments'); setMenuOpen(false); }}
-                        className={`w-full py-2 px-3 rounded-lg text-xs font-bold text-right transition cursor-pointer ${activeTab === 'payments' ? 'bg-blue-900 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
-                      >
-                        التحصيلات وسندات القبض
-                      </button>
-                      <button
-                        onClick={() => { setActiveTab('expenses'); setMenuOpen(false); }}
-                        className={`w-full py-2 px-3 rounded-lg text-xs font-bold text-right transition cursor-pointer ${activeTab === 'expenses' ? 'bg-blue-900 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
-                      >
-                        المصروفات والفواتير
-                      </button>
-                      <button
-                        onClick={() => { setActiveTab('debts-report'); setMenuOpen(false); }}
-                        className={`w-full py-2 px-3 rounded-lg text-xs font-bold text-right transition cursor-pointer ${activeTab === 'debts-report' ? 'bg-blue-900 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
-                      >
-                        كشف المديونيات
-                      </button>
-                      <button
-                        onClick={() => { setActiveTab('summaries'); setMenuOpen(false); }}
-                        className={`w-full py-2 px-3 rounded-lg text-xs font-bold text-right transition cursor-pointer ${activeTab === 'summaries' ? 'bg-blue-900 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
-                      >
-                        الملخصات وخريطة السداد
-                      </button>
-                      <button
-                        onClick={() => { setActiveTab('history'); setMenuOpen(false); }}
-                        className={`w-full py-2 px-3 rounded-lg text-xs font-bold text-right transition cursor-pointer ${activeTab === 'history' ? 'bg-blue-900 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
-                      >
-                        سجل المعاملات المالية
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {/* 3. Residents Category */}
-                <div className="space-y-1">
-                  <button 
-                    onClick={() => toggleSection('residents')}
-                    className="w-full flex items-center justify-between py-2 px-3 bg-slate-50 rounded-xl text-xs font-black text-blue-950 transition cursor-pointer"
-                  >
-                    <div className="flex items-center gap-2">
-                      <Users className="w-4 h-4 text-blue-600" />
-                      <span>قسم الوحدات والسكان</span>
-                    </div>
-                    <ChevronDown className={`w-3.5 h-3.5 transition-transform ${expandedSections.includes('residents') ? '' : '-rotate-90'}`} />
-                  </button>
-                  {expandedSections.includes('residents') && (
-                    <div className="pr-3 flex flex-col gap-1 mt-1 border-r-2 border-blue-200 mr-2">
-                      <button
-                        onClick={() => { setActiveTab('residents'); setMenuOpen(false); }}
-                        className={`w-full py-2 px-3 rounded-lg text-xs font-bold text-right transition cursor-pointer ${activeTab === 'residents' ? 'bg-blue-900 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
-                      >
-                        كشف الوحدات وهيكل العمارة
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {/* 4. Services & Communication Category */}
-                <div className="space-y-1">
-                  <button 
-                    onClick={() => toggleSection('services')}
-                    className="w-full flex items-center justify-between py-2 px-3 bg-slate-50 rounded-xl text-xs font-black text-blue-950 transition cursor-pointer"
-                  >
-                    <div className="flex items-center gap-2">
-                      <MessageSquare className="w-4 h-4 text-purple-600" />
-                      <span>الخدمات والتواصل</span>
-                    </div>
-                    <ChevronDown className={`w-3.5 h-3.5 transition-transform ${expandedSections.includes('services') ? '' : '-rotate-90'}`} />
-                  </button>
-                  {expandedSections.includes('services') && (
-                    <div className="pr-3 flex flex-col gap-1 mt-1 border-r-2 border-purple-200 mr-2">
-                      <button
-                        onClick={() => { setActiveTab('chat'); setMenuOpen(false); }}
-                        className={`w-full py-2 px-3 rounded-lg text-xs font-bold text-right transition cursor-pointer ${activeTab === 'chat' ? 'bg-blue-900 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
-                      >
-                        الدردشة والشكاوى العامة
-                      </button>
-                      <button
-                        onClick={() => { setActiveTab('maintenance'); setMenuOpen(false); }}
-                        className={`w-full py-2 px-3 rounded-lg text-xs font-bold text-right transition cursor-pointer ${activeTab === 'maintenance' ? 'bg-blue-900 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
-                      >
-                        طلبات الصيانة وفنيي الصيانة
-                      </button>
-                      <button
-                        onClick={() => { setPollsSubTab('polls'); setActiveTab('polls'); setMenuOpen(false); }}
-                        className={`w-full py-2 px-3 rounded-lg text-xs font-bold text-right transition cursor-pointer ${activeTab === 'polls' ? 'bg-blue-900 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
-                      >
-                        القرارات والتصويت
-                      </button>
-                      <button
-                        onClick={() => { setActiveTab('calendar'); setMenuOpen(false); }}
-                        className={`w-full py-2 px-3 rounded-lg text-xs font-bold text-right transition cursor-pointer ${activeTab === 'calendar' ? 'bg-blue-900 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
-                      >
-                        الأجندة والتقويم
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {/* 5. System Settings & Rules */}
-                <div className="pt-2 border-t border-slate-100 mt-1 space-y-1">
-                  {role !== 'ASSISTANT' && (
-                    <button
-                      onClick={() => { setActiveTab('settings'); setMenuOpen(false); }}
-                      className={`w-full py-2.5 px-3 rounded-xl text-xs font-bold text-right transition cursor-pointer flex items-center justify-between ${
-                        activeTab === 'settings' ? 'bg-blue-900 text-white' : 'text-slate-700 hover:bg-slate-50'
-                      }`}
-                    >
-                      <span>إعدادات النظام</span>
-                      <Settings className="w-4 h-4" />
-                    </button>
-                  )}
-                  <button
-                    onClick={() => { setShowRulesReadModal(true); setMenuOpen(false); }}
-                    className="w-full py-2.5 px-3 rounded-xl text-xs font-bold text-right transition text-slate-700 hover:bg-amber-50 flex items-center justify-between cursor-pointer"
-                  >
-                    <span>تعليمات ونظام إدارة العمارة</span>
-                    <BookOpen className="w-4 h-4 text-amber-700" />
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Logout button in drawer */}
-            <div className="pt-4 border-t border-slate-100 mt-4 space-y-2">
-              <div className="flex items-center justify-between px-1 text-[11px] text-slate-500 font-bold">
-                <span>{role === 'ASSISTANT' ? 'المساعد الفني' : user.displayName}</span>
-                {role !== 'ADMIN' && (
-                  <span>{role === 'ASSISTANT' ? 'المساعد الفني' : 'ساكن'}</span>
-                )}
-              </div>
-              <button
-                onClick={() => { handleLogout(); setMenuOpen(false); }}
-                className="w-full flex items-center justify-center gap-1.5 py-2.5 bg-red-50 text-red-600 rounded-xl font-black text-xs hover:bg-red-100 transition cursor-pointer"
-              >
-                <LogOut className="w-4 h-4" />
-                <span>تسجيل الخروج</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Navigation Drawer */}
+      <NavigationDrawer
+        isOpen={mobileMenuOpen}
+        onClose={() => setMenuOpen(false)}
+        buildingName={config?.buildingName || localStorage.getItem("active_building_name") || "بيراميدز فيو ١"}
+        activeTab={activeTab}
+        onNavigateTab={setActiveTab}
+        onNavigatePollsTab={(sub) => setPollsSubTab(sub)}
+        role={role}
+        expandedSections={expandedSections}
+        onToggleSection={toggleSection}
+        onOpenRules={() => setShowRulesReadModal(true)}
+        userName={role === "ASSISTANT" ? "المساعد الفني" : (user?.displayName || "")}
+        onLogout={handleLogout}
+      />
 
       {/* Main Application Stage */}
-      <main className={`flex-1 max-w-full mx-auto w-full ${activeTab === 'chat' ? 'px-1 sm:px-1.5 py-1 sm:py-1.5 space-y-2' : 'px-1 sm:px-1.5 py-3 space-y-3.5'}`} dir="rtl">
-        
-        {/* PWA install banner for Android / iOS mobile */}
-        {!pwaInstalled && (deferredPrompt || isIosDevice) && (
-          <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white p-3.5 sm:p-4 rounded-2xl flex items-center justify-between border border-blue-800/40 shadow-md">
-            <div className="text-right">
-              <h3 className="font-extrabold text-xs sm:text-sm mb-0.5 flex items-center gap-1.5">
-                <Smartphone className="w-4 h-4 text-emerald-400" />
-                <span>تثبيت تطبيق "العمارة" - {config?.buildingName || localStorage.getItem('active_building_name') || 'إدارة الملاك'}</span>
-              </h3>
-              <p className="text-[10px] sm:text-xs text-indigo-200">ثبّت التطبيق على شاشة جوالك الرئيسية لاستخدام سريع ومباشر وإمكانية العمل بدون إنترنت.</p>
-            </div>
-            {deferredPrompt ? (
-              <button
-                type="button"
-                onClick={handlePwaInstall}
-                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-xs flex items-center gap-1 shadow-sm transition cursor-pointer whitespace-nowrap"
-              >
-                <span>تثبيت الآن</span>
-              </button>
-            ) : isIosDevice ? (
-              <button
-                type="button"
-                onClick={() => setShowIosPwaGuide(true)}
-                className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl text-xs flex items-center gap-1 shadow-sm transition cursor-pointer whitespace-nowrap"
-              >
-                <span>تثبيت على الآيفون</span>
-              </button>
-            ) : null}
-          </div>
-        )}
-
-        {/* iOS PWA Install Guide Modal */}
-        {showIosPwaGuide && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 backdrop-blur-xs p-4" dir="rtl">
-            <div className="bg-slate-800 border border-slate-700 text-white w-full max-w-sm rounded-3xl p-6 shadow-2xl space-y-4">
-              <div className="w-12 h-12 bg-blue-500/20 text-blue-400 rounded-2xl flex items-center justify-center mx-auto">
-                <Smartphone className="w-6 h-6" />
-              </div>
-              <h3 className="text-lg font-black text-center text-slate-100">تثبيت التطبيق على الآيفون / الآيباد</h3>
-              <div className="space-y-3 text-xs text-slate-300 bg-slate-900/60 p-4 rounded-2xl border border-slate-700/60">
-                <div className="flex items-start gap-2.5">
-                  <span className="w-5 h-5 bg-blue-600 text-white font-bold rounded-full flex items-center justify-center shrink-0 text-[10px]">١</span>
-                  <p>اضغط على أيقونة <strong>المشاركة (Share)</strong> في شريط متصفح Safari السفلي.</p>
-                </div>
-                <div className="flex items-start gap-2.5">
-                  <span className="w-5 h-5 bg-blue-600 text-white font-bold rounded-full flex items-center justify-center shrink-0 text-[10px]">٢</span>
-                  <p>تمرير للأسفل واختيار <strong>إضافة إلى الشاشة الرئيسية (Add to Home Screen)</strong>.</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowIosPwaGuide(false)}
-                className="w-full py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-100 font-bold rounded-xl transition text-xs"
-              >
-                فهمت، إغلاق
-              </button>
-            </div>
-          </div>
-        )}
+      <main className={`flex-1 max-w-full mx-auto w-full ${activeTab === "chat" ? "px-1 sm:px-1.5 py-1 sm:py-1.5 space-y-2" : "px-1 sm:px-1.5 py-3 space-y-3.5"}`} dir="rtl">
+        {/* PWA install prompt */}
+        <PwaInstallPrompt
+          pwaInstalled={pwaInstalled}
+          deferredPrompt={deferredPrompt}
+          isIosDevice={isIosDevice}
+          buildingName={config?.buildingName || localStorage.getItem("active_building_name") || "إدارة الملاك"}
+          onInstall={handlePwaInstall}
+        />
 
 
 
-        {/* Dashboard Tab */}
+                {/* Dashboard Tab */}
         {activeTab === 'dashboard' && (
-          <div className="space-y-4 animate-fade-in text-right">
-            
-            {/* Filter Toggle Year/Month */}
-            <div className="flex flex-col items-center justify-center space-y-2 py-2">
-              <div className="flex items-center gap-6 bg-white px-6 py-3 rounded-2xl border border-slate-100 shadow-sm">
-                <button 
-                  onClick={() => {
-                    if (viewMode === 'year') {
-                      setCurrentYear(prev => prev - 1);
-                    } else {
-                      if (currentMonth === 0) {
-                        setCurrentMonth(11);
-                        setCurrentYear(prev => prev - 1);
-                      } else {
-                        setCurrentMonth(prev => prev - 1);
-                      }
-                    }
-                  }}
-                  className="p-1.5 hover:bg-white/50 rounded-lg text-slate-600 hover:text-blue-900 transition"
-                  title="السابق"
-                >
-                  <ChevronLeft className="w-5 h-5" />
-                </button>
-                
-                <div 
-                  onClick={() => setViewMode(prev => prev === 'year' ? 'month' : 'year')}
-                  className="flex flex-col items-center cursor-pointer select-none min-w-[120px]"
-                >
-                  <span className="text-[10px] text-slate-400 font-extrabold">{viewMode === 'year' ? 'السنة المالية' : 'الفلتر الشهري'}</span>
-                  <span className="text-xl font-black text-blue-950">
-                    {viewMode === 'year' ? currentYear : `${monthNamesArabic[currentMonth]} ${currentYear}`}
-                  </span>
-                </div>
-
-                <button 
-                  onClick={() => {
-                    if (viewMode === 'year') {
-                      setCurrentYear(prev => prev + 1);
-                    } else {
-                      if (currentMonth === 11) {
-                        setCurrentMonth(0);
-                        setCurrentYear(prev => prev + 1);
-                      } else {
-                        setCurrentMonth(prev => prev + 1);
-                      }
-                    }
-                  }}
-                  className="p-1.5 hover:bg-white/50 rounded-lg text-slate-600 hover:text-blue-900 transition"
-                  title="التالي"
-                >
-                  <ChevronRight className="w-5 h-5" />
-                </button>
-              </div>
-              <p className="text-[9px] text-slate-400 font-bold">انقر على الرقم للتبديل بين الفلتر السنوي والشهري</p>
-            </div>
-            
-            {/* Interactive Unit Activities Distribution Bar & Statistical Counters */}
-            <div className="bg-white rounded-2xl p-3.5 sm:p-4 border border-slate-100 shadow-xs space-y-3">
-              {/* Header */}
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-900 flex items-center justify-center shrink-0">
-                    <Building2 className="w-4.5 h-4.5 stroke-[2.2]" />
-                  </div>
-                  <div>
-                    <h3 className="text-xs sm:text-sm font-black text-blue-950 leading-tight">
-                      إحصائيات العمارة
-                    </h3>
-                    <p className="text-[10px] text-slate-400 font-bold">
-                      عداد تفاعلي يتغير حسب النشاط
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-1.5 px-3 py-1 bg-blue-50/80 rounded-xl border border-blue-100 text-xs font-black text-blue-950 shrink-0 dir-rtl">
-                  <span className="text-[10px] text-slate-500 font-extrabold">إجمالي العمارة:</span>
-                  <span className="text-blue-900 font-black">{unitActivityStats.totalUnits} وحدة</span>
-                </div>
-              </div>
-
-              {/* Dynamic Stacked Bar */}
-              <div className="relative pt-0.5">
-                <div className="flex h-4 sm:h-5 w-full rounded-xl overflow-hidden bg-slate-100 p-0.5 gap-0.5 border border-slate-200/70 shadow-xs">
-                  {unitActivityStats.breakdown.map((item, idx) => {
-                    const theme = getActivityTheme(item.activity, idx);
-                    return (
-                      <div
-                        key={item.activity}
-                        style={{ width: `${Math.max(item.percentage, 1.5)}%` }}
-                        className={`${theme.barBg} h-full rounded-md transition-all duration-500 hover:brightness-110 cursor-pointer relative group`}
-                        title={`${item.activity}: ${item.count} وحدة (${item.percentage.toFixed(1)}%)`}
-                        onClick={() => setSelectedActivityModal(item.activity)}
-                      >
-                        {/* Hover Tooltip */}
-                        <div className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 hidden group-hover:flex flex-col items-center z-30 pointer-events-none">
-                          <div className="bg-slate-900 text-white text-[10px] font-bold px-2 py-1 rounded-lg shadow-lg whitespace-nowrap">
-                            {item.activity}: {item.count} وحدة ({item.percentage.toFixed(1)}%)
-                          </div>
-                          <div className="w-1.5 h-1.5 bg-slate-900 rotate-45 -mt-1"></div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Dynamic Counters List - Full Width & Minimal Height */}
-              <div className="flex flex-col gap-1.5 pt-1">
-                {unitActivityStats.breakdown.map((item, idx) => {
-                  const theme = getActivityTheme(item.activity, idx);
-                  return (
-                    <div
-                      key={item.activity}
-                      onClick={() => setSelectedActivityModal(item.activity)}
-                      className={`px-3 py-1.5 sm:py-2 rounded-xl border transition-all cursor-pointer hover:shadow-xs hover:scale-[1.005] active:scale-[0.99] flex items-center justify-between w-full min-h-0 gap-2 ${theme.badgeBg}`}
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className={`w-2.5 h-2.5 rounded-full ${theme.dotBg} shrink-0`} />
-                        <span className="text-xs font-black truncate">{item.activity}</span>
-                        <span className="text-[10px] font-extrabold opacity-75 bg-white/60 px-1.5 py-0.5 rounded-md border border-black/5">
-                          {item.percentage.toFixed(0)}%
-                        </span>
-                      </div>
-
-                      <div className="flex items-center gap-1 shrink-0 dir-rtl">
-                        <span className="text-xs sm:text-sm font-black tracking-tight">{item.count}</span>
-                        <span className="text-[10px] font-extrabold opacity-80">وحدة</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-            
-            {/* High level financial stats metrics - Three in a row as requested */}
-            <div className="grid grid-cols-3 gap-2 sm:gap-4">
-              
-              <div 
-                onClick={() => setActiveTab('payments')}
-                className="bg-white rounded-2xl px-2.5 py-3 border border-slate-100 shadow-xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:border-blue-200 hover:shadow-md transition active:scale-[0.99]"
-              >
-                <div className="w-9 h-9 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center">
-                  <TrendingUp className="w-5 h-5 stroke-[2]" />
-                </div>
-                <div className="text-center">
-                  <span className="text-[9px] text-slate-400 font-extrabold block">الإيرادات</span>
-                  <span className="text-sm sm:text-lg font-black text-emerald-600 leading-tight">
-                    {Math.round(totalReceived)} <span className="text-[10px]">ج.م</span>
-                  </span>
-                </div>
-              </div>
-
-              <div 
-                onClick={() => setActiveTab('expenses')}
-                className="bg-white rounded-2xl px-2.5 py-3 border border-slate-100 shadow-xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:border-blue-200 hover:shadow-md transition active:scale-[0.99]"
-              >
-                <div className="w-9 h-9 bg-red-50 text-red-500 rounded-xl flex items-center justify-center">
-                  <TrendingDown className="w-5 h-5 stroke-[2]" />
-                </div>
-                <div className="text-center">
-                  <span className="text-[9px] text-slate-400 font-extrabold block">المصروفات</span>
-                  <span className="text-sm sm:text-lg font-black text-red-500 leading-tight">
-                    {Math.round(totalSpent)} <span className="text-[10px]">ج.م</span>
-                  </span>
-                </div>
-              </div>
-
-              <div 
-                onClick={() => setActiveTab('summaries')}
-                className="bg-white rounded-2xl px-2.5 py-3 border border-slate-100 shadow-xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:border-blue-200 hover:shadow-md transition active:scale-[0.99]"
-              >
-                <div className="w-9 h-9 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center">
-                  <Wallet className="w-5 h-5 stroke-[2]" />
-                </div>
-                <div className="text-center">
-                  <span className="text-[9px] text-slate-400 font-extrabold block">الرصيد</span>
-                  <span className={`text-sm sm:text-lg font-black leading-tight ${currentSafeBalance >= 0 ? 'text-blue-600' : 'text-red-500'}`}>
-                    {Math.round(currentSafeBalance)} <span className="text-[10px]">ج.م</span>
-                  </span>
-                </div>
-              </div>
-
-            </div>
-
-            {/* Residents Directory Link - Separate row */}
-            <div 
-              onClick={() => setActiveTab('residents')}
-              className="bg-white rounded-2xl px-4 py-2.5 border border-slate-100 shadow-xs flex items-center justify-between cursor-pointer hover:border-blue-200 hover:shadow-md transition active:scale-[0.99] leading-[25px]"
-            >
-              <div className="text-right">
-                <span className="text-[10px] text-slate-400 font-extrabold block mb-0.5">كشف ودليل الوحدات والسكان (بيانات وأرقام الهواتف)</span>
-                <span className="text-xl font-black text-slate-900">{residents.length} <span className="text-xs">وحدة بعمارة الاتحاد</span></span>
-              </div>
-              <div className="w-10 h-10 bg-slate-50 text-slate-600 rounded-xl flex items-center justify-center">
-                <Users className="w-5 h-5 stroke-[1.5]" />
-              </div>
-            </div>
-
-            {/* Quick Access Communication & Services Grid */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between px-1">
-                <span className="text-[10px] text-slate-400 font-extrabold">الوصول السريع للخدمات والمجتمع</span>
-                <h3 className="text-xs font-black text-slate-900">قسم التواصل والخدمات</h3>
-              </div>
-
-              {/* Row 1: Residents Chat spanning full width */}
-              <button
-                onClick={() => {
-                  setChatSubTab('room');
-                  setActiveTab('chat');
-                }}
-                className="w-full bg-white rounded-2xl p-3 sm:p-3.5 border border-slate-100 shadow-xs flex items-center justify-between cursor-pointer hover:border-indigo-300 hover:shadow-md transition active:scale-[0.99] group relative"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 sm:w-11 sm:h-11 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center group-hover:scale-110 transition shrink-0">
-                    <MessageCircle className="w-5 h-5 stroke-[2]" />
-                  </div>
-                  <div className="text-right">
-                    <span className="text-xs sm:text-sm font-black text-slate-900 group-hover:text-indigo-600 transition block">
-                      دردشة السكان
-                    </span>
-                    <span className="text-[8px] leading-[15px] text-slate-400 font-bold block">
-                      غرفة النقاش والمحادثات المباشرة بين سكان وملاك العمارة والمساعد الفني
-                    </span>
-                  </div>
-                </div>
-
-                {messages.length > 0 ? (
-                  <span className="text-[9px] sm:text-[10px] font-black px-2.5 py-1 bg-indigo-100/70 text-indigo-700 rounded-full shrink-0">
-                    {messages.length} رسالة
-                  </span>
-                ) : (
-                  <span className="text-[9px] sm:text-[10px] font-bold text-slate-400 px-2.5 py-1 bg-slate-50 rounded-full shrink-0">
-                    غرفة المناقشة
-                  </span>
-                )}
-              </button>
-
-              {/* Grid of Service Buttons */}
-              <div className="grid grid-cols-3 gap-2 sm:gap-3">
-                
-                {/* 1. Maintenance Requests */}
-                <button
-                  onClick={() => {
-                    setMaintenanceSubTab('requests');
-                    setActiveTab('maintenance');
-                  }}
-                  className="bg-white rounded-2xl p-2.5 sm:p-3.5 border border-slate-100 shadow-xs flex flex-col items-center justify-center gap-1.5 text-center cursor-pointer hover:border-amber-300 hover:shadow-md transition active:scale-[0.98] group relative"
-                >
-                  <div className="w-9 h-9 sm:w-10 sm:h-10 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center group-hover:scale-110 transition">
-                    <Wrench className="w-5 h-5 stroke-[2]" />
-                  </div>
-                  <span className="text-[11px] sm:text-xs font-extrabold text-slate-900 group-hover:text-amber-600 transition leading-tight">
-                    طلبات الصيانة
-                  </span>
-                  {maintenanceRequests.filter(r => r.status !== 'COMPLETED' && (r as any).status !== 'DONE').length > 0 ? (
-                    <span className="text-[8px] sm:text-[9px] font-black px-1.5 py-0.5 bg-amber-100/70 text-amber-700 rounded-full">
-                      {maintenanceRequests.filter(r => r.status !== 'COMPLETED' && (r as any).status !== 'DONE').length} قيد المتابعة
-                    </span>
-                  ) : (
-                    <span className="text-[8px] sm:text-[9px] font-bold text-slate-400">
-                      متابعة وإضافة
-                    </span>
-                  )}
-                </button>
-
-                {/* 2. Craftsmen Directory */}
-                <button
-                  onClick={() => {
-                    setMaintenanceSubTab('directory');
-                    setActiveTab('maintenance');
-                  }}
-                  className="bg-white rounded-2xl p-2.5 sm:p-3.5 border border-slate-100 shadow-xs flex flex-col items-center justify-center gap-1.5 text-center cursor-pointer hover:border-blue-300 hover:shadow-md transition active:scale-[0.98] group relative"
-                >
-                  <div className="w-9 h-9 sm:w-10 sm:h-10 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center group-hover:scale-110 transition">
-                    <HardHat className="w-5 h-5 stroke-[2]" />
-                  </div>
-                  <span className="text-[11px] sm:text-xs font-extrabold text-slate-900 group-hover:text-blue-600 transition leading-tight">
-                    دليل الصنايعية
-                  </span>
-                  {craftsmen.length > 0 ? (
-                    <span className="text-[8px] sm:text-[9px] font-black px-1.5 py-0.5 bg-blue-100/70 text-blue-700 rounded-full">
-                      {craftsmen.length} صنايعي معتمد
-                    </span>
-                  ) : (
-                    <span className="text-[8px] sm:text-[9px] font-bold text-slate-400">
-                      دليل الفنيين
-                    </span>
-                  )}
-                </button>
-
-                {/* 3. Administrative Decisions */}
-                <button
-                  onClick={() => {
-                    setPollsSubTab('decisions');
-                    setActiveTab('polls');
-                  }}
-                  className="bg-white rounded-2xl p-2.5 sm:p-3.5 border border-slate-100 shadow-xs flex flex-col items-center justify-center gap-1.5 text-center cursor-pointer hover:border-emerald-300 hover:shadow-md transition active:scale-[0.98] group relative"
-                >
-                  <div className="w-9 h-9 sm:w-10 sm:h-10 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center group-hover:scale-110 transition">
-                    <Scale className="w-5 h-5 stroke-[2]" />
-                  </div>
-                  <span className="text-[11px] sm:text-xs font-extrabold text-slate-900 group-hover:text-emerald-600 transition leading-tight">
-                    القرارات الإدارية
-                  </span>
-                  {decisions.length > 0 ? (
-                    <span className="text-[8px] sm:text-[9px] font-black px-1.5 py-0.5 bg-emerald-100/70 text-emerald-700 rounded-full">
-                      {decisions.length} قرار إداري
-                    </span>
-                  ) : (
-                    <span className="text-[8px] sm:text-[9px] font-bold text-slate-400">
-                      قرارات الإدارة
-                    </span>
-                  )}
-                </button>
-
-                {/* 4. Complaints & Suggestions */}
-                <button
-                  onClick={() => {
-                    setChatSubTab('complaints');
-                    setActiveTab('chat');
-                  }}
-                  className="bg-white rounded-2xl p-2.5 sm:p-3.5 border border-slate-100 shadow-xs flex flex-col items-center justify-center gap-1.5 text-center cursor-pointer hover:border-rose-300 hover:shadow-md transition active:scale-[0.98] group relative"
-                >
-                  <div className="w-9 h-9 sm:w-10 sm:h-10 bg-rose-50 text-rose-600 rounded-xl flex items-center justify-center group-hover:scale-110 transition">
-                    <AlertTriangle className="w-5 h-5 stroke-[2]" />
-                  </div>
-                  <span className="text-[11px] sm:text-xs font-extrabold text-slate-900 group-hover:text-rose-600 transition leading-tight">
-                    الشكاوى والمقترحات
-                  </span>
-                  {complaints.length > 0 ? (
-                    <span className="text-[8px] sm:text-[9px] font-black px-1.5 py-0.5 bg-rose-100/70 text-rose-700 rounded-full">
-                      {complaints.length} شكوى ومقترح
-                    </span>
-                  ) : (
-                    <span className="text-[8px] sm:text-[9px] font-bold text-slate-400">
-                      صندوق المقترحات
-                    </span>
-                  )}
-                </button>
-
-                {/* 5. Voting & Polls */}
-                <button
-                  onClick={() => {
-                    setPollsSubTab('polls');
-                    setActiveTab('polls');
-                  }}
-                  className="bg-white rounded-2xl p-2.5 sm:p-3.5 border border-slate-100 shadow-xs flex flex-col items-center justify-center gap-1.5 text-center cursor-pointer hover:border-purple-300 hover:shadow-md transition active:scale-[0.98] group relative"
-                >
-                  <div className="w-9 h-9 sm:w-10 sm:h-10 bg-purple-50 text-purple-600 rounded-xl flex items-center justify-center group-hover:scale-110 transition">
-                    <Vote className="w-5 h-5 stroke-[2]" />
-                  </div>
-                  <span className="text-[11px] sm:text-xs font-extrabold text-slate-900 group-hover:text-purple-600 transition leading-tight">
-                    التصويت والاستبيانات
-                  </span>
-                  {polls.length > 0 ? (
-                    <span className="text-[8px] sm:text-[9px] font-black px-1.5 py-0.5 bg-purple-100/70 text-purple-700 rounded-full">
-                      {polls.filter(p => p.status === 'ACTIVE').length} استبيان مفتوح
-                    </span>
-                  ) : (
-                    <span className="text-[8px] sm:text-[9px] font-bold text-slate-400">
-                      استطلاعات الرأي
-                    </span>
-                  )}
-                </button>
-
-                {/* 6. Agenda & Calendar */}
-                <button
-                  onClick={() => {
-                    setActiveTab('calendar');
-                  }}
-                  className="bg-white rounded-2xl p-2.5 sm:p-3.5 border border-slate-100 shadow-xs flex flex-col items-center justify-center gap-1.5 text-center cursor-pointer hover:border-cyan-300 hover:shadow-md transition active:scale-[0.98] group relative"
-                >
-                  <div className="w-9 h-9 sm:w-10 sm:h-10 bg-cyan-50 text-cyan-600 rounded-xl flex items-center justify-center group-hover:scale-110 transition">
-                    <Calendar className="w-5 h-5 stroke-[2]" />
-                  </div>
-                  <span className="text-[11px] sm:text-xs font-extrabold text-slate-900 group-hover:text-cyan-600 transition leading-tight">
-                    الأجندة والتقويم
-                  </span>
-                  {events.length > 0 ? (
-                    <span className="text-[8px] sm:text-[9px] font-black px-1.5 py-0.5 bg-cyan-100/70 text-cyan-700 rounded-full">
-                      {events.length} موعد وحدث
-                    </span>
-                  ) : (
-                    <span className="text-[8px] sm:text-[9px] font-bold text-slate-400">
-                      مواعيد العمارة
-                    </span>
-                  )}
-                </button>
-
-              </div>
-            </div>
-
-            {/* If RESIDENT: Show Personal Resident Account Statement */}
-            {role === 'RESIDENT' ? (
-              <div className="pt-2">
-                <ResidentAccountStatement
-                  resident={currentResidentObj}
-                  residents={residents}
-                  payments={payments}
-                  config={config}
-                  currentYear={currentYear}
-                  isResidentOnly={true}
-                  onPreviewImage={handlePreviewImage}
-                  onOpenResidentsList={() => setActiveTab('residents')}
-                />
-              </div>
-            ) : (
-              <div className="pt-2">
-                <ResidentAccountStatement
-                  resident={residents.find(r => r.id === reportResidentId) || residents.find(r => isSameFlatNumber(r.flatNumber, reportResidentId)) || residents[0]}
-                  residents={residents}
-                  payments={payments}
-                  config={config}
-                  currentYear={currentYear}
-                  isResidentOnly={false}
-                  onSelectResidentId={(id) => setReportResidentId(id)}
-                  onSelectFlatNumber={(flatNum) => {
-                    const found = residents.find(r => isSameFlatNumber(r.flatNumber, flatNum) || String(r.flatNumber) === String(flatNum));
-                    if (found) setReportResidentId(found.id);
-                  }}
-                  onPreviewImage={handlePreviewImage}
-                  onOpenResidentsList={() => setActiveTab('residents')}
-                />
-              </div>
-            )}
-
-          </div>
+          <Dashboard
+            currentYear={currentYear}
+            setCurrentYear={setCurrentYear}
+            currentMonth={currentMonth}
+            setCurrentMonth={setCurrentMonth}
+            viewMode={viewMode}
+            setViewMode={setViewMode}
+            residents={residents}
+            payments={payments}
+            expenses={expenses}
+            config={config}
+            role={role}
+            currentResidentObj={currentResidentObj}
+            reportResidentId={reportResidentId}
+            setReportResidentId={setReportResidentId}
+            unitActivityStats={unitActivityStats}
+            getActivityTheme={getActivityTheme}
+            totalReceived={totalReceived}
+            totalSpent={totalSpent}
+            currentSafeBalance={currentSafeBalance}
+            messages={messages}
+            maintenanceRequests={maintenanceRequests}
+            craftsmen={craftsmen}
+            decisions={decisions}
+            complaints={complaints}
+            polls={polls}
+            events={events}
+            onNavigateTab={setActiveTab}
+            onSetChatSubTab={setChatSubTab}
+            onSetMaintenanceSubTab={setMaintenanceSubTab}
+            onSetPollsSubTab={setPollsSubTab}
+            onSelectActivityModal={setSelectedActivityModal}
+            onPreviewImage={handlePreviewImage}
+          />
         )}
 
         {/* Residents Tab */}
@@ -4125,394 +2988,47 @@ export default function App() {
         />
       )}
 
-      {/* High-Resolution Document & Image Preview Overlay */}
-      {previewImage && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-2 sm:p-4 md:p-6" dir="rtl">
-          <div className="w-full max-w-6xl md:max-w-7xl h-[92vh] max-h-[92vh] bg-slate-900 text-white rounded-3xl p-3 sm:p-5 relative flex flex-col shadow-2xl overflow-hidden border border-slate-800 animate-scale-up">
-            {/* Header Toolbar */}
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800 z-10 shrink-0">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-blue-600/20 text-blue-400 flex items-center justify-center shrink-0">
-                  <Eye className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-black text-white leading-tight">معاينة صورة المستند / الإيصال</h3>
-                  <p className="text-[10px] text-slate-400 font-bold hidden sm:block">تكبير، تدوير ومراجعة تفاصيل الفواتير والتحصيلات بأكبر حجم واضوح متاح</p>
-                </div>
-              </div>
+            {/* High-Resolution Document & Image Preview Overlay */}
+      <ImagePreviewModal
+        imageUrl={previewImage}
+        isLoading={previewLoading}
+        onClose={closePreview}
+      />
 
-              {/* Controls */}
-              <div className="flex items-center gap-1.5 sm:gap-2">
-                {!previewLoading && previewImage !== 'loading' && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => setPreviewZoom(prev => {
-                        const next = Math.max(0.5, prev - 0.25);
-                        if (next <= 1) setPreviewPan({ x: 0, y: 0 });
-                        return next;
-                      })}
-                      className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl transition text-xs font-bold flex items-center gap-1 cursor-pointer"
-                      title="تصغير (-)"
-                    >
-                      <ZoomOut className="w-4 h-4" />
-                    </button>
+            {/* Building Rules Modals */}
+      <BuildingRulesModal
+        isOpen={showRulesReadModal}
+        mode="view"
+        rules={rules}
+        role={role}
+        onClose={() => setShowRulesReadModal(false)}
+      />
 
-                    <button
-                      type="button"
-                      onClick={() => { setPreviewZoom(1); setPreviewRotation(0); setPreviewPan({ x: 0, y: 0 }); }}
-                      className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-blue-400 rounded-xl transition text-xs font-black cursor-pointer min-w-[55px] text-center"
-                      title="إعادة ضبط 100%"
-                    >
-                      {Math.round(previewZoom * 100)}%
-                    </button>
+      <BuildingRulesModal
+        isOpen={showRulesEditModal}
+        mode="edit"
+        rules={rules}
+        role={role}
+        onClose={() => setShowRulesEditModal(false)}
+        onAddRule={(text) => {
+          const updatedRules = [...rules, text];
+          setRules(updatedRules);
+          offlineSync.saveCachedData('rules', { rules: updatedRules });
+          firestoreService.saveRulesToFirestore(updatedRules)
+            .catch(() => offlineSync.enqueueAction('UPDATE_RULES', updatedRules));
+          addNotification('تحديث اللائحة', 'تمت إضافة مادة جديدة للائحة تعليمات العمارة.', 'success');
+        }}
+        onDeleteRule={handleDeleteRule}
+      />
 
-                    <button
-                      type="button"
-                      onClick={() => setPreviewZoom(prev => Math.min(5, prev + 0.25))}
-                      className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl transition text-xs font-bold flex items-center gap-1 cursor-pointer"
-                      title="تكبير (+)"
-                    >
-                      <ZoomIn className="w-4 h-4" />
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setPreviewRotation(prev => (prev + 90) % 360)}
-                      className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl transition text-xs font-bold flex items-center gap-1 cursor-pointer"
-                      title="تدوير 90 درجة"
-                    >
-                      <RotateCw className="w-4 h-4" />
-                    </button>
-
-                    <a
-                      href={previewImage}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="p-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl transition text-xs font-bold flex items-center gap-1.5 cursor-pointer hidden sm:flex"
-                      title="فتح بالحجم الأصلي في تبويب جديد"
-                    >
-                      <Share2 className="w-4 h-4" />
-                      <span className="hidden md:inline">فتح بالأصل</span>
-                    </a>
-                  </>
-                )}
-
-                <button
-                  type="button"
-                  onClick={closePreview}
-                  className="p-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 hover:text-red-300 rounded-xl transition cursor-pointer"
-                  title="إغلاق"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-
-            {/* Canvas / Image Stage */}
-            <div 
-              className="flex-1 w-full h-full flex items-center justify-center bg-black/60 rounded-2xl overflow-hidden p-2 sm:p-4 my-2 relative select-none border border-slate-800/80 touch-none cursor-grab active:cursor-grabbing"
-              onTouchStart={handleStageTouchStart}
-              onTouchMove={handleStageTouchMove}
-              onTouchEnd={handleStageTouchEnd}
-              onMouseDown={handleStageMouseDown}
-              onMouseMove={handleStageMouseMove}
-              onMouseUp={handleStageMouseUp}
-              onMouseLeave={handleStageMouseUp}
-              onWheel={handleStageWheel}
-            >
-              {previewLoading ? (
-                <div className="flex flex-col items-center gap-3">
-                  <RefreshCw className="w-10 h-10 text-blue-500 animate-spin" />
-                  <span className="text-sm font-bold text-slate-300">جاري تحميل صورة المستند بأعلى دقة...</span>
-                </div>
-              ) : (
-                <div className="w-full h-full flex items-center justify-center overflow-hidden p-2">
-                  <img
-                    src={previewImage === 'loading' ? '' : previewImage}
-                    alt="Receipt or Invoice document"
-                    referrerPolicy="no-referrer"
-                    style={{
-                      transform: `translate(${previewPan.x}px, ${previewPan.y}px) scale(${previewZoom}) rotate(${previewRotation}deg)`,
-                      transition: (touchStartDistRef.current || touchStartPosRef.current || isMouseDownRef.current) ? 'none' : 'transform 0.15s ease-out'
-                    }}
-                    className="max-w-full max-h-[84vh] object-contain rounded-lg shadow-2xl origin-center pointer-events-auto"
-                  />
-                </div>
-              )}
-            </div>
-
-            {/* Footer */}
-            <div className="flex justify-between items-center pt-2 shrink-0 text-slate-400 text-xs font-semibold">
-              <span className="text-[11px] text-slate-400">
-                يمكنك التكبير والتصغير بالسحب بالإصبعين (Pinch to Zoom) أو النقر المزدوج على الموبايل، والسحب للتنقل
-              </span>
-              {!previewLoading && previewImage !== 'loading' && (
-                <a
-                  href={previewImage}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="sm:hidden flex items-center gap-1 text-xs font-bold text-blue-400 hover:underline"
-                >
-                  <Share2 className="w-3.5 h-3.5" />
-                  <span>فتح بالأصل</span>
-                </a>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Read-Only Building Rules Modal (Opened from Sidebar for All Residents) */}
-      {showRulesReadModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-3 overflow-y-auto" dir="rtl">
-          <div className="w-full max-w-xl bg-white rounded-2xl p-4 sm:p-5 border border-slate-100 shadow-xl animate-scale-up text-right my-auto">
-            <div className="flex items-center justify-between border-b pb-2.5 mb-3">
-              <button 
-                onClick={() => setShowRulesReadModal(false)} 
-                className="p-1.5 hover:bg-slate-50 rounded-lg transition"
-                title="إغلاق"
-              >
-                <X className="w-4 h-4 text-slate-400" />
-              </button>
-              <div className="flex items-center gap-2">
-                <div className="text-right">
-                  <h3 className="text-sm font-black text-slate-900">تعليمات ونظام إدارة العمارة</h3>
-                  <p className="text-[10px] text-slate-400 font-bold">اللائحة الداخلية المنظمة للعقار وقواعد حسن الجوار</p>
-                </div>
-                <div className="w-8 h-8 bg-yellow-50 text-yellow-700 rounded-lg flex items-center justify-center border border-yellow-200/50">
-                  <BookOpen className="w-4 h-4" />
-                </div>
-              </div>
-            </div>
-
-            {/* Notice banner in soft light yellow */}
-            <div className="bg-yellow-50/60 border border-yellow-200/60 rounded-xl p-2.5 text-yellow-900 text-xs font-bold text-right leading-relaxed mb-3">
-              <span className="text-[11px] font-bold">هذه اللائحة معتمدة من مجلس إدارة اتحاد الملاك للاطلاع والالتزام لكافة الملاك والسكان.</span>
-            </div>
-
-            {/* Rules list */}
-            <div className="space-y-2">
-              {rules.length === 0 ? (
-                <div className="text-center py-8 border border-dashed border-slate-100 rounded-xl flex flex-col items-center justify-center gap-1.5">
-                  <BookOpen className="w-6 h-6 text-slate-300" />
-                  <p className="text-xs text-slate-400 font-bold">لا توجد مواد تعليمات مسجلة حالياً في اللائحة.</p>
-                </div>
-              ) : (
-                rules.map((rule, idx) => (
-                  <div key={idx} className="p-2.5 bg-slate-50/60 border border-slate-100 rounded-xl flex items-start gap-2.5">
-                    <span className="inline-flex items-center justify-center px-2 py-0.5 bg-yellow-50 text-yellow-900 border border-yellow-200/50 text-[10px] font-black rounded-md shrink-0 mt-0.5">
-                      مادة {idx + 1}
-                    </span>
-                    <p className="text-xs text-slate-700 font-bold leading-relaxed flex-1 text-right">
-                      {rule}
-                    </p>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Edit Building Rules Modal (Dedicated for Admins/Managers in Settings) */}
-      {showRulesEditModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-3 overflow-y-auto" dir="rtl">
-          <div className="w-full max-w-xl bg-white rounded-2xl p-4 sm:p-5 border border-slate-100 shadow-xl animate-scale-up text-right my-auto">
-            <div className="flex items-center justify-between border-b pb-2.5 mb-3">
-              <button 
-                onClick={() => setShowRulesEditModal(false)} 
-                className="p-1.5 hover:bg-slate-50 rounded-lg transition"
-                title="إغلاق"
-              >
-                <X className="w-4 h-4 text-slate-400" />
-              </button>
-              <div className="flex items-center gap-2">
-                <div className="text-right">
-                  <h3 className="text-sm font-black text-slate-900">تعديل وصياغة لوائح وتعليمات العمارة</h3>
-                  <p className="text-[10px] text-slate-400 font-bold">لوحة تحكم إدارة الاتحاد لإضافة وتعديل وحذف بنود اللائحة</p>
-                </div>
-                <div className="w-8 h-8 bg-blue-50 text-blue-900 rounded-lg flex items-center justify-center">
-                  <BookOpen className="w-4 h-4" />
-                </div>
-              </div>
-            </div>
-
-            {/* Form to add rules */}
-            {role !== 'RESIDENT' && (
-              <form onSubmit={handleAddRule} className="flex gap-1.5 mb-4">
-                <button
-                  type="submit"
-                  className="px-3.5 py-2 bg-blue-900 text-white font-bold text-xs rounded-xl hover:bg-blue-950 transition flex items-center gap-1 cursor-pointer shrink-0"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>إضافة بند</span>
-                </button>
-                <input
-                  type="text"
-                  placeholder="صياغة مادة جديدة في اللائحة..."
-                  value={newRuleText}
-                  onChange={(e) => setNewRuleText(e.target.value)}
-                  className="flex-1 px-3 py-2 bg-slate-50 border border-slate-100 focus:bg-white rounded-xl text-xs outline-none text-right font-bold transition"
-                  required
-                />
-              </form>
-            )}
-
-            {/* List with delete buttons */}
-            <div className="space-y-2">
-              {rules.length === 0 ? (
-                <p className="text-center text-xs text-slate-400 font-bold py-6">لا توجد مواد تعليمات مسجلة حالياً.</p>
-              ) : (
-                rules.map((rule, idx) => (
-                  <div key={idx} className="flex items-center gap-3 justify-between p-2.5 bg-slate-50/60 border border-slate-100 rounded-xl">
-                    {role !== 'RESIDENT' && (
-                      <button
-                        onClick={() => handleDeleteRule(idx)}
-                        className="text-red-500 hover:text-red-700 p-1 hover:bg-red-50 rounded-lg transition cursor-pointer shrink-0"
-                        title="إزالة هذا البند"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                    <div className="flex items-start gap-2 flex-1 text-right">
-                      <span className="inline-flex items-center justify-center px-1.5 py-0.5 bg-yellow-50 text-yellow-900 border border-yellow-200/50 text-[10px] font-black rounded-md shrink-0 mt-0.5">
-                        مادة {idx + 1}
-                      </span>
-                      <p className="text-xs text-slate-700 font-bold leading-relaxed flex-1">
-                        {rule}
-                      </p>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-
-            <div className="mt-4 pt-3 border-t border-slate-100 flex justify-end">
-              <button
-                onClick={() => setShowRulesEditModal(false)}
-                className="px-4 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer"
-              >
-                إغلاق
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal for Selected Activity Units */}
-      {selectedActivityModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4" dir="rtl" onClick={() => setSelectedActivityModal(null)}>
-          <div className="bg-white rounded-3xl border border-slate-100 shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[85vh] animate-scale-up text-right" onClick={e => e.stopPropagation()}>
-            
-            {/* Modal Header */}
-            <div className="p-4 sm:p-5 bg-gradient-to-r from-blue-900 to-indigo-900 text-white flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-10 h-10 bg-white/10 rounded-2xl flex items-center justify-center font-black">
-                  <Building2 className="w-5 h-5 text-blue-200" />
-                </div>
-                <div>
-                  <h3 className="text-sm sm:text-base font-black">وحدات نشاط: {selectedActivityModal}</h3>
-                  <p className="text-[11px] text-blue-200 font-semibold">
-                    تفاصيل كافة الوحدات المسجلة تحت هذا النشاط
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setSelectedActivityModal(null)}
-                className="p-2 text-white/80 hover:text-white hover:bg-white/10 rounded-xl transition cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Units List */}
-            <div className="p-4 overflow-y-auto space-y-2 flex-1">
-              {(() => {
-                const matchingResidents = residents.filter(r => (r.activityType || 'سكني').trim() === selectedActivityModal)
-                  .sort((a, b) => compareFlatNumbers(a.flatNumber, b.flatNumber));
-
-                if (selectedActivityModal === 'شاغرة') {
-                  const effectiveFloors = Array.isArray(buildingLayout) ? buildingLayout : deriveFloorConfigsFromResidents(residents);
-                  const registeredSet = new Set(residents.map(r => String(r.flatNumber).trim()));
-                  const vacantFlats: string[] = [];
-                  effectiveFloors.forEach(f => {
-                    getUnitNumbersForFloor(f).forEach(u => {
-                      if (!registeredSet.has(String(u).trim())) vacantFlats.push(String(u));
-                    });
-                  });
-
-                  if (vacantFlats.length === 0) {
-                    return (
-                      <div className="text-center py-8 text-slate-400 font-bold text-xs">
-                        لا توجد أي وحدات شاغرة بالعمارة حالياً.
-                      </div>
-                    );
-                  }
-
-                  return (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                      {vacantFlats.map(fNum => (
-                        <div key={fNum} className="p-3 bg-slate-50 rounded-2xl border border-slate-200 flex flex-col items-center justify-center">
-                          <span className="text-xs font-black text-slate-800">شقة {fNum}</span>
-                          <span className="text-[10px] text-slate-500 font-bold">شاغرة / غير مسجل</span>
-                        </div>
-                      ))}
-                    </div>
-                  );
-                }
-
-                if (matchingResidents.length === 0) {
-                  return (
-                    <div className="text-center py-8 text-slate-400 font-bold text-xs">
-                      لا توجد وحدات مسجلة تحت هذا النشاط حالياً.
-                    </div>
-                  );
-                }
-
-                return (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {matchingResidents.map(r => (
-                      <div key={r.id} className="p-3 bg-slate-50 rounded-2xl border border-slate-100 space-y-1 hover:border-blue-200 transition">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-black text-blue-950">شقة {r.flatNumber}</span>
-                          <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-blue-100 text-blue-900">
-                            {r.ownershipType || 'تمليك'}
-                          </span>
-                        </div>
-                        <div className="text-xs font-bold text-slate-700 truncate">{r.name}</div>
-                        {r.phone && (
-                          <div className="text-[10px] text-slate-500 font-medium font-mono phone-number-display" dir="ltr">{formatPhoneForDisplay(r.phone)}</div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                );
-              })()}
-            </div>
-
-            {/* Modal Footer */}
-            <div className="p-3.5 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
-              <button
-                onClick={() => {
-                  setSelectedActivityModal(null);
-                  setActiveTab('residents');
-                }}
-                className="px-4 py-2 bg-blue-900 hover:bg-blue-950 text-white font-bold rounded-xl text-xs transition cursor-pointer shadow-xs flex items-center gap-1.5"
-              >
-                <span>عرض كشف كافة الوحدات</span>
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => setSelectedActivityModal(null)}
-                className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-xl text-xs transition cursor-pointer"
-              >
-                إغلاق
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+            {/* Modal for Selected Activity Units */}
+      <ActivityUnitsModal
+        activity={selectedActivityModal}
+        residents={residents}
+        buildingLayout={buildingLayout}
+        onClose={() => setSelectedActivityModal(null)}
+        onNavigateToResidents={() => setActiveTab('residents')}
+      />
 
       {/* Footer (Rendered across all pages including complaints & suggestions box; hidden only in live chat room for full-screen messaging) */}
       {(activeTab !== 'chat' || chatSubTab === 'complaints') && (

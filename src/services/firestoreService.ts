@@ -60,10 +60,18 @@ export function getBuildingCacheKey(key: string): string {
 }
 
 export function getBuildingColRef(colName: string) {
+  const activeId = getActiveBuildingId();
+  if (activeId && activeId !== DEFAULT_BUILDING_ID) {
+    return collection(db, 'buildings', activeId, colName);
+  }
   return collection(db, colName);
 }
 
 export function getBuildingDocRef(colName: string, docId: string) {
+  const activeId = getActiveBuildingId();
+  if (activeId && activeId !== DEFAULT_BUILDING_ID) {
+    return doc(db, 'buildings', activeId, colName, docId);
+  }
   return doc(db, colName, docId);
 }
 
