@@ -95,7 +95,7 @@ import { ImagePreviewModal } from './components/modals/ImagePreviewModal';
 import { BuildingRulesModal } from './components/modals/BuildingRulesModal';
 import { ActivityUnitsModal } from './components/modals/ActivityUnitsModal';
 import { calculateResidentFinancials } from './utils/financialCalculations';
-import { removeUnitFromBuildingLayout, addUnitToBuildingLayout, compareFlatNumbers, isSameFlatNumber, parseFlatNumber, getUnitNumbersForFloor, deriveFloorConfigsFromResidents } from './utils/buildingStructure';
+import { removeUnitFromBuildingLayout, addUnitToBuildingLayout, compareFlatNumbers, isSameFlatNumber, parseFlatNumber, getUnitNumbersForFloor, deriveFloorConfigsFromResidents, deduplicateResidents } from './utils/buildingStructure';
 import { formatMobileNumber, formatPhoneForDisplay } from './utils/phoneUtils';
 import { 
   canDeleteChatMessage, 
@@ -984,36 +984,34 @@ export default function App() {
       let changed = false;
 
       for (const req of approvedReqs) {
-        const found = list.find(r => isSameFlatNumber(r.flatNumber, req.flatNumber));
-        if (!found) {
-          changed = true;
-          const resName = req.residentType === 'OWNER' ? (req.ownerName || 'ساكن جديد') : (req.tenantName || 'ساكن جديد');
-          const resPhone = formatMobileNumber(req.residentType === 'OWNER' ? req.ownerPhone : (req.tenantPhone || ''));
-          const newRes: Resident = {
-            id: `res_req_${req.id}`,
-            flatNumber: req.flatNumber,
+        const foundIdx = list.findIndex(r => isSameFlatNumber(r.flatNumber, req.flatNumber));
+        if (foundIdx !== -1) {
+          // Only update existing resident that was registered manually by union president
+          const existing = list[foundIdx];
+          const resName = req.residentType === 'OWNER' && req.ownerName ? req.ownerName : existing.name;
+          const resPhone = req.residentType === 'OWNER' && req.ownerPhone ? formatMobileNumber(req.ownerPhone) : existing.phone;
+          const updated: Resident = {
+            ...existing,
             name: resName,
             phone: resPhone,
-            activityType: 'سكني',
             ownershipType: req.residentType === 'OWNER' ? 'تمليك' : 'إيجار',
-            tenantName: req.residentType === 'TENANT' ? req.tenantName : '',
-            tenantPhone: formatMobileNumber(req.tenantPhone || ''),
-            monthlyFee: config?.defaultMonthlyFee || 400,
-            initialBalance: 0,
-            notes: 'تم الانضمام عبر طلب التسجيل الإلكتروني المعتمد',
+            tenantName: req.residentType === 'TENANT' ? (req.tenantName || existing.tenantName) : existing.tenantName,
+            tenantPhone: req.residentType === 'TENANT' && req.tenantPhone ? formatMobileNumber(req.tenantPhone) : existing.tenantPhone,
           };
-          list.push(newRes);
-          // Persist to Firestore automatically
-          firestoreService.saveResidentToFirestore(newRes).catch(() => {});
+          list[foundIdx] = updated;
+          changed = true;
+          firestoreService.saveResidentToFirestore(updated).catch(() => {});
         }
       }
 
       if (changed) {
-        offlineSync.saveCachedData('residents', list);
+        const deduplicated = deduplicateResidents(list);
+        offlineSync.saveCachedData('residents', deduplicated);
+        return deduplicated;
       }
-      return list;
+      return deduplicateResidents(list);
     } catch {
-      return currentResidents;
+      return deduplicateResidents(currentResidents);
     }
   };
 
@@ -1046,45 +1044,46 @@ export default function App() {
       const syncedResidents = await syncApprovedRequestsWithResidents(loadedResidents);
 
       if (syncedResidents && syncedResidents.length > 0) {
-        setResidents(syncedResidents);
-        offlineSync.saveCachedData('residents', syncedResidents);
+        const uniqueResidents = deduplicateResidents(syncedResidents);
+        setResidents(uniqueResidents);
+        offlineSync.saveCachedData('residents', uniqueResidents);
+        if (uniqueResidents.length < syncedResidents.length) {
+          const keptIds = new Set(uniqueResidents.map(r => r.id));
+          syncedResidents.forEach(r => {
+            if (!keptIds.has(r.id)) {
+              firestoreService.deleteResidentFromFirestore(r.id).catch(() => {});
+            }
+          });
+        }
       }
 
-      if (loadedPayments && loadedPayments.length > 0) {
+      if (loadedPayments) {
         setPayments(loadedPayments);
         offlineSync.saveCachedData('payments', loadedPayments);
       }
 
-      if (loadedExpenses && loadedExpenses.length > 0) {
+      if (loadedExpenses) {
         setExpenses(loadedExpenses);
         offlineSync.saveCachedData('expenses', loadedExpenses);
       }
 
-      if (loadedRules && loadedRules.length > 0) {
+      if (loadedRules) {
         setRules(loadedRules);
         offlineSync.saveCachedData('rules', { rules: loadedRules });
       }
 
-      if (loadedCraftsmen && loadedCraftsmen.length > 0) {
+      if (loadedCraftsmen) {
         setCraftsmen(loadedCraftsmen);
         offlineSync.saveCachedData('craftsmen', loadedCraftsmen);
       }
 
       const delMsgIds = deletedMessageIdsRef.current;
       const delCompIds = deletedComplaintIdsRef.current;
-      const safeLoadedMessages = loadedMessages ? loadedMessages.filter(m => !delMsgIds.has(m.id)).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()) : [];
-      const safeLoadedComplaints = loadedComplaints ? loadedComplaints.filter(c => !delCompIds.has(c.id)).sort((a, b) => (b.date || '').localeCompare(a.date || '')) : [];
+      const safeLoadedMessages = (loadedMessages || []).filter(m => !delMsgIds.has(m.id)).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      const safeLoadedComplaints = (loadedComplaints || []).filter(c => !delCompIds.has(c.id)).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 
-      if (safeLoadedMessages && safeLoadedMessages.length > 0) {
-        setMessages(prev => {
-          const map = new Map<string, ChatMessage>();
-          prev.forEach(m => map.set(String(m.id), m));
-          safeLoadedMessages.forEach(m => map.set(String(m.id), m));
-          const list = Array.from(map.values()).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-          offlineSync.saveCachedData('chat_messages', list);
-          return list;
-        });
-      }
+      setMessages(safeLoadedMessages);
+      offlineSync.saveCachedData('chat_messages', safeLoadedMessages);
 
       if (loadedDecisions) {
         const sortedDec = loadedDecisions.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
@@ -1224,15 +1223,25 @@ export default function App() {
 
   const setAllResidents = async (newResidents: Resident[]) => {
     if (role === 'RESIDENT') return;
-    const previousResidents = [...residents];
-    setResidents(newResidents);
-    offlineSync.saveCachedData('residents', newResidents);
+    const cleanResidents = deduplicateResidents(newResidents);
+    setResidents(cleanResidents);
+    offlineSync.saveCachedData('residents', cleanResidents);
     
     // Proactively clear any pending individual resident actions from the queue
     offlineSync.clearResidentActionsFromQueue();
+
+    // Clean any discarded duplicate IDs from Firestore in background
+    if (cleanResidents.length < newResidents.length) {
+      const keptIds = new Set(cleanResidents.map(r => r.id));
+      newResidents.forEach(r => {
+        if (!keptIds.has(r.id)) {
+          firestoreService.deleteResidentFromFirestore(r.id).catch(() => {});
+        }
+      });
+    }
     
     try {
-      await firestoreService.saveBatchResidentsToFirestore(newResidents);
+      await firestoreService.saveBatchResidentsToFirestore(cleanResidents);
     } catch (err) {
       logError(err, 'setAllResidents');
     }
@@ -1291,19 +1300,23 @@ export default function App() {
     addNotification('تعديل بيانات ساكن', `تم حفظ التعديلات للوحدة ${resident.flatNumber} (${resident.name}) بنجاح.`, 'success', 'registration');
   };
 
-  const deleteResident = (id: string) => {
+  const deleteResident = async (id: string) => {
     if (role === 'RESIDENT') return;
-    const resident = residents.find(r => r.id === id);
+    const cleanId = String(id);
+    const resident = residents.find(r => String(r.id) === cleanId);
     if (!resident) return;
 
     const flatToRemove = resident.flatNumber;
 
+    // Purge from offline queue
+    offlineSync.purgeEntityFromQueue(cleanId);
+
     // Immediately persist removal in local state and offline cache
-    const updatedResidents = residents.filter((r) => r.id !== id);
+    const updatedResidents = residents.filter((r) => String(r.id) !== cleanId);
     setResidents(updatedResidents);
     offlineSync.saveCachedData('residents', updatedResidents);
 
-    const updatedPayments = payments.filter((p) => p.residentId !== id);
+    const updatedPayments = payments.filter((p) => String(p.residentId) !== cleanId);
     setPayments(updatedPayments);
     offlineSync.saveCachedData('payments', updatedPayments);
 
@@ -1316,14 +1329,14 @@ export default function App() {
     setConfig(updatedConfig);
     offlineSync.saveCachedData('config', updatedConfig);
 
-    firestoreService.deleteResidentFromFirestore(id)
-      .then(() => firestoreService.saveConfigToFirestore(updatedConfig))
-      .catch(err => {
-        logError(err, 'deleteResident');
-        offlineSync.enqueueAction('DELETE_RESIDENT', { id });
-      });
-
-    addNotification('حذف وحدة / ساكن', `تم حذف الوحدة ${flatToRemove} والساكن ${resident.name} نهائياً من كشف الوحدات وخريطة العمارة وجميع الجداول.`, 'info', 'registration');
+    try {
+      await firestoreService.deleteResidentFromFirestore(cleanId);
+      await firestoreService.saveConfigToFirestore(updatedConfig);
+      addNotification('حذف وحدة / ساكن', `تم حذف الوحدة ${flatToRemove} والساكن ${resident.name} نهائياً من كشف الوحدات وخريطة العمارة وجميع الجداول.`, 'info', 'registration');
+    } catch (err) {
+      logError(err, 'deleteResident');
+      offlineSync.enqueueAction('DELETE_RESIDENT', { id: cleanId });
+    }
   };
 
   const addPayment = (payment: Payment, base64Image?: string) => {
@@ -1381,22 +1394,25 @@ export default function App() {
       });
   };
 
-  const deletePayment = (id: string) => {
-    const target = payments.find(p => p.id === id);
-    const updatedPayments = payments.filter((p) => p.id !== id);
+  const deletePayment = async (id: string) => {
+    const cleanId = String(id);
+    const target = payments.find(p => String(p.id) === cleanId);
+    
+    offlineSync.purgeEntityFromQueue(cleanId);
+
+    const updatedPayments = payments.filter((p) => String(p.id) !== cleanId);
     setPayments(updatedPayments);
     offlineSync.saveCachedData('payments', updatedPayments);
 
-    firestoreService.deletePaymentFromFirestore(id)
-      .then(() => {
-        if (target) {
-          addNotification('حذف دفعة', `تم حذف دفعة الوحدة ${target.flatNumber} بقيمة ${target.amount} ج.م.`, 'info', 'services');
-        }
-      })
-      .catch(err => {
-        logError(err, 'deletePayment');
-        offlineSync.enqueueAction('DELETE_PAYMENT', { id });
-      });
+    try {
+      await firestoreService.deletePaymentFromFirestore(cleanId);
+      if (target) {
+        addNotification('حذف دفعة', `تم حذف دفعة الوحدة ${target.flatNumber} بقيمة ${target.amount} ج.م نهائياً.`, 'info', 'services');
+      }
+    } catch (err) {
+      logError(err, 'deletePayment');
+      offlineSync.enqueueAction('DELETE_PAYMENT', { id: cleanId });
+    }
   };
 
   const addExpense = (expense: Expense, base64Image?: string) => {
@@ -1450,20 +1466,24 @@ export default function App() {
       });
   };
 
-  const deleteExpense = (id: string) => {
-    const target = expenses.find(e => e.id === id);
-    const updatedExpenses = expenses.filter((e) => e.id !== id);
+  const deleteExpense = async (id: string) => {
+    const cleanId = String(id);
+    const target = expenses.find(e => String(e.id) === cleanId);
+
+    offlineSync.purgeEntityFromQueue(cleanId);
+
+    const updatedExpenses = expenses.filter((e) => String(e.id) !== cleanId);
     setExpenses(updatedExpenses);
     offlineSync.saveCachedData('expenses', updatedExpenses);
 
-    firestoreService.deleteExpenseFromFirestore(id)
-      .catch(err => {
-        logError(err, 'deleteExpense');
-        offlineSync.enqueueAction('DELETE_EXPENSE', { id });
-      });
-
-    if (target) {
-      addNotification('حذف مصروف', `تم حذف مصروف ${target.expenseType} بقيمة ${target.amount} ج.م.`, 'info', 'services');
+    try {
+      await firestoreService.deleteExpenseFromFirestore(cleanId);
+      if (target) {
+        addNotification('حذف مصروف', `تم حذف مصروف ${target.expenseType} بقيمة ${target.amount} ج.م نهائياً.`, 'info', 'services');
+      }
+    } catch (err) {
+      logError(err, 'deleteExpense');
+      offlineSync.enqueueAction('DELETE_EXPENSE', { id: cleanId });
     }
   };
 
@@ -1566,23 +1586,27 @@ export default function App() {
     addNotification('تحديث طلب الصيانة', 'تم تحديث حالة/تفاصيل طلب الصيانة بنجاح.', 'info', 'services');
   };
 
-  const deleteMaintenanceRequest = (id: string) => {
-    const target = maintenanceRequests.find(req => req.id === id);
+  const deleteMaintenanceRequest = async (id: string) => {
+    const cleanId = String(id);
+    const target = maintenanceRequests.find(req => String(req.id) === cleanId);
     if (!target) return;
 
     if (!canDeleteMaintenanceRequest(target, role, user, flatNumber)) {
       return;
     }
 
-    const updated = maintenanceRequests.filter(req => req.id !== id);
+    offlineSync.purgeEntityFromQueue(cleanId);
+
+    const updated = maintenanceRequests.filter(req => String(req.id) !== cleanId);
     setMaintenanceRequests(updated);
     offlineSync.saveCachedData('maintenance', updated);
     
-    firestoreService.deleteMaintenanceFromFirestore(id)
-      .catch(err => {
-        logError(err, 'deleteMaintenanceRequest');
-        offlineSync.enqueueAction('DELETE_MAINTENANCE', { id });
-      });
+    try {
+      await firestoreService.deleteMaintenanceFromFirestore(cleanId);
+    } catch (err) {
+      logError(err, 'deleteMaintenanceRequest');
+      offlineSync.enqueueAction('DELETE_MAINTENANCE', { id: cleanId });
+    }
   };
 
   // Craftsmen Directory Handlers
@@ -1599,23 +1623,27 @@ export default function App() {
     addNotification('إضافة فني بالدليل', `تمت إضافة الفني "${craftsman.name}" (${craftsman.specialty}) لدليل الخدمات.`, 'success', 'services');
   };
 
-  const deleteCraftsman = (id: string) => {
-    const target = craftsmen.find(c => c.id === id);
+  const deleteCraftsman = async (id: string) => {
+    const cleanId = String(id);
+    const target = craftsmen.find(c => String(c.id) === cleanId);
     if (!target) return;
 
     if (!canDeleteCraftsman(target, role, user, flatNumber)) {
       return;
     }
 
-    const updated = craftsmen.filter(c => c.id !== id);
+    offlineSync.purgeEntityFromQueue(cleanId);
+
+    const updated = craftsmen.filter(c => String(c.id) !== cleanId);
     setCraftsmen(updated);
     offlineSync.saveCachedData('craftsmen', updated);
     
-    firestoreService.deleteCraftsmanFromFirestore(id)
-      .catch(err => {
-        logError(err, 'deleteCraftsman');
-        offlineSync.enqueueAction('DELETE_CRAFTSMAN', { id });
-      });
+    try {
+      await firestoreService.deleteCraftsmanFromFirestore(cleanId);
+    } catch (err) {
+      logError(err, 'deleteCraftsman');
+      offlineSync.enqueueAction('DELETE_CRAFTSMAN', { id: cleanId });
+    }
   };
 
   const editCraftsman = (updatedCraftsman: Craftsman) => {
@@ -1739,19 +1767,23 @@ export default function App() {
     }
   };
 
-  const deletePoll = (pollId: string) => {
-    const target = polls.find(p => p.id === pollId);
+  const deletePoll = async (pollId: string) => {
+    const cleanId = String(pollId);
+    const target = polls.find(p => String(p.id) === cleanId);
     if (!target || !canDeletePoll(target, role)) return;
 
-    const updated = polls.filter(p => p.id !== pollId);
+    offlineSync.purgeEntityFromQueue(cleanId);
+
+    const updated = polls.filter(p => String(p.id) !== cleanId);
     setPolls(updated);
     offlineSync.saveCachedData('polls', updated);
     
-    firestoreService.deletePollFromFirestore(pollId)
-      .catch(err => {
-        logError(err, 'deletePoll');
-        offlineSync.enqueueAction('DELETE_POLL', { id: pollId });
-      });
+    try {
+      await firestoreService.deletePollFromFirestore(cleanId);
+    } catch (err) {
+      logError(err, 'deletePoll');
+      offlineSync.enqueueAction('DELETE_POLL', { id: cleanId });
+    }
   };
 
   // Administrative Decisions Handlers
@@ -1780,19 +1812,23 @@ export default function App() {
       });
   };
 
-  const deleteDecision = (id: string) => {
-    const target = decisions.find(d => d.id === id);
+  const deleteDecision = async (id: string) => {
+    const cleanId = String(id);
+    const target = decisions.find(d => String(d.id) === cleanId);
     if (!target || !canDeleteDecision(target, role)) return;
 
-    const updated = decisions.filter(d => d.id !== id);
+    offlineSync.purgeEntityFromQueue(cleanId);
+
+    const updated = decisions.filter(d => String(d.id) !== cleanId);
     setDecisions(updated);
     offlineSync.saveCachedData('admin_decisions', updated);
     
-    firestoreService.deleteDecisionFromFirestore(id)
-      .catch(err => {
-        logError(err, 'deleteDecision');
-        offlineSync.enqueueAction('DELETE_DECISION', { id });
-      });
+    try {
+      await firestoreService.deleteDecisionFromFirestore(cleanId);
+    } catch (err) {
+      logError(err, 'deleteDecision');
+      offlineSync.enqueueAction('DELETE_DECISION', { id: cleanId });
+    }
   };
 
   // Building Events Handlers
@@ -1823,16 +1859,20 @@ export default function App() {
     }
   };
 
-  const deleteBuildingEvent = (id: string) => {
-    const updated = events.filter(ev => ev.id !== id);
+  const deleteBuildingEvent = async (id: string) => {
+    const cleanId = String(id);
+    offlineSync.purgeEntityFromQueue(cleanId);
+
+    const updated = events.filter(ev => String(ev.id) !== cleanId);
     setEvents(updated);
     offlineSync.saveCachedData('events', updated);
     
-    firestoreService.deleteEventFromFirestore(id)
-      .catch(err => {
-        logError(err, 'deleteBuildingEvent');
-        offlineSync.enqueueAction('DELETE_EVENT', { id });
-      });
+    try {
+      await firestoreService.deleteEventFromFirestore(cleanId);
+    } catch (err) {
+      logError(err, 'deleteBuildingEvent');
+      offlineSync.enqueueAction('DELETE_EVENT', { id: cleanId });
+    }
   };
 
   // Save custom App Config helper
@@ -1878,11 +1918,11 @@ export default function App() {
       }
     }
 
-    // Sync admin resident profile to corresponding resident if exists, or add it if new
+    // Sync admin resident profile to corresponding resident if exists - strictly DO NOT auto-create duplicate
     if (updatedConfig.adminResidentProfile) {
       const prof = updatedConfig.adminResidentProfile;
       const targetFlat = prof.flatNumber;
-      const existingIdx = updatedResidents.findIndex(r => r.flatNumber === targetFlat);
+      const existingIdx = updatedResidents.findIndex(r => isSameFlatNumber(r.flatNumber, targetFlat));
       if (existingIdx !== -1) {
         residentsChanged = true;
         updatedResidents[existingIdx] = {
@@ -1895,20 +1935,6 @@ export default function App() {
           monthlyFee: prof.monthlyFee !== undefined && prof.monthlyFee > 0 ? prof.monthlyFee : updatedResidents[existingIdx].monthlyFee,
           initialBalance: prof.initialBalance !== undefined ? prof.initialBalance : updatedResidents[existingIdx].initialBalance,
         };
-      } else {
-        residentsChanged = true;
-        const newAdminRes: Resident = {
-          id: `res_president_${targetFlat}_${Date.now()}`,
-          flatNumber: targetFlat,
-          name: (prof.name || 'وحيد سماحة').replace(/\s*\(رئيس الاتحاد\)/g, '').trim(),
-          phone: prof.phone || '',
-          activityType: prof.activityType || 'سكني',
-          ownershipType: prof.ownershipType || 'تمليك',
-          notes: prof.notes || 'رئيس اتحاد الملاك',
-          monthlyFee: prof.monthlyFee !== undefined && prof.monthlyFee > 0 ? prof.monthlyFee : (updatedConfig.defaultMonthlyFee || 400),
-          initialBalance: prof.initialBalance || 0,
-        };
-        updatedResidents = [...updatedResidents, newAdminRes].sort((a, b) => compareFlatNumbers(a.flatNumber, b.flatNumber));
       }
 
       // If in resident mode or if active flatNumber matches, update flatNumber
@@ -1916,6 +1942,13 @@ export default function App() {
         setFlatNumber(targetFlat);
         localStorage.setItem('resident_flat_number', String(targetFlat));
       }
+    }
+
+    // Always ensure zero duplicates in residents
+    const cleanUniqueResidents = deduplicateResidents(updatedResidents);
+    if (cleanUniqueResidents.length !== updatedResidents.length) {
+      residentsChanged = true;
+      updatedResidents = cleanUniqueResidents;
     }
 
     if (residentsChanged) {
@@ -2145,58 +2178,66 @@ export default function App() {
     }
   };
 
-  const handleDeleteComplaint = (complaintId: string) => {
-    const target = complaints.find(c => c.id === complaintId);
+  const handleDeleteComplaint = async (complaintId: string) => {
+    const cleanId = String(complaintId);
+    const target = complaints.find(c => String(c.id) === cleanId);
     if (!target) return;
 
     if (!canDeleteComplaint(target, role, user, flatNumber)) {
       return;
     }
 
-    markComplaintAsDeleted(complaintId);
+    markComplaintAsDeleted(cleanId);
+    offlineSync.purgeEntityFromQueue(cleanId);
 
-    const updated = complaints.filter(c => c.id !== complaintId);
+    const updated = complaints.filter(c => String(c.id) !== cleanId);
     setComplaints(updated);
     offlineSync.saveCachedData('public_complaints', updated);
 
     // Delete from backend server API if active
     if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
-      fetch(`/api/complaints/${complaintId}`, {
+      fetch(`/api/complaints/${cleanId}`, {
         method: 'DELETE',
       }).catch(() => {});
     }
 
-    firestoreService.deleteComplaintFromFirestore(complaintId).catch(err => {
+    try {
+      await firestoreService.deleteComplaintFromFirestore(cleanId);
+    } catch (err) {
       logError(err, 'handleDeleteComplaint');
-      offlineSync.enqueueAction('DELETE_COMPLAINT', { id: complaintId });
-    });
+      offlineSync.enqueueAction('DELETE_COMPLAINT', { id: cleanId });
+    }
   };
 
-  const handleDeleteChatMessage = (messageId: string) => {
-    const target = messages.find(m => m.id === messageId);
+  const handleDeleteChatMessage = async (messageId: string) => {
+    const cleanId = String(messageId);
+    const target = messages.find(m => String(m.id) === cleanId);
     if (!target) return;
 
     if (!canDeleteChatMessage(target, role, user, flatNumber)) {
       return;
     }
 
-    markMessageAsDeleted(messageId);
+    markMessageAsDeleted(cleanId);
+    offlineSync.purgeEntityFromQueue(cleanId);
 
-    const updated = messages.filter(m => m.id !== messageId);
+    const updated = messages.filter(m => String(m.id) !== cleanId);
     setMessages(updated);
     offlineSync.saveCachedData('chat_messages', updated);
 
     // Delete from backend server API if active
     if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
-      fetch(`/api/chat/${messageId}`, {
+      fetch(`/api/chat/${cleanId}`, {
         method: 'DELETE',
       }).catch(() => {});
     }
 
-    firestoreService.deleteChatMessageFromFirestore(messageId).catch(err => {
+    try {
+      await firestoreService.deleteChatMessageFromFirestore(cleanId);
+    } catch (err) {
       logError(err, 'handleDeleteChatMessage');
-      offlineSync.enqueueAction('DELETE_CHAT_MESSAGE', { id: messageId });
-    });
+      offlineSync.enqueueAction('DELETE_CHAT_MESSAGE', { id: cleanId });
+    }
   };
 
   const handleEditChatMessage = (messageId: string, newText: string) => {

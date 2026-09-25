@@ -1,6 +1,12 @@
 import { ReceiptClaimData } from '../components/ReceiptClaimModal';
 import { Resident } from '../types';
-import { formatMobileNumber, formatPhoneForDisplay } from './phoneUtils';
+import { 
+  formatMobileNumber, 
+  formatPhoneForDisplay, 
+  formatFullOccupantDescription,
+  getOccupantStructuredInfo,
+  OccupantStructuredInfo 
+} from './phoneUtils';
 
 export const monthNamesArabic = [
   'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
@@ -50,6 +56,7 @@ export function getReceiptClaimMetadata(data: ReceiptClaimData, residents: Resid
   const displayMonthlyFee = data.monthlyFee || residentRecord?.monthlyFee || (activityType === 'إداري' ? 800 : activityType === 'تحت التشطيب' ? 200 : 400);
 
   const carriedDebt = (() => {
+    if (data.oldDebtAmount !== undefined && data.oldDebtAmount > 0) return data.oldDebtAmount;
     if (data.carriedBalance !== undefined && data.carriedBalance < 0) return Math.abs(data.carriedBalance);
     if (data.carriedBalance !== undefined && data.carriedBalance > 0) return 0;
     if (residentRecord?.initialBalance !== undefined && residentRecord.initialBalance < 0) return Math.abs(residentRecord.initialBalance);
@@ -58,6 +65,37 @@ export function getReceiptClaimMetadata(data: ReceiptClaimData, residents: Resid
 
   const showCarriedDebt = carriedDebt > 0;
 
+  const occupantInfo = getOccupantStructuredInfo(
+    {
+      residentName: data.residentName,
+      tenantName: data.tenantName,
+      phone: data.phone,
+      tenantPhone: data.tenantPhone,
+      occupancyType: occupancyType,
+      unitNumber: data.unitNumber
+    },
+    residentRecord
+  );
+
+  const unpaidMonthsCount = data.unpaidMonthsCount !== undefined
+    ? data.unpaidMonthsCount
+    : (data.amount && displayMonthlyFee ? Math.max(1, Math.round(data.amount / displayMonthlyFee)) : 1);
+
+  const unpaidMonthsDues = data.unpaidMonthsDues !== undefined
+    ? data.unpaidMonthsDues
+    : (unpaidMonthsCount * displayMonthlyFee);
+
+  const currentMonthStatus = data.currentMonthStatus || (isReceipt ? 'مسدد ✓' : 'غير مسدد ⚠️');
+
+  const paymentCategory = data.paymentType || 'تحصيلات شهرية';
+  const paymentDescription = isReceipt
+    ? `مبلغ مسدد (${paymentCategory}) - عن شهر ${monthName} ${data.year}`
+    : `مطالبة (${paymentCategory}) - عن شهر ${monthName} ${data.year}`;
+
+  const oldCarriedDebts = carriedDebt;
+  const currentArrears = unpaidMonthsDues;
+  const totalUnitDebt = oldCarriedDebts + currentArrears;
+
   return {
     isReceipt,
     monthName,
@@ -65,11 +103,21 @@ export function getReceiptClaimMetadata(data: ReceiptClaimData, residents: Resid
     displayFormattedDate,
     residentRecord,
     formattedPhone,
+    occupantInfo,
+    occupantDisplay: occupantInfo.singleLine,
     activityType,
     occupancyType,
     displayMonthlyFee,
     carriedDebt,
-    showCarriedDebt
+    showCarriedDebt,
+    unpaidMonthsCount,
+    unpaidMonthsDues,
+    currentMonthStatus,
+    paymentCategory,
+    paymentDescription,
+    oldCarriedDebts,
+    currentArrears,
+    totalUnitDebt,
   };
 }
 
@@ -88,7 +136,7 @@ export function generateReceiptClaimCanvas(
     monthName,
     docNumber,
     displayFormattedDate,
-    formattedPhone,
+    occupantDisplay,
     activityType,
     occupancyType,
     displayMonthlyFee,
@@ -96,16 +144,21 @@ export function generateReceiptClaimCanvas(
     showCarriedDebt
   } = meta;
 
+  const hasTenant = meta.occupantInfo.hasTenant;
+  const occupantExtraHeight = hasTenant ? 24 : 0;
+  const height = (isReceipt 
+    ? (showCarriedDebt ? 740 : 680) 
+    : (showCarriedDebt ? 730 : 670)) + occupantExtraHeight;
+
   const canvas = document.createElement('canvas');
   const dpr = 2; // High-resolution Retina
   const width = customWidth;
-  // Calculate height dynamically based on content
-  const height = isReceipt 
-    ? (showCarriedDebt ? 690 : 610) 
-    : (showCarriedDebt ? 620 : 540);
 
   canvas.width = width * dpr;
   canvas.height = height * dpr;
+  canvas.style.width = `${width}px`;
+  canvas.style.height = `${height}px`;
+
   const ctx = canvas.getContext('2d');
   if (!ctx) return canvas;
 
@@ -157,12 +210,14 @@ export function generateReceiptClaimCanvas(
   // Right side: Title & Union name
   ctx.textAlign = 'right';
   ctx.fillStyle = '#ffffff';
-  ctx.font = `bold 18px ${fontFamily}`;
-  const titleText = isReceipt ? '💐 إيصال سداد واستلام مالي معتمد' : '🏛️ إشعار مطالبة وبيان مستحقات شهرية';
+  ctx.font = `bold 15px ${fontFamily}`;
+  const titleText = isReceipt 
+    ? `💐 إيصال سداد: مبلغ مسدد (${meta.paymentCategory}) - عن شهر ${monthName} ${data.year}` 
+    : `🏛️ إشعار مطالبة وبيان مستحقات (${meta.paymentCategory})`;
   ctx.fillText(titleText, width - padding - 18, currentY + 35);
 
   ctx.fillStyle = '#ffffff';
-  ctx.font = `bold 12.5px ${fontFamily}`;
+  ctx.font = `bold 12px ${fontFamily}`;
   ctx.globalAlpha = 0.92;
   ctx.fillText('اتحاد ملاك عمارة بيراميدز فيو ١', width - padding - 18, currentY + 62);
   ctx.globalAlpha = 1.0;
@@ -180,6 +235,7 @@ export function generateReceiptClaimCanvas(
   const alertHeight = 40;
   const alertBg = isReceipt ? '#ecfdf5' : '#fffbeb';
   const alertBorder = isReceipt ? '#a7f3d0' : '#fde68a';
+  const alertColor = isReceipt ? '#047857' : '#92400e';
   drawRoundRect(padding, currentY, contentWidth, alertHeight, 14, alertBg, alertBorder, 1);
 
   // Status message
@@ -187,8 +243,8 @@ export function generateReceiptClaimCanvas(
   ctx.fillStyle = isReceipt ? '#047857' : '#92400e';
   ctx.font = `bold 12px ${fontFamily}`;
   const alertMsg = isReceipt
-    ? '✓ تم استلام مبلغ الاشتراك بنجاح وتوثيقه في السجل المالي المعتمد'
-    : '⏳ نأمل المبادرة بالسداد لدعم استمرار خدمات وصيانة العمارة';
+    ? `✓ تم استلام ${meta.paymentDescription} بنجاح وتوثيقه في السجل المالي`
+    : `⚠️ تنويه هام: اشتراك شهر ${monthName} ${data.year} (${Math.round(displayMonthlyFee).toLocaleString()} ج.م) غير مسدد حتى تاريخه`;
   ctx.fillText(alertMsg, width - padding - 16, currentY + 25);
 
   // Status Badge Pill on left
@@ -202,19 +258,50 @@ export function generateReceiptClaimCanvas(
   ctx.textAlign = 'center';
   ctx.fillStyle = isReceipt ? '#047857' : '#92400e';
   ctx.font = `bold 11.5px ${fontFamily}`;
-  ctx.fillText(isReceipt ? 'تم السداد ✓' : '⏳ مطالبة بالسداد', badgeX + badgeW / 2, badgeY + 17);
+  ctx.fillText(isReceipt ? 'تم السداد ✓' : '⏳ غير مسدد', badgeX + badgeW / 2, badgeY + 17);
 
   currentY += alertHeight + 14;
 
   // 4. Structured Table
-  const rowHeight = 38;
-  const rowCount = isReceipt ? 4 : 2;
-  const tableHeight = rowHeight * rowCount;
+  const baseRowHeight = 38;
+  const row0Height = hasTenant ? (baseRowHeight + 22) : baseRowHeight;
+  const rowCount = isReceipt ? 4 : 3;
+  const tableHeight = (rowCount - 1) * baseRowHeight + row0Height;
   drawRoundRect(padding, currentY, contentWidth, tableHeight, 16, '#f8fafc', '#e2e8f0', 1);
 
   const colMid = padding + contentWidth / 2;
 
-  // Table row drawing helper
+  const getRowY = (rIdx: number) => {
+    if (rIdx === 0) return currentY;
+    return currentY + row0Height + (rIdx - 1) * baseRowHeight;
+  };
+
+  // Draw Row 0 (Occupant details with Owner on top and Tenant directly underneath)
+  ctx.textAlign = 'right';
+  ctx.font = `bold 12px ${fontFamily}`;
+  ctx.fillStyle = '#64748b';
+  ctx.fillText('اسم الشاغل:', width - padding - 14, currentY + 24);
+
+  const occLabelWidth = ctx.measureText('اسم الشاغل:').width;
+  const occValX = width - padding - 14 - occLabelWidth - 8;
+
+  if (hasTenant) {
+    // Owner line on top
+    ctx.font = `bold 11.5px ${fontFamily}`;
+    ctx.fillStyle = '#0f172a';
+    ctx.fillText(meta.occupantInfo.ownerLine, occValX, currentY + 22);
+
+    // Tenant line directly underneath
+    ctx.font = `bold 11.5px ${fontFamily}`;
+    ctx.fillStyle = '#78350f'; // Dark amber
+    ctx.fillText(meta.occupantInfo.tenantLine, occValX, currentY + 44);
+  } else {
+    ctx.font = `bold 12px ${fontFamily}`;
+    ctx.fillStyle = '#0f172a';
+    ctx.fillText(meta.occupantInfo.singleLine, occValX, currentY + 24);
+  }
+
+  // 2-Column Table row drawing helper
   const drawTableRow = (
     rowIdx: number,
     col1Label: string,
@@ -223,17 +310,15 @@ export function generateReceiptClaimCanvas(
     col2Val: string,
     col2ValColor: string = '#0f172a'
   ) => {
-    const y = currentY + rowIdx * rowHeight;
+    const y = getRowY(rowIdx);
 
     // Divider line between rows
-    if (rowIdx > 0) {
-      ctx.beginPath();
-      ctx.moveTo(padding, y);
-      ctx.lineTo(width - padding, y);
-      ctx.strokeStyle = '#e2e8f0';
-      ctx.lineWidth = 1;
-      ctx.stroke();
-    }
+    ctx.beginPath();
+    ctx.moveTo(padding, y);
+    ctx.lineTo(width - padding, y);
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = 1;
+    ctx.stroke();
 
     // Right Column (col1)
     ctx.textAlign = 'right';
@@ -242,7 +327,7 @@ export function generateReceiptClaimCanvas(
     ctx.fillText(col1Label, width - padding - 14, y + 24);
 
     const col1LabelWidth = ctx.measureText(col1Label).width;
-    ctx.font = `bold 12.5px ${fontFamily}`;
+    ctx.font = `bold 12px ${fontFamily}`;
     ctx.fillStyle = '#0f172a';
     ctx.fillText(col1Val, width - padding - 14 - col1LabelWidth - 8, y + 24);
 
@@ -254,50 +339,94 @@ export function generateReceiptClaimCanvas(
       ctx.fillText(col2Label, colMid - 10, y + 24);
 
       const col2LabelWidth = ctx.measureText(col2Label).width;
-      ctx.font = `bold 12.5px ${fontFamily}`;
+      ctx.font = `bold 12px ${fontFamily}`;
       ctx.fillStyle = col2ValColor;
       ctx.fillText(col2Val, colMid - 10 - col2LabelWidth - 8, y + 24);
     }
   };
 
-  // Row 1
-  const residentNameFull = `${data.residentName} ${formattedPhone ? `(${formattedPhone})` : ''}`;
-  const unitStr = `شقة ${data.unitNumber} (${activityType})`;
-  drawTableRow(0, 'اسم الشاغل:', residentNameFull, 'رقم الوحدة:', unitStr, '#1e3a8a');
+  // Row 1: Unit Number & Occupancy Type
+  const unitStr = `( الوحدة ${data.unitNumber} - ${activityType} )`;
+  drawTableRow(1, 'رقم الوحدة:', unitStr, 'نوع الإشغال:', `${occupancyType}`, '#1e3a8a');
 
-  // Row 2
-  const monthStr = `اشتراك ${monthName} ${data.year} (${Math.round(displayMonthlyFee).toLocaleString()} ج.م)`;
-  const occStr = `${occupancyType}${activityType ? ` / ${activityType}` : ''}`;
-  drawTableRow(1, 'عن شهر:', monthStr, 'نوع الإشغال:', occStr);
-
+  // Row 2 & Row 3
   if (isReceipt) {
-    // Row 3
-    const payDate = data.date || `${data.year}-${String(data.month).padStart(2, '0')}`;
-    const payCat = data.paymentType || 'اشتراك شهري';
-    drawTableRow(2, 'تاريخ السداد:', payDate, 'نوع التحصيل:', payCat, '#047857');
+    const receiptLine = meta.paymentDescription;
+    drawTableRow(2, 'بيان الإيصال:', receiptLine, 'نوع التحصيل:', meta.paymentCategory, '#047857');
 
-    // Row 4
+    const payDate = data.date || `${data.year}-${String(data.month).padStart(2, '0')}`;
     const payMethod = data.notes?.includes('تحويل') ? 'تحويل بنكي / محفظة' : 'سداد نقدي';
-    drawTableRow(3, 'طريقة السداد:', payMethod, '', '');
+    drawTableRow(3, 'تاريخ السداد:', payDate, 'طريقة السداد:', payMethod, '#047857');
+  } else {
+    const monthStr = `اشتراك ${monthName} ${data.year} (${Math.round(displayMonthlyFee).toLocaleString()} ج.م)`;
+    drawTableRow(2, 'عن شهر:', monthStr, 'حالة السداد:', 'غير مسدد ⚠️', '#be123c');
   }
 
   currentY += tableHeight + 14;
 
-  // 5. Debt Notice Box (if any)
-  if (showCarriedDebt) {
-    const debtBoxHeight = 54;
+  // 5. Debt Notice Box (Detailed unified categorization)
+  if (isReceipt) {
+    if (meta.totalUnitDebt > 0) {
+      const debtBoxHeight = 66;
+      drawRoundRect(padding, currentY, contentWidth, debtBoxHeight, 14, '#fef2f2', '#fecaca', 1);
+
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#991b1b';
+      ctx.font = `bold 11.5px ${fontFamily}`;
+      ctx.fillText('⚠️ بيان تفصيلي بالمديونيات والمتأخرات المتبقية على الوحدة:', width - padding - 16, currentY + 20);
+
+      ctx.font = `bold 11px ${fontFamily}`;
+      let detailLine = `• متأخرات ${meta.paymentCategory}: تأخير ${meta.unpaidMonthsCount} شهور (${Math.round(meta.currentArrears).toLocaleString()} ج.م)`;
+      if (meta.oldCarriedDebts > 0) {
+        detailLine += ` + مديونية قديمة مرحلة (${Math.round(meta.oldCarriedDebts).toLocaleString()} ج.م)`;
+      }
+      ctx.fillText(detailLine, width - padding - 16, currentY + 38);
+
+      ctx.fillText(
+        `• إجمالي المديونية المتبقية على الوحدة: ${Math.round(meta.totalUnitDebt).toLocaleString()} ج.م (المتأخرات الحالية + المديونيات القديمة)`,
+        width - padding - 16,
+        currentY + 54
+      );
+
+      currentY += debtBoxHeight + 12;
+    } else {
+      const debtBoxHeight = 44;
+      drawRoundRect(padding, currentY, contentWidth, debtBoxHeight, 14, '#f0fdf4', '#bbf7d0', 1);
+
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#166534';
+      ctx.font = `bold 11.5px ${fontFamily}`;
+      ctx.fillText('✨ موقف المديونيات: لا توجد أي مديونيات قديمة أو متأخرات على الوحدة، والحساب مسدد بالكامل حتى تاريخه 👍', width - padding - 16, currentY + 27);
+
+      currentY += debtBoxHeight + 12;
+    }
+  } else {
+    // Detailed Claim Breakdown
+    const debtBoxHeight = 76;
     drawRoundRect(padding, currentY, contentWidth, debtBoxHeight, 14, '#fef2f2', '#fecaca', 1);
 
     ctx.textAlign = 'right';
     ctx.fillStyle = '#991b1b';
-    ctx.font = `bold 12px ${fontFamily}`;
-    ctx.fillText('⚠️ تنبيه بوجود مديونية قديمة مرحلة:', width - padding - 16, currentY + 22);
+    ctx.font = `bold 11.5px ${fontFamily}`;
+    ctx.fillText('⚠️ بيان وتفصيل المبالغ المستحقة على الوحدة:', width - padding - 16, currentY + 20);
 
-    ctx.font = `bold 12.5px ${fontFamily}`;
+    ctx.font = `bold 11px ${fontFamily}`;
     ctx.fillText(
-      `توجد مديونية قديمة مرحلة على الوحدة قدرها: ${Math.round(carriedDebt).toLocaleString()} ج.م`,
+      `• حالة الشهر الحالي: اشتراك شهر ${monthName} ${data.year} (${Math.round(displayMonthlyFee).toLocaleString()} ج.م) غير مسدد ⚠️`,
       width - padding - 16,
-      currentY + 41
+      currentY + 37
+    );
+
+    let detailLine = `• متأخرات ${meta.paymentCategory}: تأخير ${meta.unpaidMonthsCount} شهور (${Math.round(meta.currentArrears).toLocaleString()} ج.م)`;
+    if (meta.oldCarriedDebts > 0) {
+      detailLine += ` + مديونية قديمة مرحلة (${Math.round(meta.oldCarriedDebts).toLocaleString()} ج.م)`;
+    }
+    ctx.fillText(detailLine, width - padding - 16, currentY + 53);
+
+    ctx.fillText(
+      `• إجمالي المبالغ المستحقة للسداد: ${Math.round(data.amount).toLocaleString()} ج.م (مجموع المتأخرات الحالية + المديونيات القديمة)`,
+      width - padding - 16,
+      currentY + 69
     );
 
     currentY += debtBoxHeight + 12;
@@ -311,74 +440,45 @@ export function generateReceiptClaimCanvas(
 
   ctx.textAlign = 'right';
   ctx.fillStyle = isReceipt ? '#166534' : '#1e40af';
-  ctx.font = `bold 11.5px ${fontFamily}`;
+  ctx.font = `bold 11px ${fontFamily}`;
   if (isReceipt) {
-    ctx.fillText(
-      '🌺 نشكركم جزيل الشكر والتقدير على حرصكم الدائم وسدادكم المنتظم،',
-      width - padding - 16,
-      currentY + 22
-    );
-    ctx.fillText(
-      'مما يساهم مباشرةً في الحفاظ على العمارة وتطوير صيانتها وخدماتها لراحة الجميع.',
-      width - padding - 16,
-      currentY + 39
-    );
+    ctx.fillText('🌺 نشكركم جزيل الشكر على التزامكم الدائم بالسداد وحرصكم المستمر على الوفاء بالمستحقات،', width - padding - 16, currentY + 22);
+    ctx.fillText('فمساهمتكم هي الركيزة الأساسية لصيانة وتطوير ونظافة وأمن العمارة وراحة جميع السكان.', width - padding - 16, currentY + 39);
   } else {
-    ctx.fillText(
-      '🤝 نأمل من سيادتكم التكرم بالمبادرة بسداد المستحقات والمديونيات في أقرب وقت',
-      width - padding - 16,
-      currentY + 22
-    );
-    ctx.fillText(
-      'لضمان استمرار خدمات النظافة، الحراسة، الصيانة، وتشغيل المصاعد بكفاءة لراحة جميع السكّان.',
-      width - padding - 16,
-      currentY + 39
-    );
+    ctx.fillText('🤝 نأمل من سيادتكم التكرم بالمبادرة بسرعة سداد المستحقات لتغطية مصروفات الصيانة الدورية والنظافة،', width - padding - 16, currentY + 22);
+    ctx.fillText('وتشغيل المصاعد والخدمات بكفاءة وراحة تامة لجميع سكان ورواد العمارة الكرام.', width - padding - 16, currentY + 39);
   }
 
   currentY += noteHeight + 14;
 
-  // 7. Grand Total Amount Banner
-  const totalHeight = 56;
+  // 7. Total Amount Banner
+  const totalHeight = 54;
   const totalBg = isReceipt ? '#ecfdf5' : '#ffffff';
   const totalBorder = isReceipt ? '#059669' : '#e11d48';
   drawRoundRect(padding, currentY, contentWidth, totalHeight, 16, totalBg, totalBorder, 2);
 
   ctx.textAlign = 'right';
   ctx.fillStyle = '#0f172a';
-  ctx.font = `bold 14px ${fontFamily}`;
-  const totalLabel = isReceipt ? 'إجمالي المبلغ المسدد معتمداً:' : 'إجمالي المبلغ المستحق للسداد:';
-  ctx.fillText(totalLabel, width - padding - 18, currentY + 34);
+  ctx.font = `bold 13.5px ${fontFamily}`;
+  const totalLabel = isReceipt ? 'المبلغ المستلم والموثق بالإيصال:' : 'إجمالي المبلغ المطلوب سداده:';
+  ctx.fillText(totalLabel, width - padding - 16, currentY + 34);
 
   ctx.textAlign = 'left';
   ctx.fillStyle = isReceipt ? '#047857' : '#be123c';
-  ctx.font = `900 22px ${fontFamily}`;
-  ctx.fillText(`${Math.round(data.amount).toLocaleString()} ج.م`, padding + 18, currentY + 36);
+  ctx.font = `bold 20px ${fontFamily}`;
+  const formattedAmount = `${Math.round(data.amount).toLocaleString()} ج.م`;
+  ctx.fillText(formattedAmount, padding + 18, currentY + 35);
 
   currentY += totalHeight + 14;
 
-  // 8. Certified Footer
-  ctx.beginPath();
-  ctx.moveTo(padding, currentY);
-  ctx.lineTo(width - padding, currentY);
-  ctx.strokeStyle = '#cbd5e1';
-  ctx.setLineDash([4, 4]);
-  ctx.lineWidth = 1;
-  ctx.stroke();
-  ctx.setLineDash([]);
-
-  // Footer text
+  // 8. Footer Notes & Stamp Line
   ctx.textAlign = 'right';
   ctx.fillStyle = '#64748b';
-  ctx.font = `bold 10px ${fontFamily}`;
-  ctx.fillText('تم استخراج هذا الإيصال إلكترونياً ومطابق للسجلات المالية الرسمية', width - padding, currentY + 18);
+  ctx.font = `bold 10.5px ${fontFamily}`;
+  ctx.fillText('إدارة اتحاد ملاك عمارة بيراميدز فيو ١ • مستند معتمد صادر إلكترونياً', width - padding, currentY + 12);
 
-  // Certified badge on left
-  drawRoundRect(padding, currentY + 6, 175, 20, 6, '#f1f5f9', '#94a3b8', 1);
-  ctx.textAlign = 'center';
-  ctx.fillStyle = '#334155';
-  ctx.font = `bold 9.5px ${fontFamily}`;
-  ctx.fillText('معتمد إلكترونياً ✓ اتحاد ملاك بيراميدز فيو ١', padding + 175 / 2, currentY + 19);
+  ctx.textAlign = 'left';
+  ctx.fillText('معتمد مالياً ✓', padding, currentY + 12);
 
   return canvas;
 }
@@ -391,6 +491,7 @@ export async function generateReceiptClaimFast(
   residents: Resident[] = [],
   fileName?: string
 ): Promise<{ blob: Blob; dataUrl: string; file: File; download: () => void }> {
+  const meta = getReceiptClaimMetadata(data, residents);
   const canvas = generateReceiptClaimCanvas(data, residents);
   const dataUrl = canvas.toDataURL('image/png', 1.0);
 
@@ -401,8 +502,8 @@ export async function generateReceiptClaimFast(
   });
 
   const safeFileName = fileName || (data.type === 'receipt'
-    ? `إيصال_سداد_شقة_${data.unitNumber}_شهر_${data.month}_${data.year}.png`
-    : `إشعار_مطالبة_شقة_${data.unitNumber}_شهر_${data.month}_${data.year}.png`);
+    ? `إيصال_سداد_وحدة_${data.unitNumber}_شهر_${meta.monthName}_${data.year}.png`
+    : `إشعار_مطالبة_وحدة_${data.unitNumber}_شهر_${meta.monthName}_${data.year}.png`);
 
   const file = new File([blob], safeFileName, { type: 'image/png' });
 
@@ -428,7 +529,7 @@ export function getReceiptClaimPrintHtml(data: ReceiptClaimData, residents: Resi
     monthName,
     docNumber,
     displayFormattedDate,
-    formattedPhone,
+    occupantDisplay,
     activityType,
     occupancyType,
     displayMonthlyFee,
@@ -447,7 +548,7 @@ export function getReceiptClaimPrintHtml(data: ReceiptClaimData, residents: Resi
 <html dir="rtl" lang="ar">
 <head>
   <meta charset="utf-8">
-  <title>${isReceipt ? `إيصال سداد شقة ${data.unitNumber}` : `إشعار مطالبة شقة ${data.unitNumber}`}</title>
+  <title>${isReceipt ? `إيصال سداد وحدة ${data.unitNumber}` : `إشعار مطالبة وحدة ${data.unitNumber}`}</title>
   <style>
     @media print {
       body {
@@ -492,7 +593,7 @@ export function getReceiptClaimPrintHtml(data: ReceiptClaimData, residents: Resi
       margin-bottom: 14px;
     }
     .header-title {
-      font-size: 18px;
+      font-size: 17px;
       font-weight: 900;
     }
     .header-sub {
@@ -564,11 +665,12 @@ export function getReceiptClaimPrintHtml(data: ReceiptClaimData, residents: Resi
       background: #fef2f2;
       border: 1px solid #fecaca;
       border-radius: 12px;
-      padding: 10px 14px;
+      padding: 12px 16px;
       color: #991b1b;
       font-size: 12px;
       margin-bottom: 14px;
       font-weight: 800;
+      line-height: 1.6;
     }
     .note-box {
       background: ${isReceipt ? '#f0fdf4' : '#eff6ff'};
@@ -624,7 +726,7 @@ export function getReceiptClaimPrintHtml(data: ReceiptClaimData, residents: Resi
   <div class="print-card">
     <div class="header-banner">
       <div>
-        <div class="header-title">${isReceipt ? '💐 إيصال سداد واستلام مالي معتمد' : '🏛️ إشعار مطالبة وبيان مستحقات شهرية'}</div>
+        <div class="header-title">${isReceipt ? `💐 إيصال سداد: ${meta.paymentDescription}` : `🏛️ إشعار مطالبة وبيان مستحقات (${meta.paymentCategory})`}</div>
         <div class="header-sub">اتحاد ملاك عمارة بيراميدز فيو ١</div>
       </div>
       <div class="header-meta">
@@ -634,66 +736,96 @@ export function getReceiptClaimPrintHtml(data: ReceiptClaimData, residents: Resi
     </div>
 
     <div class="status-bar">
-      <div>${isReceipt ? '✓ تم استلام مبلغ الاشتراك بنجاح وتوثيقه في السجل المالي المعتمد' : '⏳ نأمل المبادرة بالسداد لدعم استمرار خدمات وصيانة العمارة'}</div>
-      <div class="status-badge">${isReceipt ? 'تم السداد ✓' : '⏳ مطالبة بالسداد'}</div>
+      <div>${isReceipt ? `✓ تم استلام ${meta.paymentDescription} بنجاح وتوثيقه في السجل المالي` : `⚠️ تنويه هام: اشتراك شهر ${monthName} ${data.year} (${Math.round(displayMonthlyFee).toLocaleString()} ج.م) غير مسدد حتى تاريخه`}</div>
+      <div class="status-badge">${isReceipt ? 'تم السداد ✓' : '⏳ غير مسدد'}</div>
     </div>
 
     <div class="info-table">
       <div class="info-row">
-        <div class="info-col">
-          <span class="label">اسم الشاغل:</span>
-          <span class="value">${data.residentName} ${formattedPhone ? `(${formattedPhone})` : ''}</span>
-        </div>
-        <div class="info-col">
-          <span class="label">رقم الوحدة:</span>
-          <span class="value highlight">شقة ${data.unitNumber} (${activityType})</span>
+        <div class="info-col" style="flex: 1; display: flex; align-items: flex-start; gap: 8px;">
+          <span class="label" style="margin-top: 2px;">اسم الشاغل:</span>
+          <div style="display: flex; flex-direction: column; gap: 3px;">
+            ${meta.occupantInfo.hasTenant ? `
+              <span class="value">${meta.occupantInfo.ownerLine}</span>
+              <span class="value" style="color: #78350f;">${meta.occupantInfo.tenantLine}</span>
+            ` : `
+              <span class="value">${meta.occupantInfo.singleLine}</span>
+            `}
+          </div>
         </div>
       </div>
 
       <div class="info-row">
         <div class="info-col">
-          <span class="label">عن شهر:</span>
-          <span class="value">اشتراك ${monthName} ${data.year} (${Math.round(displayMonthlyFee).toLocaleString()} ج.م)</span>
+          <span class="label">رقم الوحدة:</span>
+          <span class="value highlight">( الوحدة ${data.unitNumber} - ${activityType} )</span>
         </div>
         <div class="info-col">
           <span class="label">نوع الإشغال:</span>
-          <span class="value">${occupancyType}${activityType ? ` / ${activityType}` : ''}</span>
+          <span class="value">${occupancyType}</span>
         </div>
       </div>
 
       ${isReceipt ? `
+      <div class="info-row">
+        <div class="info-col" style="flex: 2;">
+          <span class="label">بيان الإيصال:</span>
+          <span class="value" style="color: #047857;">${meta.paymentDescription}</span>
+        </div>
+        <div class="info-col">
+          <span class="label">نوع التحصيل:</span>
+          <span class="value" style="color: #047857;">${meta.paymentCategory}</span>
+        </div>
+      </div>
       <div class="info-row">
         <div class="info-col">
           <span class="label">تاريخ السداد:</span>
           <span class="value">${data.date || `${data.year}-${String(data.month).padStart(2, '0')}`}</span>
         </div>
         <div class="info-col">
-          <span class="label">نوع التحصيل:</span>
-          <span class="value" style="color: #047857;">${data.paymentType || 'اشتراك شهري'}</span>
-        </div>
-      </div>
-
-      <div class="info-row">
-        <div class="info-col">
           <span class="label">طريقة السداد:</span>
           <span class="value" style="color: #047857;">${data.notes?.includes('تحويل') ? 'تحويل بنكي / محفظة' : 'سداد نقدي'}</span>
         </div>
-        <div class="info-col"></div>
       </div>
-      ` : ''}
+      ` : `
+      <div class="info-row">
+        <div class="info-col">
+          <span class="label">عن شهر:</span>
+          <span class="value">اشتراك ${monthName} ${data.year} (${Math.round(displayMonthlyFee).toLocaleString()} ج.م)</span>
+        </div>
+        <div class="info-col">
+          <span class="label">حالة الشهر الحالي:</span>
+          <span class="value" style="color: #be123c;">غير مسدد ⚠️</span>
+        </div>
+      </div>
+      `}
     </div>
 
-    ${showCarriedDebt ? `
-    <div class="debt-box">
-      <div>⚠️ تنبيه بوجود مديونية قديمة مرحلة:</div>
-      <div style="margin-top: 3px;">توجد مديونية قديمة مرحلة على الوحدة قدرها: <u>${Math.round(carriedDebt).toLocaleString()} ج.م</u></div>
-    </div>
-    ` : ''}
+    ${isReceipt ? (
+      meta.totalUnitDebt > 0 ? `
+      <div class="debt-box">
+        <div style="font-weight: 900; margin-bottom: 4px;">⚠️ بيان تفصيلي بالمديونيات والمتأخرات المتبقية على الوحدة:</div>
+        <div>• متأخرات ${meta.paymentCategory}: تأخير ${meta.unpaidMonthsCount} شهور (${Math.round(meta.currentArrears).toLocaleString()} ج.م)${meta.oldCarriedDebts > 0 ? ` + مديونية قديمة مرحلة (${Math.round(meta.oldCarriedDebts).toLocaleString()} ج.م)` : ''}</div>
+        <div style="font-weight: 900; margin-top: 4px; color: #7f1d1d;">• إجمالي المديونية المتبقية على الوحدة: <u>${Math.round(meta.totalUnitDebt).toLocaleString()} ج.م</u> (المتأخرات الحالية + المديونيات القديمة)</div>
+      </div>
+      ` : `
+      <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 10px 14px; color: #166534; font-size: 12px; margin-bottom: 14px; font-weight: 800;">
+        ✨ موقف المديونيات: لا توجد أي مديونيات قديمة أو متأخرات على الوحدة، والحساب مسدد بالكامل حتى تاريخه 👍
+      </div>
+      `
+    ) : `
+      <div class="debt-box">
+        <div style="font-weight: 900; margin-bottom: 4px;">⚠️ بيان وتفصيل المبالغ المستحقة على الوحدة:</div>
+        <div>• حالة الشهر الحالي: اشتراك شهر ${monthName} ${data.year} (${Math.round(displayMonthlyFee).toLocaleString()} ج.م) غير مسدد ⚠️</div>
+        <div>• متأخرات ${meta.paymentCategory}: تأخير ${meta.unpaidMonthsCount} شهور (${Math.round(meta.currentArrears).toLocaleString()} ج.م)${meta.oldCarriedDebts > 0 ? ` + مديونية قديمة مرحلة (${Math.round(meta.oldCarriedDebts).toLocaleString()} ج.م)` : ''}</div>
+        <div style="font-weight: 900; margin-top: 4px; color: #7f1d1d;">• إجمالي المبالغ المستحقة للسداد: <u>${Math.round(data.amount).toLocaleString()} ج.م</u> (مجموع المتأخرات الحالية + مجموع المديونيات القديمة)</div>
+      </div>
+    `}
 
     <div class="note-box">
       ${isReceipt 
-        ? '🌺 نشكركم جزيل الشكر والتقدير على حرصكم الدائم وسدادكم المنتظم، مما يساهم مباشرةً في الحفاظ على العمارة وتطوير خدماتها لراحة الجميع.'
-        : '🤝 نأمل من سيادتكم التكرم بالمبادرة بسداد المستحقات والمديونيات في أقرب وقت لضمان استمرار خدمات النظافة، الحراسة، الصيانة، وتشغيل المصاعد بكفاءة لراحة جميع السكّان.'
+        ? '🌺 نشكركم على حسن تعاونكم والتزامكم بالسداد لدعم نظافة وصيانة وخدمات العمارة، ونرجو التكرم بسرعة سداد وتصفية أي مبالغ متبقية للحفاظ على استمرار تقديم الخدمات المشتركة بأفضل صورة لراحة الجميع.'
+        : '🤝 نأمل من سيادتكم التكرم بالمبادرة بسرعة سداد المستحقات لتغطية مصروفات الصيانة الدورية والنظافة والأمن وتشغيل المصاعد بكفاءة لراحة وسلامة جميع سكان ورواد العمارة.'
       }
     </div>
 
@@ -704,7 +836,7 @@ export function getReceiptClaimPrintHtml(data: ReceiptClaimData, residents: Resi
 
     <div class="footer">
       <div class="cert-badge">معتمد إلكترونياً ✓ اتحاد ملاك بيراميدز فيو ١</div>
-      <span>تم استخراج هذا الإيصال إلكترونياً ومطابق للسجلات المالية الرسمية</span>
+      <span>تم استخراج هذا المستند إلكترونياً ومطابق للسجلات المالية الرسمية</span>
     </div>
   </div>
 </body>

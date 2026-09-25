@@ -5,7 +5,9 @@ import {
   getUnitNumbersForFloor, 
   compareFlatNumbers, 
   isSameFlatNumber, 
-  parseFlatNumber 
+  parseFlatNumber,
+  deduplicateResidents,
+  getCanonicalFlatKey
 } from '../utils/buildingStructure';
 import { 
   fetchAllJoinRequests, 
@@ -62,11 +64,12 @@ export function useResidentsData({
     }
   }, [config]);
 
-  // Filtered residents based on search
+  // Filtered residents based on search with strict deduplication
   const filteredResidents = useMemo(() => {
+    const unique = deduplicateResidents(residents);
     const s = searchTerm.toLowerCase().trim();
-    if (!s) return residents;
-    return residents.filter((r) =>
+    if (!s) return unique;
+    return unique.filter((r) =>
       r.name.toLowerCase().includes(s) ||
       r.flatNumber.toString().includes(s) ||
       (r.phone && r.phone.includes(s)) ||
@@ -301,118 +304,34 @@ export function useResidentsData({
         return;
       }
 
-      const newResidents: Resident[] = [];
-      const presidentProfile = config?.adminResidentProfile;
-      const presFlat = presidentProfile?.flatNumber || 207;
-      let presidentAssigned = false;
-
+      // Preserve exclusively real residents that were registered manually - strictly NO auto-registration
+      const preservedResidents: Resident[] = [];
       const processedFlats = new Set<string>();
-      const existingMap = new Map<string, Resident>();
+
       residents.forEach(r => {
-        if (r && r.flatNumber !== undefined && r.flatNumber !== null) {
-          existingMap.set(String(r.flatNumber).trim(), r);
-        }
-      });
+        if (!r || r.flatNumber === undefined || r.flatNumber === null) return;
+        const key = getCanonicalFlatKey(r.flatNumber);
+        if (processedFlats.has(key)) return;
+        processedFlats.add(key);
 
-      targetLayout.forEach((configItem, floorIndex) => {
-        const unitFee = getDefaultFeeForActivity(configItem.activityType);
-        const floorUnits = Array.isArray(configItem.unitNumbers) ? configItem.unitNumbers : getUnitNumbersForFloor(configItem, residents);
-        
-        floorUnits.forEach((unitId, j) => {
-          const isPresidentUnit = isSameFlatNumber(unitId, presFlat);
-          const unitStr = String(unitId).trim();
-          
-          if (processedFlats.has(unitStr)) {
-            return;
-          }
-          processedFlats.add(unitStr);
-
-          const existingRes = existingMap.get(unitStr) || residents.find(r => isSameFlatNumber(r.flatNumber, unitId));
-
-          if (isPresidentUnit && presidentProfile) {
-            presidentAssigned = true;
-            const presId = existingRes?.id || `res_president_${unitId}_${Date.now()}`;
-            newResidents.push({
-              ...(existingRes || {}),
-              id: presId,
-              flatNumber: unitId,
-              name: (presidentProfile.name || 'وحيد سماحة').replace(/\s*\(رئيس الاتحاد\)/g, '').trim(),
-              activityType: presidentProfile.activityType || configItem.activityType,
-              phone: presidentProfile.phone || existingRes?.phone || '',
-              notes: presidentProfile.notes || 'رئيس اتحاد الملاك',
-              ownershipType: presidentProfile.ownershipType || 'تمليك',
-              tenantName: existingRes?.tenantName || '',
-              tenantPhone: existingRes?.tenantPhone || '',
-              monthlyFee: presidentProfile.monthlyFee !== undefined && Number(presidentProfile.monthlyFee) > 0 
-                ? Number(presidentProfile.monthlyFee) 
-                : (existingRes?.monthlyFee || unitFee),
-              initialBalance: presidentProfile.initialBalance !== undefined ? Number(presidentProfile.initialBalance) : (existingRes?.initialBalance || 0),
-            } as Resident);
-          } else if (existingRes) {
-            newResidents.push({
-              ...existingRes,
-              flatNumber: unitId,
-              activityType: existingRes.activityType || configItem.activityType,
-              monthlyFee: existingRes.monthlyFee || unitFee,
-            });
-          } else {
-            const genId = `res_gen_${unitId}_${Date.now()}_${floorIndex}_${j}`;
-            newResidents.push({
-              id: genId,
-              flatNumber: unitId,
-              name: `شاغل ${configItem.activityType} ${unitId}`,
-              activityType: configItem.activityType,
-              phone: '',
-              notes: '',
-              ownershipType: 'تمليك',
-              tenantName: '',
-              tenantPhone: '',
-              monthlyFee: unitFee,
-              initialBalance: 0,
-              email: `flat${unitId}@pyramids.com`,
-              password: `pyr${unitId}#2026`,
-              accountStatus: 'ACTIVE',
-            });
-          }
+        // Update activity type or fee from layout if matched
+        const matchedFloor = targetLayout.find(f => {
+          const uNums = Array.isArray(f.unitNumbers) ? f.unitNumbers : getUnitNumbersForFloor(f, residents);
+          return uNums.some(u => isSameFlatNumber(u, r.flatNumber));
         });
-      });
 
-      if (presidentProfile && !presidentAssigned) {
-        const presStr = String(presFlat).trim();
-        if (!processedFlats.has(presStr)) {
-          processedFlats.add(presStr);
-          const existingPres = existingMap.get(presStr) || residents.find(r => isSameFlatNumber(r.flatNumber, presFlat));
-          const presId = existingPres?.id || `res_president_${presFlat}_${Date.now()}`;
-          newResidents.push({
-            ...(existingPres || {}),
-            id: presId,
-            flatNumber: presFlat,
-            name: (presidentProfile.name || 'وحيد سماحة').replace(/\s*\(رئيس الاتحاد\)/g, '').trim(),
-            activityType: presidentProfile.activityType || 'سكني',
-            phone: presidentProfile.phone || existingPres?.phone || '',
-            notes: presidentProfile.notes || 'رئيس اتحاد الملاك',
-            ownershipType: presidentProfile.ownershipType || 'تمليك',
-            tenantName: existingPres?.tenantName || '',
-            tenantPhone: existingPres?.tenantPhone || '',
-            monthlyFee: presidentProfile.monthlyFee !== undefined && Number(presidentProfile.monthlyFee) > 0
-              ? Number(presidentProfile.monthlyFee)
-              : getDefaultFeeForActivity(presidentProfile.activityType || 'سكني'),
-            initialBalance: presidentProfile.initialBalance !== undefined ? Number(presidentProfile.initialBalance) : (existingPres?.initialBalance || 0),
-          } as Resident);
-        }
-      }
-
-      newResidents.sort((a, b) => compareFlatNumbers(a.flatNumber, b.flatNumber));
-
-      const finalUniqueResidents: Resident[] = [];
-      const finalSeenFlats = new Set<string>();
-      newResidents.forEach(res => {
-        const fStr = String(res.flatNumber).trim();
-        if (!finalSeenFlats.has(fStr)) {
-          finalSeenFlats.add(fStr);
-          finalUniqueResidents.push(res);
+        if (matchedFloor) {
+          preservedResidents.push({
+            ...r,
+            activityType: r.activityType || matchedFloor.activityType,
+            monthlyFee: r.monthlyFee || getDefaultFeeForActivity(matchedFloor.activityType),
+          });
+        } else {
+          preservedResidents.push(r);
         }
       });
+
+      const finalUniqueResidents = deduplicateResidents(preservedResidents);
 
       await onSetFloorConfigs(targetLayout);
       await onSetAll(finalUniqueResidents);

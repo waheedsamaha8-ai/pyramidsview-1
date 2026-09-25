@@ -47,6 +47,25 @@ export function saveOfflineQueue(queue: OfflineAction[]) {
   localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
 }
 
+// Proactively purge any queued actions for a specific entity ID so it never resurrects
+export function purgeEntityFromQueue(entityId: string) {
+  if (!entityId) return;
+  const cleanId = String(entityId);
+  const queue = getOfflineQueue();
+  const filtered = queue.filter(action => {
+    if (!action || !action.payload) return true;
+    const p = action.payload;
+    if (typeof p === 'string' && String(p) === cleanId) return false;
+    if (p.id && String(p.id) === cleanId) return false;
+    if (p.residentId && String(p.residentId) === cleanId) return false;
+    if (p.messageId && String(p.messageId) === cleanId) return false;
+    return true;
+  });
+  if (filtered.length !== queue.length) {
+    saveOfflineQueue(filtered);
+  }
+}
+
 // Add an action to the queue
 export function enqueueAction(type: OfflineAction['type'], payload: any) {
   const queue = getOfflineQueue();
@@ -61,14 +80,24 @@ export function enqueueAction(type: OfflineAction['type'], payload: any) {
     sanitizedPayload.imageUrl = '';
   }
 
+  // If this is a delete action, remove previous pending add/edit actions for the same ID
+  const targetId = sanitizedPayload.id || (typeof sanitizedPayload === 'string' ? sanitizedPayload : null);
+  let baseQueue = queue;
+  if (type.startsWith('DELETE_') && targetId) {
+    baseQueue = queue.filter(a => {
+      const aId = a.payload?.id || (typeof a.payload === 'string' ? a.payload : null);
+      return String(aId) !== String(targetId);
+    });
+  }
+
   const newAction: OfflineAction = {
     id: `act_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
     type,
     payload: sanitizedPayload,
     timestamp: Date.now(),
   };
-  queue.push(newAction);
-  saveOfflineQueue(queue);
+  baseQueue.push(newAction);
+  saveOfflineQueue(baseQueue);
   
   // Update local caches immediately so the offline user sees their updates in the UI
   applyActionToLocalCache(type, payload);

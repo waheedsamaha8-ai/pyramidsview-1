@@ -238,9 +238,20 @@ export function calculateResidentFinancials(
 
     const netBalance = totalPaid - expectedDues;
 
+    const paidMonthsCount = fee > 0 ? Math.floor(totalPaid / fee) : 0;
+    const unpaidMonthsCount = Math.max(0, monthsInYear - paidMonthsCount);
+    const unpaidMonthsDues = unpaidMonthsCount * fee;
+    const periodExpectedDues = monthsInYear * fee;
+    const oldDebtAmount = carriedPreviousBalance < 0 ? Math.abs(carriedPreviousBalance) : 0;
+
     return {
       monthlyFee: fee,
       monthsElapsed: monthsInYear,
+      paidMonthsCount,
+      unpaidMonthsCount,
+      unpaidMonthsDues,
+      periodExpectedDues,
+      oldDebtAmount,
       expectedDues,
       totalPaid,
       netBalance,
@@ -267,14 +278,23 @@ export function calculateResidentFinancials(
 
   const initialBal = resident.initialBalance || 0;
   const expectedDues = (monthsElapsed * fee) - initialBal;
-
   const totalPaid = residentPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
-
   const netBalance = totalPaid - expectedDues;
+
+  const paidMonthsCount = fee > 0 ? Math.floor(totalPaid / fee) : 0;
+  const unpaidMonthsCount = Math.max(0, monthsElapsed - paidMonthsCount);
+  const unpaidMonthsDues = unpaidMonthsCount * fee;
+  const periodExpectedDues = monthsElapsed * fee;
+  const oldDebtAmount = initialBal < 0 ? Math.abs(initialBal) : 0;
 
   return {
     monthlyFee: fee,
     monthsElapsed,
+    paidMonthsCount,
+    unpaidMonthsCount,
+    unpaidMonthsDues,
+    periodExpectedDues,
+    oldDebtAmount,
     expectedDues,
     totalPaid,
     netBalance,

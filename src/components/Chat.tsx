@@ -121,7 +121,7 @@ export const Chat: React.FC<ChatProps> = ({
   const handleShareComplaintWhatsApp = (comp: PublicComplaint) => {
     let msg = `⚠️ *شكوى وموضوع نقاش عام جديد من السكان* ⚠️\n`;
     msg += `-----------------------------------\n`;
-    msg += `🚪 *الوحدة:* ${comp.flatNumber ? `شقة ${comp.flatNumber}` : 'مجهول'}\n`;
+    msg += `🚪 *الوحدة:* ${comp.flatNumber ? `وحدة ${comp.flatNumber}` : 'مجهول'}\n`;
     msg += `👤 *الناشر:* ${comp.residentName}\n`;
     msg += `📅 *تاريخ النشر:* ${comp.date}\n`;
     msg += `-----------------------------------\n\n`;
@@ -567,7 +567,7 @@ export const Chat: React.FC<ChatProps> = ({
                           <span className={`px-1.5 py-0.5 rounded text-[9.5px] font-black ${
                             isMe ? 'bg-blue-800/80 text-white' : 'bg-blue-50 dark:bg-blue-900/40 text-blue-900 dark:text-blue-300'
                           }`}>
-                            {String(msg.flatNumber).startsWith('شقة') ? msg.flatNumber : `وحدة ${msg.flatNumber}`}
+                            {`وحدة ${String(msg.flatNumber).replace(/^شقة\s*/, '').replace(/^وحدة\s*/, '')}`}
                           </span>
                         )}
                         {/* Sender Role Badge */}
@@ -695,7 +695,7 @@ export const Chat: React.FC<ChatProps> = ({
                                      reply.flatNumber !== 'إدارة الاتحاد' && 
                                      reply.flatNumber !== 'فني الصيانة' && (
                                       <span className="px-1 py-0.1 bg-black/10 dark:bg-white/10 rounded text-[8.5px]">
-                                        شقة {reply.flatNumber}
+                                        وحدة {reply.flatNumber}
                                       </span>
                                     )}
                                     {reply.senderRole === 'ADMIN' && (

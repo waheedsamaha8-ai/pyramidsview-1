@@ -1040,7 +1040,7 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                       <tr key={res.id} className="hover:bg-slate-50/50 transition">
                         <td className="p-3.5 text-center text-blue-950 font-black">
                           <span className="bg-blue-50 text-blue-950 px-3 py-1 rounded-lg border border-blue-100/40 font-mono text-xs">
-                            شقة {res.flatNumber}
+                            وحدة {res.flatNumber}
                           </span>
                         </td>
                         <td className="p-3.5 text-slate-800">
@@ -1258,7 +1258,7 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
       <ConfirmModal
         isOpen={requestToDecline !== null}
         title="تأكيد رفض طلب الانضمام"
-        message={`هل أنت متأكد من رغبتك في رفض طلب الانضمام للوحدة السكنية رقم (شقة ${requestToDecline?.flatNumber}) باسم "${requestToDecline?.residentType === 'OWNER' ? requestToDecline?.ownerName : requestToDecline?.tenantName}"؟ لن يتم تفعيل الحساب.`}
+        message={`هل أنت متأكد من رغبتك في رفض طلب الانضمام للوحدة رقم (وحدة ${requestToDecline?.flatNumber}) باسم "${requestToDecline?.residentType === 'OWNER' ? requestToDecline?.ownerName : requestToDecline?.tenantName}"؟ لن يتم تفعيل الحساب.`}
         confirmLabel="نعم، رفض الطلب"
         cancelLabel="تراجع"
         isDestructive={true}
@@ -1276,7 +1276,7 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
       <ConfirmModal
         isOpen={requestToDelete !== null}
         title="تأكيد حذف طلب الانضمام والمستخدم"
-        message={`هل أنت متأكد من رغبتك في حذف طلب الانضمام والمستخدم الخاص بـ (شقة ${requestToDelete?.flatNumber}) باسم "${requestToDelete?.residentType === 'OWNER' ? requestToDelete?.ownerName : requestToDelete?.tenantName}" نهائياً من النظام؟ لا يمكن التراجع عن هذا الإجراء.`}
+        message={`هل أنت متأكد من رغبتك في حذف طلب الانضمام والمستخدم الخاص بـ (وحدة ${requestToDelete?.flatNumber}) باسم "${requestToDelete?.residentType === 'OWNER' ? requestToDelete?.ownerName : requestToDelete?.tenantName}" نهائياً من النظام؟ لا يمكن التراجع عن هذا الإجراء.`}
         confirmLabel="نعم، حذف نهائياً"
         cancelLabel="تراجع"
         isDestructive={true}

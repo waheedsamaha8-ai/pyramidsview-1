@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Resident } from '../../types';
 import { X, AlertCircle, Phone, Plus, Trash2, KeyRound, Smartphone } from 'lucide-react';
 import { pickContactFromDevice, formatMobileNumber } from '../../utils/phoneUtils';
-import { parseFlatNumber, isSameFlatNumber } from '../../utils/buildingStructure';
+import { parseFlatNumber, isSameFlatNumber, getCanonicalFlatKey } from '../../utils/buildingStructure';
 
 interface AddEditResidentModalProps {
   isOpen: boolean;
@@ -158,15 +158,15 @@ export const AddEditResidentModal: React.FC<AddEditResidentModalProps> = ({
 
     const parsed = parseFlatNumber(flatStr);
     if (!flatStr || parsed.main >= 99999) {
-      setError('يرجى إدخال رقم وحدة صحيح (مثل 502 أو 502-2 للشقق المكررة).');
+      setError('يرجى إدخال رقم وحدة صحيح (مثل 207 أو 502).');
       return;
     }
 
     const isDuplicate = residents.some(
-      (r) => isSameFlatNumber(r.flatNumber, flatStr) && (!resident || resident.id !== r.id)
+      (r) => (isSameFlatNumber(r.flatNumber, flatStr) || getCanonicalFlatKey(r.flatNumber) === getCanonicalFlatKey(flatStr)) && (!resident || resident.id !== r.id)
     );
     if (isDuplicate) {
-      setError('رقم الوحدة هذا مسجل بالفعل لساكن آخر.');
+      setError(`رقم الوحدة (${flatStr}) مسجل بالفعل في كشف الوحدات. كل وحدة لها رقم مميز ولا يمكن تكرار الوحدات نهائياً.`);
       return;
     }
 
@@ -245,7 +245,7 @@ export const AddEditResidentModal: React.FC<AddEditResidentModalProps> = ({
       <div className="w-full max-w-lg bg-white rounded-3xl p-5 sm:p-6 border border-slate-100 shadow-2xl animate-scale-up text-right max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between border-b pb-3 mb-4">
           <h3 className="text-sm sm:text-base font-black text-slate-950">
-            {resident ? 'تعديل بيانات الشقة والساكن' : 'إضافة شقة وساكن جديد'}
+            {resident ? 'تعديل بيانات الوحدة والساكن' : 'إضافة وحدة وساكن جديد'}
           </h3>
           <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded-xl transition cursor-pointer">
             <X className="w-4 h-4 text-slate-400" />
@@ -263,7 +263,7 @@ export const AddEditResidentModal: React.FC<AddEditResidentModalProps> = ({
           {/* Row 1: Flat Number & Activity Type */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <label className="text-[10px] font-black text-slate-600">رقم الوحدة / الشقة *</label>
+              <label className="text-[10px] font-black text-slate-600">رقم الوحدة *</label>
               <input
                 type="text"
                 placeholder="مثال: 502 أو 502-2"
@@ -474,7 +474,7 @@ export const AddEditResidentModal: React.FC<AddEditResidentModalProps> = ({
           {/* Row 4: Ownership Type & Notes */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1">
-              <label className="text-[10px] font-black text-slate-600">حالة الشقة (تمليك / إيجار) *</label>
+              <label className="text-[10px] font-black text-slate-600">حالة الوحدة (تمليك / إيجار) *</label>
               <div className="flex gap-2 pt-0.5">
                 <button
                   type="button"
@@ -587,7 +587,7 @@ export const AddEditResidentModal: React.FC<AddEditResidentModalProps> = ({
               type="submit"
               className="px-5 py-2.5 bg-blue-900 text-white rounded-xl text-xs font-black hover:bg-blue-950 active:scale-[0.98] transition shadow-xs cursor-pointer"
             >
-              {resident ? 'حفظ التعديلات' : 'إضافة الشقة'}
+              {resident ? 'حفظ التعديلات' : 'إضافة الوحدة'}
             </button>
           </div>
         </form>

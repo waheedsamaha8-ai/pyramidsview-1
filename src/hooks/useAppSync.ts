@@ -16,6 +16,7 @@ import {
   FloorConfig, 
   UserRole 
 } from '../types';
+import { deduplicateResidents } from '../utils/buildingStructure';
 
 interface UseAppSyncOptions {
   userEmail?: string | null;
@@ -124,8 +125,9 @@ export function useAppSync({
     const unsubResidents = firestoreService.subscribeToResidents((items) => {
       if (!isMounted || !Array.isArray(items)) return;
       const validItems = items.filter(r => r && r.id);
-      setResidents(validItems);
-      offlineSync.saveCachedData('residents', validItems);
+      const uniqueResidents = deduplicateResidents(validItems);
+      setResidents(uniqueResidents);
+      offlineSync.saveCachedData('residents', uniqueResidents);
     });
 
     const unsubPayments = firestoreService.subscribeToPayments((items) => {
@@ -184,86 +186,17 @@ export function useAppSync({
         const deletedCompIds = deletedComplaintIdsRef.current;
 
         if (chatRes && Array.isArray(chatRes)) {
-          setMessages(prev => {
-            const validServer = chatRes.filter((m: any) => m && m.id && !deletedMsgIds.has(m.id));
-            const serverIdSet = new Set(validServer.map(m => m.id));
-            const map = new Map<string, ChatMessage>();
-
-            // Keep ALL Firestore messages; never purge them
-            prev.forEach(m => {
-              if (m && m.id && !deletedMsgIds.has(m.id)) {
-                map.set(m.id, m);
-              }
-            });
-
-            validServer.forEach((m: ChatMessage) => {
-              const existing = map.get(m.id);
-              if (existing) {
-                map.set(m.id, {
-                  ...existing,
-                  ...m,
-                  imageUrl: (m.imageUrl && !m.imageUrl.startsWith('data:')) ? m.imageUrl : (existing.imageUrl || m.imageUrl),
-                });
-              } else {
-                map.set(m.id, m);
-              }
-            });
-
-            const merged = Array.from(map.values())
-              .filter(m => m && m.id && !deletedMsgIds.has(m.id))
-              .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-
-            const isDifferent = merged.length !== prev.length || 
-              merged.some((m, idx) => !prev[idx] || prev[idx].id !== m.id || prev[idx].text !== m.text || prev[idx].imageUrl !== m.imageUrl);
-
-            if (isDifferent) {
-              offlineSync.saveCachedData('chat_messages', merged);
-              return merged;
-            }
-            return prev;
-          });
+          const validServer = chatRes.filter((m: any) => m && m.id && !deletedMsgIds.has(m.id))
+            .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+          setMessages(validServer);
+          offlineSync.saveCachedData('chat_messages', validServer);
         }
 
         if (compRes && Array.isArray(compRes)) {
-          setComplaints(prev => {
-            const validServer = compRes.filter((c: any) => c && c.id && !deletedCompIds.has(c.id));
-            const serverIdSet = new Set(validServer.map(c => c.id));
-            const map = new Map<string, PublicComplaint>();
-
-            // Keep ALL Firestore complaints; never purge them
-            prev.forEach(c => {
-              if (c && c.id && !deletedCompIds.has(c.id)) {
-                map.set(c.id, c);
-              }
-            });
-
-            validServer.forEach((c: PublicComplaint) => {
-              const existing = map.get(c.id);
-              if (existing) {
-                map.set(c.id, {
-                  ...existing,
-                  ...c,
-                  imageUrl: (c.imageUrl && !c.imageUrl.startsWith('data:')) ? c.imageUrl : (existing.imageUrl || c.imageUrl),
-                  comments: c.comments || existing.comments || [],
-                });
-              } else {
-                map.set(c.id, c);
-              }
-            });
-
-            const merged = Array.from(map.values())
-              .filter(c => c && c.id && !deletedCompIds.has(c.id))
-              .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-
-            const isDifferent = merged.length !== prev.length || 
-              merged.some((c, idx) => !prev[idx] || prev[idx].id !== c.id || prev[idx].title !== c.title || (prev[idx].comments?.length || 0) !== (c.comments?.length || 0));
-
-            if (isDifferent) {
-              offlineSync.saveCachedData('public_complaints', merged);
-              return merged;
-            }
-            return prev;
-          });
+          const validServer = compRes.filter((c: any) => c && c.id && !deletedCompIds.has(c.id))
+            .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+          setComplaints(validServer);
+          offlineSync.saveCachedData('public_complaints', validServer);
         }
       } catch {
         isApiServerAvailable = false;

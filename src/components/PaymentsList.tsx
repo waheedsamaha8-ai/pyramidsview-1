@@ -162,7 +162,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
 
       const activeResidentObj = filterResident ? residents.find((r) => r.id === filterResident) : null;
       if (activeResidentObj) {
-        periodLabel += `_شقة_${activeResidentObj.flatNumber}`;
+        periodLabel += `_وحدة_${activeResidentObj.flatNumber}`;
       }
 
       const dateStr = new Date().toISOString().slice(0, 10);
@@ -183,7 +183,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       // If a specific unit/resident filter is active on screen, share directly to that unit's WhatsApp!
       if (activeResidentObj) {
         const targetPhone = activeResidentObj.phone || activeResidentObj.tenantPhone;
-        const targetName = `شقة ${activeResidentObj.flatNumber} (${activeResidentObj.name})`;
+        const targetName = `( الوحدة ${activeResidentObj.flatNumber} - ${activeResidentObj.activityType || 'سكني'} ) - ${activeResidentObj.name}`;
         const shareText = `🏢 *اتحاد ملاك عمارة بيراميدز فيو ١*\n📊 *تقرير تحصيلات معتمد طبقاً للبيانات المعروضة*\n🚪 *الوحدة:* ${targetName}\n🗓 *الفترة:* ${periodText}\n💰 *${statsText}*\n-----------------------------------\nمرفق صورة تقرير التحصيلات المتزامنة تماماً مع بيانات الشاشة.\nاتحاد ملاك بيراميدز فيو ١`;
 
         await shareImageViaWhatsApp({
@@ -362,13 +362,14 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       y += 50;
     };
 
-    drawRow('رقم الوحدة السكنية:', `شقة ${payment.flatNumber}`);
+    const resActivity = res?.activityType || 'سكني';
+    drawRow('رقم الوحدة:', `( الوحدة ${payment.flatNumber} - ${resActivity} )`);
     drawRow('اسم الساكن / الشاغل:', payment.residentName);
     if (res?.ownershipType === 'إيجار' && res?.tenantName) {
       drawRow('المستأجر الحالي:', res.tenantName);
     }
     const monthName = monthNamesArabic[parseInt(payment.month, 10) - 1] || payment.month;
-    drawRow('بيان الاشتراك المسدد:', `اشتراك شهر ${monthName} (${payment.year})`);
+    drawRow('بيان الاشتراك المسدد:', `إيصال سداد شهر ${monthName} ${payment.year} - ${payment.paymentType || 'اشتراك شهري'}`);
     drawRow('فئة التحصيل:', payment.paymentType);
     drawRow('تاريخ السداد / التحصيل:', payment.date || `${payment.year}-${payment.month}`);
     drawRow('المبلغ المستلم والمسدد:', `${Math.round(payment.amount).toLocaleString()} جنيه مصري`, true, '#047857');
@@ -391,7 +392,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
     setReceiptModalData({
       type: 'receipt',
       unitNumber: payment.flatNumber,
-      residentName: payment.residentName,
+      residentName: res?.name || payment.residentName,
       tenantName: res?.tenantName,
       phone: res?.phone,
       tenantPhone: res?.tenantPhone,
@@ -401,6 +402,9 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       date: payment.date,
       receiptNumber: payment.receiptNumber,
       paymentType: payment.paymentType,
+      activityType: res?.activityType || 'سكني',
+      occupancyType: res?.ownershipType || 'تمليك',
+      monthlyFee: res?.monthlyFee,
       notes: payment.notes,
     });
   };
@@ -1466,7 +1470,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
               <span className="text-slate-400">الفلاتر المطبقة:</span>
               {filterResident && (
                 <span className="px-2 py-0.5 bg-blue-50 text-blue-800 rounded border border-blue-200">
-                  الوحدة: شقة {residents.find((r) => r.id === filterResident)?.flatNumber} ({residents.find((r) => r.id === filterResident)?.name})
+                  الوحدة: ( الوحدة {residents.find((r) => r.id === filterResident)?.flatNumber} - {residents.find((r) => r.id === filterResident)?.activityType || 'سكني'} ) ({residents.find((r) => r.id === filterResident)?.name})
                 </span>
               )}
               {filterType && (

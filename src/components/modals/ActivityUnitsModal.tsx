@@ -79,7 +79,7 @@ export const ActivityUnitsModal: React.FC<ActivityUnitsModalProps> = ({
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {vacantFlats.map(fNum => (
                     <div key={fNum} className="p-3 bg-slate-50 rounded-2xl border border-slate-200 flex flex-col items-center justify-center">
-                      <span className="text-xs font-black text-slate-800">شقة {fNum}</span>
+                      <span className="text-xs font-black text-slate-800">وحدة {fNum}</span>
                       <span className="text-[10px] text-slate-500 font-bold">شاغرة / غير مسجل</span>
                     </div>
                   ))}
@@ -100,7 +100,7 @@ export const ActivityUnitsModal: React.FC<ActivityUnitsModalProps> = ({
                 {matchingResidents.map(r => (
                   <div key={r.id} className="p-3 bg-slate-50 rounded-2xl border border-slate-100 space-y-1 hover:border-blue-200 transition">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-black text-blue-950">شقة {r.flatNumber}</span>
+                      <span className="text-xs font-black text-blue-950">وحدة {r.flatNumber}</span>
                       <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-blue-100 text-blue-900">
                         {r.ownershipType || 'تمليك'}
                       </span>

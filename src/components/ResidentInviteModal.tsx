@@ -140,7 +140,7 @@ ${inviteUrl}
                 </span>
               </h3>
               <p className="text-[11px] text-blue-200/80 font-medium">
-                إرسال رابط انضمام مخصص للشقة عبر واتساب أو نسخ الدعوة
+                إرسال رابط انضمام مخصص للوحدة عبر واتساب أو نسخ الدعوة
               </p>
             </div>
           </div>
@@ -160,7 +160,7 @@ ${inviteUrl}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-black text-slate-700 dark:text-slate-300 mb-1">
-                رقم الشقة / الوحدة
+                رقم الوحدة
               </label>
               <input
                 type="text"
@@ -238,7 +238,7 @@ ${inviteUrl}
                 <span>معاينة نص الدعوة الموجهة</span>
               </span>
               <span className="text-[10px] text-slate-400 font-bold">
-                تتضمن رابطاً ذكياً يملأ رقم الشقة تلقائياً
+                تتضمن رابطاً ذكياً يملأ رقم الوحدة تلقائياً
               </span>
             </div>
 

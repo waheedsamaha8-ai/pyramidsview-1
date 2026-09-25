@@ -29,6 +29,7 @@ import {
 } from '../types';
 import * as offlineSync from './offlineSync';
 import { DEFAULT_BUILDING_ID } from './buildingStore';
+import { deduplicateResidents, isSameFlatNumber } from '../utils/buildingStructure';
 
 // Helper to sanitize undefined values before saving to Firestore
 function sanitizeForFirestore<T>(data: T): Record<string, any> {
@@ -64,6 +65,34 @@ export function getBuildingColRef(colName: string) {
 
 export function getBuildingDocRef(colName: string, docId: string) {
   return doc(db, colName, docId);
+}
+
+// Low-level helper to permanently delete document across all Firestore structures (root, building subcollections, etc.)
+async function deleteFromAllFirestorePaths(colName: string, id: string): Promise<void> {
+  const cleanId = String(id);
+  const activeId = getActiveBuildingId();
+  const deletePromises: Promise<any>[] = [];
+
+  // 1. Root collection document
+  try {
+    deletePromises.push(deleteDoc(doc(db, colName, cleanId)));
+  } catch {}
+
+  // 2. Active building subcollection document
+  if (activeId) {
+    try {
+      deletePromises.push(deleteDoc(doc(db, 'buildings', activeId, colName, cleanId)));
+    } catch {}
+  }
+
+  // 3. Default building subcollection fallback
+  if (activeId !== DEFAULT_BUILDING_ID) {
+    try {
+      deletePromises.push(deleteDoc(doc(db, 'buildings', DEFAULT_BUILDING_ID, colName, cleanId)));
+    } catch {}
+  }
+
+  await Promise.allSettled(deletePromises);
 }
 
 // ----------------------------------------------------
@@ -135,18 +164,25 @@ export async function getResidentsFromFirestore(): Promise<Resident[]> {
       } catch {}
     }
 
-    if (residents.length > 0) {
-      offlineSync.saveCachedData(cacheKey, residents);
-      return residents;
+    const unique = deduplicateResidents(residents);
+    // Clean up any duplicate records from Firestore permanently
+    if (unique.length < residents.length) {
+      const keptIds = new Set(unique.map(r => r.id));
+      residents.forEach(r => {
+        if (!keptIds.has(r.id)) {
+          deleteResidentFromFirestore(r.id).catch(() => {});
+        }
+      });
     }
-    return cached;
+    offlineSync.saveCachedData(cacheKey, unique);
+    return unique;
   } catch (error) {
     handleFirestoreError(error, {
       operation: OperationType.LIST,
       path: 'residents',
       userMessage: 'فشل تحميل بيانات السكان من Firestore'
     });
-    return cached;
+    return deduplicateResidents(cached);
   }
 }
 
@@ -169,6 +205,17 @@ export async function saveResidentToFirestore(resident: Resident): Promise<void>
         await setDoc(subDocRef, sanitizeForFirestore(payload), { merge: true });
       } catch {}
     }
+
+    // Check if there are other documents with the same flatNumber but different ID (e.g. ghost or auto-created records)
+    const cacheKey = getBuildingCacheKey('residents');
+    const existingList = offlineSync.getCachedData<Resident[]>(cacheKey) || [];
+    existingList.forEach(existing => {
+      if (existing.id && existing.id !== cleanId && isSameFlatNumber(existing.flatNumber, resident.flatNumber)) {
+        // Delete redundant duplicate record from Firestore
+        deleteResidentFromFirestore(existing.id).catch(() => {});
+      }
+    });
+
   } catch (error) {
     handleFirestoreError(error, {
       operation: OperationType.UPDATE,
@@ -176,41 +223,32 @@ export async function saveResidentToFirestore(resident: Resident): Promise<void>
     });
     throw error;
   }
-  // Local cache update
+  // Local cache update with strict deduplication
   const cacheKey = getBuildingCacheKey('residents');
   let list = offlineSync.getCachedData<Resident[]>(cacheKey) || [];
-  const idx = list.findIndex(r => String(r.id) === cleanId || String(r.flatNumber) === String(resident.flatNumber));
-  if (idx >= 0) {
-    list[idx] = payload;
-  } else {
-    list.push(payload);
-  }
-  offlineSync.saveCachedData(cacheKey, list);
+  // Remove any conflicting resident for the same flat number
+  list = list.filter(r => r.id !== cleanId && !isSameFlatNumber(r.flatNumber, resident.flatNumber));
+  list.push(payload);
+  const finalUnique = deduplicateResidents(list);
+  offlineSync.saveCachedData(cacheKey, finalUnique);
 }
 
 export async function deleteResidentFromFirestore(id: string): Promise<void> {
-  const activeId = getActiveBuildingId();
+  const cleanId = String(id);
   try {
-    const docRef = getBuildingDocRef('residents', String(id));
-    await deleteDoc(docRef);
-
-    if (activeId && activeId !== DEFAULT_BUILDING_ID) {
-      try {
-        const subDocRef = doc(db, 'buildings', activeId, 'residents', String(id));
-        await deleteDoc(subDocRef);
-      } catch {}
-    }
+    await deleteFromAllFirestorePaths('residents', cleanId);
   } catch (error) {
     handleFirestoreError(error, {
       operation: OperationType.DELETE,
-      path: `residents/${id}`
+      path: `residents/${cleanId}`
     });
     throw error;
   }
   const cacheKey = getBuildingCacheKey('residents');
   let list = offlineSync.getCachedData<Resident[]>(cacheKey) || [];
-  list = list.filter(r => String(r.id) !== String(id));
+  list = list.filter(r => String(r.id) !== cleanId);
   offlineSync.saveCachedData(cacheKey, list);
+  offlineSync.purgeEntityFromQueue(cleanId);
 }
 
 export async function saveBatchResidentsToFirestore(residents: Resident[]): Promise<void> {
@@ -291,11 +329,8 @@ export async function getPaymentsFromFirestore(): Promise<Payment[]> {
       } catch {}
     }
 
-    if (payments.length > 0) {
-      offlineSync.saveCachedData(cacheKey, payments);
-      return payments;
-    }
-    return cached;
+    offlineSync.saveCachedData(cacheKey, payments);
+    return payments;
   } catch (error) {
     handleFirestoreError(error, {
       operation: OperationType.LIST,
@@ -346,29 +381,22 @@ export async function savePaymentToFirestore(payment: Payment): Promise<void> {
 }
 
 export async function deletePaymentFromFirestore(id: string): Promise<void> {
-  const activeId = getActiveBuildingId();
+  const cleanId = String(id);
   try {
-    const docRef = getBuildingDocRef('payments', String(id));
-    await deleteDoc(docRef);
-
-    if (activeId && activeId !== DEFAULT_BUILDING_ID) {
-      try {
-        const subDocRef = doc(db, 'buildings', activeId, 'payments', String(id));
-        await deleteDoc(subDocRef);
-      } catch {}
-    }
+    await deleteFromAllFirestorePaths('payments', cleanId);
   } catch (error) {
     handleFirestoreError(error, {
       operation: OperationType.DELETE,
-      path: `payments/${id}`
+      path: `payments/${cleanId}`
     });
     throw error;
   }
 
   const cacheKey = getBuildingCacheKey('payments');
   let list = offlineSync.getCachedData<Payment[]>(cacheKey) || [];
-  list = list.filter(p => String(p.id) !== String(id));
+  list = list.filter(p => String(p.id) !== cleanId);
   offlineSync.saveCachedData(cacheKey, list);
+  offlineSync.purgeEntityFromQueue(cleanId);
 }
 
 // ----------------------------------------------------
@@ -397,11 +425,8 @@ export async function getExpensesFromFirestore(): Promise<Expense[]> {
       } catch {}
     }
 
-    if (expenses.length > 0) {
-      offlineSync.saveCachedData(cacheKey, expenses);
-      return expenses;
-    }
-    return cached;
+    offlineSync.saveCachedData(cacheKey, expenses);
+    return expenses;
   } catch (error) {
     handleFirestoreError(error, {
       operation: OperationType.LIST,
@@ -451,29 +476,22 @@ export async function saveExpenseToFirestore(expense: Expense): Promise<void> {
 }
 
 export async function deleteExpenseFromFirestore(id: string): Promise<void> {
-  const activeId = getActiveBuildingId();
+  const cleanId = String(id);
   try {
-    const docRef = getBuildingDocRef('expenses', String(id));
-    await deleteDoc(docRef);
-
-    if (activeId && activeId !== DEFAULT_BUILDING_ID) {
-      try {
-        const subDocRef = doc(db, 'buildings', activeId, 'expenses', String(id));
-        await deleteDoc(subDocRef);
-      } catch {}
-    }
+    await deleteFromAllFirestorePaths('expenses', cleanId);
   } catch (error) {
     handleFirestoreError(error, {
       operation: OperationType.DELETE,
-      path: `expenses/${id}`
+      path: `expenses/${cleanId}`
     });
     throw error;
   }
 
   const cacheKey = getBuildingCacheKey('expenses');
   let list = offlineSync.getCachedData<Expense[]>(cacheKey) || [];
-  list = list.filter(e => String(e.id) !== String(id));
+  list = list.filter(e => String(e.id) !== cleanId);
   offlineSync.saveCachedData(cacheKey, list);
+  offlineSync.purgeEntityFromQueue(cleanId);
 }
 
 // ----------------------------------------------------
@@ -577,11 +595,8 @@ export async function getChatMessagesFromFirestore(): Promise<ChatMessage[]> {
       } catch {}
     }
 
-    if (messages.length > 0) {
-      offlineSync.saveCachedData(cacheKey, messages);
-      return messages;
-    }
-    return cached;
+    offlineSync.saveCachedData(cacheKey, messages);
+    return messages;
   } catch (error) {
     handleFirestoreError(error, {
       operation: OperationType.LIST,
@@ -627,54 +642,48 @@ export async function saveChatMessageToFirestore(msg: ChatMessage): Promise<void
 }
 
 export async function deleteChatMessageFromFirestore(id: string): Promise<void> {
-  const activeId = getActiveBuildingId();
+  const cleanId = String(id);
   try {
-    const docRef = getBuildingDocRef('chat_messages', String(id));
-    await deleteDoc(docRef);
-
-    if (activeId && activeId !== DEFAULT_BUILDING_ID) {
-      try {
-        const subDocRef = doc(db, 'buildings', activeId, 'chat_messages', String(id));
-        await deleteDoc(subDocRef);
-      } catch {}
-    }
+    await deleteFromAllFirestorePaths('chat_messages', cleanId);
   } catch (error) {
     handleFirestoreError(error, {
       operation: OperationType.DELETE,
-      path: `chat_messages/${id}`
+      path: `chat_messages/${cleanId}`
     });
     throw error;
   }
 
   const cacheKey = getBuildingCacheKey('chat_messages');
   let list = offlineSync.getCachedData<ChatMessage[]>(cacheKey) || [];
-  list = list.filter(m => String(m.id) !== String(id));
+  list = list.filter(m => String(m.id) !== cleanId);
   offlineSync.saveCachedData(cacheKey, list);
+  offlineSync.purgeEntityFromQueue(cleanId);
 }
 
 export async function updateChatMessageInFirestore(id: string, newText: string): Promise<void> {
+  const cleanId = String(id);
   const activeId = getActiveBuildingId();
   try {
-    const docRef = getBuildingDocRef('chat_messages', String(id));
+    const docRef = getBuildingDocRef('chat_messages', cleanId);
     await setDoc(docRef, { text: newText, editedAt: new Date().toISOString() }, { merge: true });
 
     if (activeId && activeId !== DEFAULT_BUILDING_ID) {
       try {
-        const subDocRef = doc(db, 'buildings', activeId, 'chat_messages', String(id));
+        const subDocRef = doc(db, 'buildings', activeId, 'chat_messages', cleanId);
         await setDoc(subDocRef, { text: newText, editedAt: new Date().toISOString() }, { merge: true });
       } catch {}
     }
   } catch (error) {
     handleFirestoreError(error, {
       operation: OperationType.UPDATE,
-      path: `chat_messages/${id}`
+      path: `chat_messages/${cleanId}`
     });
     throw error;
   }
 
   const cacheKey = getBuildingCacheKey('chat_messages');
   let list = offlineSync.getCachedData<ChatMessage[]>(cacheKey) || [];
-  list = list.map(m => String(m.id) === String(id) ? { ...m, text: newText } : m);
+  list = list.map(m => String(m.id) === cleanId ? { ...m, text: newText } : m);
   offlineSync.saveCachedData(cacheKey, list);
 }
 
@@ -688,9 +697,7 @@ export function subscribeToChatMessages(callback: (messages: ChatMessage[]) => v
       });
       messages.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
       const cacheKey = getBuildingCacheKey('chat_messages');
-      if (messages.length > 0) {
-        offlineSync.saveCachedData(cacheKey, messages);
-      }
+      offlineSync.saveCachedData(cacheKey, messages);
       callback(messages);
     }, (error) => {
       console.warn('Realtime messages listener note:', error?.message);
@@ -713,9 +720,7 @@ export async function getComplaintsFromFirestore(): Promise<PublicComplaint[]> {
     snapshot.forEach(docSnap => {
       complaints.push(docSnap.data() as PublicComplaint);
     });
-    if (complaints.length > 0) {
-      offlineSync.saveCachedData(cacheKey, complaints);
-    }
+    offlineSync.saveCachedData(cacheKey, complaints);
     return complaints;
   } catch (error) {
     handleFirestoreError(error, {
@@ -750,19 +755,20 @@ export async function saveComplaintToFirestore(complaint: PublicComplaint): Prom
 }
 
 export async function deleteComplaintFromFirestore(id: string): Promise<void> {
+  const cleanId = String(id);
   try {
-    const docRef = getBuildingDocRef('public_complaints', String(id));
-    await deleteDoc(docRef);
+    await deleteFromAllFirestorePaths('public_complaints', cleanId);
   } catch (error) {
     handleFirestoreError(error, {
       operation: OperationType.DELETE,
-      path: `public_complaints/${id}`
+      path: `public_complaints/${cleanId}`
     });
   }
   const cacheKey = getBuildingCacheKey('public_complaints');
   let list = offlineSync.getCachedData<PublicComplaint[]>(cacheKey) || [];
-  list = list.filter(c => String(c.id) !== String(id));
+  list = list.filter(c => String(c.id) !== cleanId);
   offlineSync.saveCachedData(cacheKey, list);
+  offlineSync.purgeEntityFromQueue(cleanId);
 }
 
 // ----------------------------------------------------
@@ -777,9 +783,7 @@ export async function getMaintenanceFromFirestore(): Promise<MaintenanceRequest[
     snapshot.forEach(docSnap => {
       items.push(docSnap.data() as MaintenanceRequest);
     });
-    if (items.length > 0) {
-      offlineSync.saveCachedData(cacheKey, items);
-    }
+    offlineSync.saveCachedData(cacheKey, items);
     return items;
   } catch (error) {
     handleFirestoreError(error, {
@@ -814,19 +818,20 @@ export async function saveMaintenanceToFirestore(item: MaintenanceRequest): Prom
 }
 
 export async function deleteMaintenanceFromFirestore(id: string): Promise<void> {
+  const cleanId = String(id);
   try {
-    const docRef = getBuildingDocRef('maintenance', String(id));
-    await deleteDoc(docRef);
+    await deleteFromAllFirestorePaths('maintenance', cleanId);
   } catch (error) {
     handleFirestoreError(error, {
       operation: OperationType.DELETE,
-      path: `maintenance/${id}`
+      path: `maintenance/${cleanId}`
     });
   }
   const cacheKey = getBuildingCacheKey('maintenance');
   let list = offlineSync.getCachedData<MaintenanceRequest[]>(cacheKey) || [];
-  list = list.filter(m => String(m.id) !== String(id));
+  list = list.filter(m => String(m.id) !== cleanId);
   offlineSync.saveCachedData(cacheKey, list);
+  offlineSync.purgeEntityFromQueue(cleanId);
 }
 
 // ----------------------------------------------------
@@ -841,9 +846,7 @@ export async function getPollsFromFirestore(): Promise<Poll[]> {
     snapshot.forEach(docSnap => {
       polls.push(docSnap.data() as Poll);
     });
-    if (polls.length > 0) {
-      offlineSync.saveCachedData(cacheKey, polls);
-    }
+    offlineSync.saveCachedData(cacheKey, polls);
     return polls;
   } catch (error) {
     handleFirestoreError(error, {
@@ -878,19 +881,20 @@ export async function savePollToFirestore(poll: Poll): Promise<void> {
 }
 
 export async function deletePollFromFirestore(id: string): Promise<void> {
+  const cleanId = String(id);
   try {
-    const docRef = getBuildingDocRef('polls', String(id));
-    await deleteDoc(docRef);
+    await deleteFromAllFirestorePaths('polls', cleanId);
   } catch (error) {
     handleFirestoreError(error, {
       operation: OperationType.DELETE,
-      path: `polls/${id}`
+      path: `polls/${cleanId}`
     });
   }
   const cacheKey = getBuildingCacheKey('polls');
   let list = offlineSync.getCachedData<Poll[]>(cacheKey) || [];
-  list = list.filter(p => String(p.id) !== String(id));
+  list = list.filter(p => String(p.id) !== cleanId);
   offlineSync.saveCachedData(cacheKey, list);
+  offlineSync.purgeEntityFromQueue(cleanId);
 }
 
 export async function getDecisionsFromFirestore(): Promise<AdminDecision[]> {
@@ -902,9 +906,7 @@ export async function getDecisionsFromFirestore(): Promise<AdminDecision[]> {
     snapshot.forEach(docSnap => {
       items.push(docSnap.data() as AdminDecision);
     });
-    if (items.length > 0) {
-      offlineSync.saveCachedData(cacheKey, items);
-    }
+    offlineSync.saveCachedData(cacheKey, items);
     return items;
   } catch (error) {
     handleFirestoreError(error, {
@@ -939,19 +941,20 @@ export async function saveDecisionToFirestore(decision: AdminDecision): Promise<
 }
 
 export async function deleteDecisionFromFirestore(id: string): Promise<void> {
+  const cleanId = String(id);
   try {
-    const docRef = getBuildingDocRef('admin_decisions', String(id));
-    await deleteDoc(docRef);
+    await deleteFromAllFirestorePaths('admin_decisions', cleanId);
   } catch (error) {
     handleFirestoreError(error, {
       operation: OperationType.DELETE,
-      path: `admin_decisions/${id}`
+      path: `admin_decisions/${cleanId}`
     });
   }
   const cacheKey = getBuildingCacheKey('admin_decisions');
   let list = offlineSync.getCachedData<AdminDecision[]>(cacheKey) || [];
-  list = list.filter(d => String(d.id) !== String(id));
+  list = list.filter(d => String(d.id) !== cleanId);
   offlineSync.saveCachedData(cacheKey, list);
+  offlineSync.purgeEntityFromQueue(cleanId);
 }
 
 // ----------------------------------------------------
@@ -966,9 +969,7 @@ export async function getEventsFromFirestore(): Promise<BuildingEvent[]> {
     snapshot.forEach(docSnap => {
       events.push(docSnap.data() as BuildingEvent);
     });
-    if (events.length > 0) {
-      offlineSync.saveCachedData(cacheKey, events);
-    }
+    offlineSync.saveCachedData(cacheKey, events);
     return events;
   } catch (error) {
     return offlineSync.getCachedData<BuildingEvent[]>(cacheKey) || [];
@@ -992,15 +993,17 @@ export async function saveEventToFirestore(event: BuildingEvent): Promise<void> 
 }
 
 export async function deleteEventFromFirestore(id: string): Promise<void> {
+  const cleanId = String(id);
   try {
-    await deleteDoc(getBuildingDocRef('events', String(id)));
+    await deleteFromAllFirestorePaths('events', cleanId);
   } catch (error) {
-    handleFirestoreError(error, { operation: OperationType.DELETE, path: `events/${id}` });
+    handleFirestoreError(error, { operation: OperationType.DELETE, path: `events/${cleanId}` });
   }
   const cacheKey = getBuildingCacheKey('events');
   let list = offlineSync.getCachedData<BuildingEvent[]>(cacheKey) || [];
-  list = list.filter(e => String(e.id) !== String(id));
+  list = list.filter(e => String(e.id) !== cleanId);
   offlineSync.saveCachedData(cacheKey, list);
+  offlineSync.purgeEntityFromQueue(cleanId);
 }
 
 export async function getCraftsmenFromFirestore(): Promise<Craftsman[]> {
@@ -1012,9 +1015,7 @@ export async function getCraftsmenFromFirestore(): Promise<Craftsman[]> {
     snapshot.forEach(docSnap => {
       craftsmen.push(docSnap.data() as Craftsman);
     });
-    if (craftsmen.length > 0) {
-      offlineSync.saveCachedData(cacheKey, craftsmen);
-    }
+    offlineSync.saveCachedData(cacheKey, craftsmen);
     return craftsmen;
   } catch (error) {
     return offlineSync.getCachedData<Craftsman[]>(cacheKey) || [];
@@ -1037,15 +1038,17 @@ export async function saveCraftsmanToFirestore(craftsman: Craftsman): Promise<vo
 }
 
 export async function deleteCraftsmanFromFirestore(id: string): Promise<void> {
+  const cleanId = String(id);
   try {
-    await deleteDoc(getBuildingDocRef('craftsmen', String(id)));
+    await deleteFromAllFirestorePaths('craftsmen', cleanId);
   } catch (error) {
-    handleFirestoreError(error, { operation: OperationType.DELETE, path: `craftsmen/${id}` });
+    handleFirestoreError(error, { operation: OperationType.DELETE, path: `craftsmen/${cleanId}` });
   }
   const cacheKey = getBuildingCacheKey('craftsmen');
   let list = offlineSync.getCachedData<Craftsman[]>(cacheKey) || [];
-  list = list.filter(c => String(c.id) !== String(id));
+  list = list.filter(c => String(c.id) !== cleanId);
   offlineSync.saveCachedData(cacheKey, list);
+  offlineSync.purgeEntityFromQueue(cleanId);
 }
 
 // ----------------------------------------------------

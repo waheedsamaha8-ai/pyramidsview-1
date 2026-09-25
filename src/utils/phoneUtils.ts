@@ -319,3 +319,179 @@ export async function pickContactFromDevice(): Promise<DeviceContactResult | nul
   }
 }
 
+/**
+ * Formats multiple phone numbers separated by separators into clean international format separated by ' / '.
+ * Example: "01007911777, 01115409940" -> "+201007911777 / +201115409940"
+ */
+export function formatPhoneListForOccupant(phone: string | number | null | undefined): string {
+  if (phone === null || phone === undefined) return '';
+  const str = String(phone).trim();
+  if (!str) return '';
+
+  const separators = /[,/;|\n]+/;
+  const parts = str.split(separators).map(p => p.trim()).filter(Boolean);
+
+  return parts
+    .map(part => {
+      // Convert Arabic-Indic & Persian numerals
+      let clean = part
+        .replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d).toString())
+        .replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶٧٨٩'.indexOf(d).toString())
+        .replace(/^['"]+/, '')
+        .trim();
+
+      const digits = clean.replace(/\D/g, '');
+      if (!digits) return '';
+
+      // If original starts with '+'
+      if (clean.startsWith('+')) {
+        return '+' + digits;
+      }
+      // If original starts with '00'
+      if (clean.startsWith('00')) {
+        return '+' + digits.substring(2);
+      }
+      // Egyptian mobile 11 digits (01...)
+      if (digits.startsWith('01') && digits.length === 11) {
+        return '+20' + digits.substring(1);
+      }
+      // Egyptian 10 digits starting with 1
+      if (digits.startsWith('1') && digits.length === 10) {
+        return '+20' + digits;
+      }
+      // Egyptian international 12 digits starting with 201
+      if (digits.startsWith('201') && digits.length === 12) {
+        return '+' + digits;
+      }
+      // Saudi local 10 digits (05...)
+      if (digits.startsWith('05') && digits.length === 10) {
+        return '+966' + digits.substring(1);
+      }
+      // Check known international codes
+      for (const code of INTERNATIONAL_COUNTRY_CODES) {
+        if (digits.startsWith(code) && digits.length >= code.length + 7) {
+          return '+' + digits;
+        }
+      }
+      if (digits.length >= 11 && !digits.startsWith('0')) {
+        return '+' + digits;
+      }
+      return digits;
+    })
+    .filter(Boolean)
+    .join(' / ');
+}
+
+export interface OccupantDataSources {
+  residentName?: string;
+  tenantName?: string;
+  phone?: string;
+  tenantPhone?: string;
+  occupancyType?: string;
+  unitNumber?: number | string;
+}
+
+export interface OccupantStructuredInfo {
+  ownerName: string;
+  ownerRole: string;
+  ownerPhones: string;
+  ownerLine: string;
+  hasTenant: boolean;
+  tenantName: string;
+  tenantRole: string;
+  tenantPhones: string;
+  tenantLine: string;
+  lines: string[];
+  singleLine: string;
+}
+
+/**
+ * Returns structured information for Owner and Tenant with lines formatted as requested:
+ * Owner Line: "وحيد سماحة - مالك ( +201007911777 / +201115409940 )"
+ * Tenant Line: "عيد مهدي - مستأجر ( +201007222776 / +2011145008840 )"
+ */
+export function getOccupantStructuredInfo(
+  data: OccupantDataSources,
+  residentRecord?: any | null
+): OccupantStructuredInfo {
+  // 1. Owner info
+  let rawOwnerName = (data.residentName || residentRecord?.name || '').trim();
+  rawOwnerName = rawOwnerName.replace(/\s*-\s*(مالك|مستأجر|ساكن)\s*$/i, '').trim();
+
+  const rawOwnerPhone = data.phone || residentRecord?.phone || '';
+  const ownerPhones = formatPhoneListForOccupant(rawOwnerPhone);
+
+  // 2. Tenant info
+  let rawTenantName = (data.tenantName || residentRecord?.tenantName || '').trim();
+  rawTenantName = rawTenantName.replace(/\s*-\s*(مالك|مستأجر|ساكن)\s*$/i, '').trim();
+
+  const rawTenantPhone = data.tenantPhone || residentRecord?.tenantPhone || '';
+  const tenantPhones = formatPhoneListForOccupant(rawTenantPhone);
+
+  // 3. Ownership / Occupancy type
+  const rawOccupancy = data.occupancyType || residentRecord?.ownershipType || 'تمليك';
+  const isRental = rawOccupancy === 'إيجار' || rawOccupancy.includes('إيجار') || rawOccupancy.includes('مستأجر');
+
+  let ownerRole = 'مالك';
+  let tenantRole = 'مستأجر';
+  let ownerLine = '';
+  let tenantLine = '';
+  const lines: string[] = [];
+
+  const hasTenant = Boolean(rawTenantName && rawTenantName !== rawOwnerName);
+
+  if (hasTenant) {
+    ownerRole = 'مالك';
+    ownerLine = `${rawOwnerName || 'المالك'} - مالك` + (ownerPhones ? ` ( ${ownerPhones} )` : '');
+    tenantRole = 'مستأجر';
+    tenantLine = `${rawTenantName} - مستأجر` + (tenantPhones ? ` ( ${tenantPhones} )` : '');
+    lines.push(ownerLine);
+    lines.push(tenantLine);
+  } else if (rawTenantName) {
+    tenantRole = 'مستأجر';
+    tenantLine = `${rawTenantName} - مستأجر` + (tenantPhones ? ` ( ${tenantPhones} )` : '');
+    lines.push(tenantLine);
+  } else if (rawOwnerName) {
+    if (isRental) {
+      ownerRole = 'مستأجر';
+      ownerLine = `${rawOwnerName} - مستأجر` + (ownerPhones ? ` ( ${ownerPhones} )` : '');
+    } else {
+      ownerRole = 'مالك';
+      ownerLine = `${rawOwnerName} - مالك` + (ownerPhones ? ` ( ${ownerPhones} )` : '');
+    }
+    lines.push(ownerLine);
+  } else {
+    ownerLine = `الوحدة ${data.unitNumber || ''}`.trim();
+    lines.push(ownerLine);
+  }
+
+  const singleLine = lines.join(' - ');
+
+  return {
+    ownerName: rawOwnerName,
+    ownerRole,
+    ownerPhones,
+    ownerLine,
+    hasTenant,
+    tenantName: rawTenantName,
+    tenantRole,
+    tenantPhones,
+    tenantLine,
+    lines,
+    singleLine,
+  };
+}
+
+/**
+ * Formats full occupant description including Owner, Tenant, Roles and Phone numbers.
+ * Example format:
+ * "وحيد سماحة - مالك ( +201007911777 / +201115409940 ) - عيد مهدي - مستأجر ( +201007222776 / +2011145008840 )"
+ */
+export function formatFullOccupantDescription(
+  data: OccupantDataSources,
+  residentRecord?: any | null
+): string {
+  const info = getOccupantStructuredInfo(data, residentRecord);
+  return info.singleLine;
+}
+

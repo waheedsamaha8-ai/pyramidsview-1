@@ -298,7 +298,7 @@ export const MaintenanceRequests: React.FC<MaintenanceRequestsProps> = ({
 
   const handleShareCraftsmanWhatsApp = (c: Craftsman) => {
     const commentsText = c.comments && c.comments.length > 0
-      ? c.comments.map(cmt => `• [شقة ${cmt.flatNumber || '?'}] ${cmt.senderName}: "${cmt.text}" (${'★'.repeat(cmt.rating || 5)}${'☆'.repeat(5 - (cmt.rating || 5))})`).join('\n')
+      ? c.comments.map(cmt => `• [وحدة ${cmt.flatNumber || '?'}] ${cmt.senderName}: "${cmt.text}" (${'★'.repeat(cmt.rating || 5)}${'☆'.repeat(5 - (cmt.rating || 5))})`).join('\n')
       : 'لا توجد آراء مسجلة بعد.';
 
     const message = `*بطاقة فني من دليل صنايعية العمارة* 🛠️\n\n` +
@@ -317,7 +317,7 @@ export const MaintenanceRequests: React.FC<MaintenanceRequestsProps> = ({
     const priorityLabel = req.priority === 'LOW' ? 'عادية' : req.priority === 'MEDIUM' ? 'متوسطة' : 'عاجلة جداً طارئة 🚨';
     
     const message = `*بلاغ صيانة - عمارة بيراميدز فيو ١* 🛠️\n\n` +
-      `📍 *رقم الوحدة:* شقة ${req.flatNumber}\n` +
+      `📍 *رقم الوحدة:* وحدة ${req.flatNumber}\n` +
       `👤 *مقدم الطلب:* ${req.residentName}\n` +
       `📋 *العنوان:* ${req.title}\n` +
       `💬 *الوصف:* ${req.description}\n` +
@@ -1407,7 +1407,7 @@ export const MaintenanceRequests: React.FC<MaintenanceRequestsProps> = ({
                         <span>{comment.senderName}</span>
                         {comment.flatNumber && (
                           <span className="text-[10px] bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 px-1.5 py-0.5 rounded font-bold">
-                            شقة {comment.flatNumber}
+                            وحدة {comment.flatNumber}
                           </span>
                         )}
                       </div>

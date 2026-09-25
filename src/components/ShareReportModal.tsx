@@ -81,7 +81,7 @@ export const ShareReportModal: React.FC<ShareReportModalProps> = ({
 
   const targetRecipientName = useMemo(() => {
     if (targetType === 'resident') {
-      return activeResident ? `شقة ${activeResident.flatNumber} (${activeResident.name})` : defaultRecipientName;
+      return activeResident ? `( الوحدة ${activeResident.flatNumber} - ${activeResident.activityType || 'سكني'} ) - ${activeResident.name}` : defaultRecipientName;
     }
     return defaultRecipientName || 'مجموعة العمارة / الإدارة';
   }, [targetType, activeResident, defaultRecipientName]);
@@ -135,7 +135,7 @@ export const ShareReportModal: React.FC<ShareReportModalProps> = ({
       shareText += `🗓 ${reportPeriodText}\n`;
       shareText += `📌 ${reportStatsText}\n`;
       if (activeResident) {
-        shareText += `🚪 *الوحدة:* شقة ${activeResident.flatNumber} (${activeResident.name})\n`;
+        shareText += `🚪 *الوحدة:* ( الوحدة ${activeResident.flatNumber} - ${activeResident.activityType || 'سكني'} ) - ${activeResident.name}\n`;
       }
       shareText += `-----------------------------------\n`;
       shareText += `مرفق صورة التقرير الرسمية بدقة عالية ومطابقة للبيانات الحالية.\n`;
@@ -263,7 +263,7 @@ export const ShareReportModal: React.FC<ShareReportModalProps> = ({
                     <option value="">-- اختر الوحدة المرتبطة لإرسال التقرير إليها --</option>
                     {residents.map(r => (
                       <option key={r.id} value={r.id}>
-                        شقة {r.flatNumber} - {r.name} {r.phone ? `(${formatMobileNumber(r.phone)})` : '(بدون هاتف)'}
+                        وحدة {r.flatNumber} - {r.name} {r.phone ? `(${formatMobileNumber(r.phone)})` : '(بدون هاتف)'}
                       </option>
                     ))}
                   </select>

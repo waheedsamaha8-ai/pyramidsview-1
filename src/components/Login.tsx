@@ -421,7 +421,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
             handleAutoLogin(urlEmail, urlPass, bldId, 'RESIDENT');
           }, 600);
         } else {
-          setSuccessMessage(`مرحباً بكم! تم تجهيز طلب الانضمام لشقة رقم ${invitedFlat || ''} بدعوة كريمة من مجلس إدارة اتحاد الملاك.`);
+          setSuccessMessage(`مرحباً بكم! تم تجهيز طلب الانضمام لوحدة رقم ${invitedFlat || ''} بدعوة كريمة من مجلس إدارة اتحاد الملاك.`);
         }
       }
     } catch (e) {

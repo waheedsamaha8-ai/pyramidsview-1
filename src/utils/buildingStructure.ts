@@ -318,3 +318,90 @@ export function addUnitToBuildingLayout(
     return compareFlatNumbers(aStart, bStart);
   });
 }
+
+/**
+ * Generates a normalized canonical key for a unit/flat number.
+ */
+export function getCanonicalFlatKey(flat: number | string | undefined | null): string {
+  if (flat === undefined || flat === null || String(flat).trim() === '') return '';
+  const parsed = parseFlatNumber(flat);
+  if (parsed.main !== 999999) {
+    return `unit_${parsed.main}_${parsed.sub}`;
+  }
+  return String(flat).trim().toLowerCase();
+}
+
+/**
+ * Deduplicates a list of residents strictly by unit number (flatNumber).
+ * Guarantees that every unit appears at most once and unit numbers can NEVER be duplicated.
+ * If duplicate records exist (e.g. an auto-registered 'res_president_...' alongside a manual record),
+ * it preserves the manual record, merges any missing phone/notes, and discards auto/ghost duplicates.
+ */
+export function deduplicateResidents(list: Resident[]): Resident[] {
+  if (!Array.isArray(list) || list.length === 0) return [];
+  const map = new Map<string, Resident>();
+  
+  for (const r of list) {
+    if (!r || r.flatNumber === undefined || r.flatNumber === null || String(r.flatNumber).trim() === '') {
+      continue;
+    }
+    const key = getCanonicalFlatKey(r.flatNumber);
+    if (!key) continue;
+
+    const existing = map.get(key);
+    
+    if (!existing) {
+      map.set(key, r);
+    } else {
+      // Prioritize the manual/real resident over auto-generated 'res_president_' or 'res_gen_'
+      const isExistingAuto = String(existing.id).startsWith('res_president_') || String(existing.id).startsWith('res_gen_');
+      const isCurrentAuto = String(r.id).startsWith('res_president_') || String(r.id).startsWith('res_gen_');
+      
+      if (isExistingAuto && !isCurrentAuto) {
+        map.set(key, { 
+          ...r, 
+          notes: r.notes || existing.notes,
+          phone: r.phone || existing.phone,
+          ownershipType: r.ownershipType || existing.ownershipType,
+          tenantName: r.tenantName || existing.tenantName,
+          tenantPhone: r.tenantPhone || existing.tenantPhone,
+        });
+      } else if (!isExistingAuto && isCurrentAuto) {
+        map.set(key, { 
+          ...existing, 
+          notes: existing.notes || r.notes,
+          phone: existing.phone || r.phone,
+          ownershipType: existing.ownershipType || r.ownershipType,
+          tenantName: existing.tenantName || r.tenantName,
+          tenantPhone: existing.tenantPhone || r.tenantPhone,
+        });
+      } else {
+        // Keep the one with more complete details (e.g. phone or name)
+        const existingHasPhone = Boolean(existing.phone && existing.phone.trim());
+        const currentHasPhone = Boolean(r.phone && r.phone.trim());
+        if (!existingHasPhone && currentHasPhone) {
+          map.set(key, { 
+            ...r, 
+            notes: r.notes || existing.notes,
+            tenantName: r.tenantName || existing.tenantName,
+            tenantPhone: r.tenantPhone || existing.tenantPhone,
+          });
+        }
+      }
+    }
+  }
+
+  return Array.from(map.values()).sort((a, b) => compareFlatNumbers(a.flatNumber, b.flatNumber));
+}
+
+/**
+ * Identifies IDs of duplicate resident records that should be permanently deleted from Firestore.
+ */
+export function getDuplicateResidentIds(rawList: Resident[]): string[] {
+  if (!Array.isArray(rawList) || rawList.length === 0) return [];
+  const uniqueList = deduplicateResidents(rawList);
+  const keptIds = new Set(uniqueList.map(r => r.id));
+  return rawList
+    .filter(r => r && r.id && !keptIds.has(r.id))
+    .map(r => r.id);
+}

@@ -341,22 +341,23 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
     text += `📅 *تاريخ إصدار الكشف:* ${currentDateStr}\n`;
     text += `⚙️ *تاريخ بدء المحاسبة:* ${accountingStartDate}\n`;
     text += `💰 *إجمالي المديونيات المستحقة:* ${Math.round(stats.totalDebt).toLocaleString()} ج.م\n`;
-    text += `👥 *عدد الوحدات المتأخرة:* ${stats.totalDebtorsCount} شقة\n`;
+    text += `👥 *عدد الوحدات المتأخرة:* ${stats.totalDebtorsCount} وحدة\n`;
     text += `------------------------------------\n\n`;
 
     residentsWithDebt.forEach((item, index) => {
       const debtAmount = Math.round(Math.abs(item.financials.netBalance));
+      const oldDebt = item.carriedBalance < 0 ? Math.abs(item.carriedBalance) : 0;
       text += `${index + 1}. *وحدة ${item.resident.flatNumber}* - المالك: ${item.resident.name}`;
       if (item.resident.phone) text += ` (${formatPhoneForText(item.resident.phone)})`;
       if (item.resident.ownershipType === 'إيجار' && item.resident.tenantName) {
         text += `\n   المستأجر: ${item.resident.tenantName}`;
         if (item.resident.tenantPhone) text += ` (${formatPhoneForText(item.resident.tenantPhone)})`;
       }
-      text += `\n   • صافي المديونية: *${debtAmount.toLocaleString()} ج.م*`;
-      if (item.carriedBalance !== 0) {
-        text += ` (رصيد سابق مرحل: ${item.carriedBalance < 0 ? `-${Math.abs(item.carriedBalance).toLocaleString()}` : `+${item.carriedBalance.toLocaleString()}`} ج.م)`;
+      text += `\n   • متأخرات تحصيلات شهرية: تأخير ${item.financials.unpaidMonthsCount} شهور (${Math.round(item.financials.unpaidMonthsDues).toLocaleString()} ج.م)`;
+      if (oldDebt > 0) {
+        text += ` + مديونية قديمة مرحلة (${oldDebt.toLocaleString()} ج.م)`;
       }
-      text += `\n   • الاشتراك الشهري: ${item.financials.monthlyFee} ج.م | المسدد: ${Math.round(item.financials.totalPaid).toLocaleString()} ج.م\n\n`;
+      text += `\n   • إجمالي المديونية المستحقة: *${debtAmount.toLocaleString()} ج.م* (المتأخرات الحالية + المديونيات القديمة)\n\n`;
     });
 
     text += `🏢 *إدارة اتحاد ملاك بيراميدز فيو ١*`;
@@ -373,17 +374,18 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
     debtAmount: number,
     carriedBalance: number,
     monthlyFee: number,
-    expectedDues: number,
-    totalPaid: number
+    unpaidMonthsCount: number,
+    unpaidMonthsDues: number
   ) => {
+    const oldDebt = carriedBalance < 0 ? Math.abs(carriedBalance) : 0;
     let defaultText = `مساء الخير أستاذ/ ${recipientName}،\nتحية طيبة من إدارة اتحاد ملاك عمارة بيراميدز فيو ١ 🏢\n\n`;
-    defaultText += `نحيط سيادتكم علماً بأن صافي المديونية المتأخرة على الوحدة رقم (${flatNumber}) يبلغ: *${debtAmount.toLocaleString()} ج.م*.\n`;
-    if (carriedBalance !== 0) {
-      defaultText += `• يتضمن رصيد سابق مرحل: ${carriedBalance < 0 ? `مديونية سابقة (-${Math.abs(carriedBalance).toLocaleString()} ج.م)` : `فائض سابق (+${carriedBalance.toLocaleString()} ج.م)`}\n`;
+    defaultText += `نحيط سيادتكم علماً ببيان وتفصيل المبالغ المستحقة على الوحدة رقم (${flatNumber}):\n`;
+    defaultText += `• متأخرات تحصيلات شهرية: تأخير ${unpaidMonthsCount} شهور (${Math.round(unpaidMonthsDues).toLocaleString()} ج.م - الاشتراك الشهري: ${monthlyFee} ج.م)\n`;
+    if (oldDebt > 0) {
+      defaultText += `• مديونيات قديمة ومرحلة: ${oldDebt.toLocaleString()} ج.م\n`;
     }
-    defaultText += `• الاشتراك الشهري للوحدة: ${monthlyFee} ج.م\n`;
-    defaultText += `• إجمالي المطلوب: ${Math.round(expectedDues).toLocaleString()} ج.م | المسدد: ${Math.round(totalPaid).toLocaleString()} ج.م\n\n`;
-    defaultText += `نرجو من سيادتكم التكرم بسرعة سداد المبلغ لتغطية التزامات العمارة والصيانة الدورية ومستحقات الخدمات المشتركة.\nشاكرين ومقدرين حسن تعاونكم دائماً.`;
+    defaultText += `💰 *إجمالي المبالغ المستحقة للسداد:* *${debtAmount.toLocaleString()} جنيه مصري* (مجموع المتأخرات الحالية + مجموع المديونيات القديمة)\n\n`;
+    defaultText += `نرجو من سيادتكم التكرم بالمبادرة بسرعة سداد المستحقات لتغطية التزامات العمارة والصيانة الدورية ومستحقات الخدمات المشتركة.\nشاكرين ومقدرين حسن تعاونكم دائماً.`;
 
     const encodedText = encodeURIComponent(defaultText);
     const cleanPhone = toWhatsAppNumber(phoneToUse);
@@ -400,28 +402,36 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
     const { resident, financials, carriedBalance } = item;
     const debtAmount = Math.round(Math.abs(financials.netBalance));
     const currentMonthNum = new Date().getMonth() + 1;
+    const oldDebt = carriedBalance < 0 ? Math.abs(carriedBalance) : 0;
 
     setClaimModalData({
       type: 'claim',
       unitNumber: resident.flatNumber,
       residentName: resident.name,
       tenantName: resident.tenantName,
-      phone: target === 'tenant' ? (resident.tenantPhone || resident.phone) : resident.phone,
+      phone: resident.phone,
       tenantPhone: resident.tenantPhone,
+      activityType: resident.activityType || 'سكني',
+      occupancyType: resident.ownershipType || 'تمليك',
       amount: debtAmount,
       month: currentMonthNum,
       year: currentYear || new Date().getFullYear(),
       carriedBalance: carriedBalance,
+      oldDebtAmount: oldDebt,
       monthlyFee: financials.monthlyFee,
       totalDues: financials.expectedDues,
       totalPaid: financials.totalPaid,
+      unpaidMonthsCount: financials.unpaidMonthsCount,
+      unpaidMonthsDues: financials.unpaidMonthsDues,
+      currentMonthStatus: 'غير مسدد ⚠️',
       remainingBalance: debtAmount,
       breakdown: [
         { label: 'الاشتراك الشهري للوحدة', value: `${Math.round(financials.monthlyFee).toLocaleString()} ج.م` },
-        ...(carriedBalance !== 0 ? [{
-          label: 'رصيد سابق مرحل',
-          value: carriedBalance < 0 ? `مديونية مرحلة (-${Math.abs(carriedBalance).toLocaleString()} ج.م)` : `فائض مرحل (+${carriedBalance.toLocaleString()} ج.م)`,
-          color: carriedBalance < 0 ? '#b91c1c' : '#047857'
+        { label: 'عدد الشهور المستحقة', value: `${financials.unpaidMonthsCount} شهور (${Math.round(financials.unpaidMonthsDues).toLocaleString()} ج.م)` },
+        ...(oldDebt > 0 ? [{
+          label: 'مديونية سابقة مرحلة',
+          value: `${Math.round(oldDebt).toLocaleString()} ج.م`,
+          color: '#b91c1c'
         }] : []),
         { label: 'إجمالي المسدد بالسنة', value: `${Math.round(financials.totalPaid).toLocaleString()} ج.م` },
         { label: 'إجمالي المستحق المطلوب', value: `${Math.round(debtAmount).toLocaleString()} ج.م`, isHighlight: true, color: '#b91c1c' }
@@ -484,7 +494,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
           <div className="space-y-1 text-right">
             <span className="text-[10px] font-black text-amber-950 uppercase tracking-wider block">عدد الوحدات المدينة</span>
             <span className="text-xl sm:text-2xl font-black text-amber-800 block">
-              {stats.totalDebtorsCount} <span className="text-xs font-bold text-amber-950">شقة متأخرة</span>
+              {stats.totalDebtorsCount} <span className="text-xs font-bold text-amber-950">وحدة متأخرة</span>
             </span>
             <span className="text-[9px] text-amber-900/90 font-bold block">من إجمالي {residents.length} وحدة مسجلة بالعمارة</span>
           </div>
@@ -528,7 +538,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
               <span className="bg-emerald-500 text-white text-[9px] font-extrabold px-2 py-0.5 rounded-full">نظام آلي مفعل</span>
             </div>
             <p className="text-[10px] sm:text-[11px] text-blue-200/90 font-semibold mt-0.5">
-              يقوم النظام تلقائياً بتصدير الأرصدة السابقة (عجز سداد أو فائض دائن) لكل شقة من سنة إلى أخرى دون أي تدخل يدوي، وضمان عدم سقوط أي مستحقات.
+              يقوم النظام تلقائياً بتصدير الأرصدة السابقة (عجز سداد أو فائض دائن) لكل وحدة من سنة إلى أخرى دون أي تدخل يدوي، وضمان عدم سقوط أي مستحقات.
             </p>
           </div>
         </div>
@@ -735,14 +745,14 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                       : 'رصيد سابق مرحل'}
                   </th>
 
-                  {/* Months Elapsed */}
+                  {/* Months Elapsed & Due */}
                   <th className="px-3 py-3 text-center whitespace-nowrap">الشهور المستحقة</th>
 
-                  {/* Total Dues */}
-                  <th className="px-3 py-3 text-center whitespace-nowrap">المستحق الكلي</th>
+                  {/* Due Amount for Unpaid Months */}
+                  <th className="px-3 py-3 text-center whitespace-nowrap">المبلغ المستحق</th>
 
                   {/* Total Paid */}
-                  <th className="px-3 py-3 text-center whitespace-nowrap">المدفوع الكلي</th>
+                  <th className="px-3 py-3 text-center whitespace-nowrap">المبلغ المدفوع</th>
 
                   {/* Net Debt (Sorted) */}
                   <th 
@@ -771,7 +781,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                     <td colSpan={role !== 'RESIDENT' ? 12 : 11} className="px-4 py-12 text-center text-slate-400 font-bold">
                       <div className="flex flex-col items-center justify-center gap-2">
                         <CheckCircle className="w-10 h-10 text-emerald-500" />
-                        <p className="text-sm font-black text-slate-800">لا توجد أي مديونيات متأخرة على هذه الشقق!</p>
+                        <p className="text-sm font-black text-slate-800">لا توجد أي مديونيات متأخرة على هذه الوحدات!</p>
                         <p className="text-[10px] text-slate-400">جميع الوحدات سددت التزاماتها المالية بالكامل وفقاً لمعايير البحث المحددة.</p>
                       </div>
                     </td>
@@ -856,18 +866,23 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                               )}
                             </td>
 
-                            {/* Months Elapsed */}
-                            <td className="px-3 py-3 text-center text-slate-500 font-mono whitespace-nowrap">
-                              {financials.monthsElapsed} شهر
+                            {/* Unpaid Months Due */}
+                            <td className="px-3 py-3 text-center font-black text-rose-700 whitespace-nowrap">
+                              <span>{financials.unpaidMonthsCount} شهر</span>
+                              {financials.paidMonthsCount > 0 && (
+                                <span className="block text-[9.5px] font-bold text-slate-400">
+                                  (مسدد {financials.paidMonthsCount} من {financials.monthsElapsed})
+                                </span>
+                              )}
                             </td>
 
-                            {/* Total Required */}
-                            <td className="px-3 py-3 text-center text-slate-700 font-bold whitespace-nowrap">
-                              {Math.round(financials.expectedDues).toLocaleString()} ج.م
+                            {/* Due Amount for Unpaid Months */}
+                            <td className="px-3 py-3 text-center text-slate-900 font-black whitespace-nowrap">
+                              {Math.round(financials.unpaidMonthsDues).toLocaleString()} ج.م
                             </td>
 
                             {/* Total Paid */}
-                            <td className="px-3 py-3 text-center text-emerald-700 font-bold whitespace-nowrap">
+                            <td className="px-3 py-3 text-center text-emerald-700 font-black whitespace-nowrap">
                               {Math.round(financials.totalPaid).toLocaleString()} ج.م
                             </td>
 
@@ -1107,9 +1122,16 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                             </div>
 
                             <div className="flex items-center justify-between">
-                              <span className="text-slate-500 font-bold">المستحق / المسدد:</span>
-                              <span className="font-bold text-slate-700" dir="ltr">
-                                {Math.round(financials.totalPaid).toLocaleString()} / {Math.round(financials.expectedDues).toLocaleString()} ج.م
+                              <span className="text-slate-500 font-bold">الشهور المستحقة / المطلوب:</span>
+                              <span className="font-black text-rose-700">
+                                {financials.unpaidMonthsCount} شهر ({Math.round(financials.unpaidMonthsDues).toLocaleString()} ج.م)
+                              </span>
+                            </div>
+
+                            <div className="flex items-center justify-between">
+                              <span className="text-slate-500 font-bold">المبلغ المدفوع:</span>
+                              <span className="font-bold text-emerald-700" dir="ltr">
+                                {Math.round(financials.totalPaid).toLocaleString()} ج.م {financials.paidMonthsCount > 0 ? `(${financials.paidMonthsCount} شهر)` : ''}
                               </span>
                             </div>
 
@@ -1215,7 +1237,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
         <div className="text-[11px] text-slate-600 font-semibold leading-relaxed text-right space-y-1.5">
           <p className="font-extrabold text-slate-900 text-xs">ℹ️ قواعد احتساب المديونيات وتصدير الأرصدة السابقة بين السنوات المالية:</p>
           <p>
-            • <span className="text-blue-950 font-black">الترحيل والتصدير التلقائي:</span> في حالة استمرار الحسابات لسنة أو سنوات مالية تالية، يتم تصدير الرصيد الختامي لكل شقة (عجز سداد أو رصيد دائن) تلقائياً ليصبح هو <span className="text-blue-900 font-black">الرصيد السابق المرحل</span> في السنة المالية الجديدة، بحيث تضاف المديونية السابقة فوراً إلى مطالبات السنة الجديدة دون الحاجة لإعادة الإدخال.
+            • <span className="text-blue-950 font-black">الترحيل والتصدير التلقائي:</span> في حالة استمرار الحسابات لسنة أو سنوات مالية تالية، يتم تصدير الرصيد الختامي لكل وحدة (عجز سداد أو رصيد دائن) تلقائياً ليصبح هو <span className="text-blue-900 font-black">الرصيد السابق المرحل</span> في السنة المالية الجديدة، بحيث تضاف المديونية السابقة فوراً إلى مطالبات السنة الجديدة دون الحاجة لإعادة الإدخال.
           </p>
           <p>
             • <span className="text-slate-800 font-black">تاريخ بدء المحاسبة:</span> تاريخ الانطلاق المعتمد في النظام هو <span className="text-blue-900 font-black">({accountingStartDate})</span>، ويتم احتساب الشهور ومطالبات الاشتراكات بناءً عليه وعلى النشاط المسجل للوحدة.
@@ -1329,8 +1351,9 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
               <th className="border border-slate-400 p-2 text-center">النشاط</th>
               <th className="border border-slate-400 p-2 text-center">الاشتراك</th>
               <th className="border border-slate-400 p-2 text-center">رصيد سابق مرحل</th>
-              <th className="border border-slate-400 p-2 text-center">المستحق</th>
-              <th className="border border-slate-400 p-2 text-center">المدفوع</th>
+              <th className="border border-slate-400 p-2 text-center">الشهور المستحقة</th>
+              <th className="border border-slate-400 p-2 text-center">المبلغ المستحق</th>
+              <th className="border border-slate-400 p-2 text-center">المبلغ المدفوع</th>
               <th className="border border-slate-400 p-2 text-center bg-red-50 text-red-900 font-extrabold">صافي المديونية</th>
             </tr>
           </thead>
@@ -1338,7 +1361,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
             {allPrintFloorDebtorGroups.map((group) => (
               <React.Fragment key={group.floor.id}>
                 <tr className="bg-slate-200 border-y border-slate-400">
-                  <td colSpan={9} className="p-2 border border-slate-400 bg-slate-100 font-extrabold text-slate-900">
+                  <td colSpan={10} className="p-2 border border-slate-400 bg-slate-100 font-extrabold text-slate-900">
                     🏢 {group.floor.floorLabel} ({group.debtors.length} {group.debtors.length === 1 ? 'وحدة متأخرة' : 'وحدات متأخرة'})
                   </td>
                 </tr>
@@ -1358,7 +1381,8 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                           ? `+${carriedBalance.toLocaleString()} ج.م` 
                           : '—'}
                       </td>
-                      <td className="border border-slate-300 p-2 text-center font-semibold">{Math.round(financials.expectedDues).toLocaleString()} ج.م</td>
+                      <td className="border border-slate-300 p-2 text-center font-bold text-rose-700">{financials.unpaidMonthsCount} شهر</td>
+                      <td className="border border-slate-300 p-2 text-center font-semibold">{Math.round(financials.unpaidMonthsDues).toLocaleString()} ج.م</td>
                       <td className="border border-slate-300 p-2 text-center text-emerald-700 font-semibold">{Math.round(financials.totalPaid).toLocaleString()} ج.م</td>
                       <td className="border border-slate-300 p-2 text-center bg-red-50 text-red-700 font-black">-{debtAmount.toLocaleString()} ج.م</td>
                     </tr>
@@ -1368,7 +1392,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
             ))}
             <tr className="bg-slate-100 font-black border-t-2 border-slate-500">
               <td colSpan={2} className="border border-slate-400 p-3 text-right text-slate-900">إجمالي المديونيات المتأخرة:</td>
-              <td colSpan={6} className="border border-slate-400 p-3"></td>
+              <td colSpan={7} className="border border-slate-400 p-3"></td>
               <td className="border border-slate-400 p-3 text-center text-red-700 text-sm font-black bg-red-100" dir="ltr">
                 -{Math.round(allDebtorsList.reduce((sum, item) => sum + Math.abs(item.financials.netBalance), 0)).toLocaleString()} ج.م
               </td>

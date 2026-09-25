@@ -246,7 +246,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
                       )}
                       {notif.targetFlat !== undefined && notif.targetFlat !== null && notif.targetFlat !== '' && (
                         <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-blue-100 text-blue-800 border border-blue-300 shrink-0">
-                          🏠 شقة {notif.targetFlat}
+                          🏠 وحدة {notif.targetFlat}
                         </span>
                       )}
                     </div>

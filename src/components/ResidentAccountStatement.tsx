@@ -285,7 +285,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
     let text = `📋 *كشف حساب وااشتراكات الوحدة الشامل*\n`;
     text += `🏢 *اتحاد ملاك عمارة بيراميدز فيو ١*\n`;
     text += `------------------------------------\n`;
-    text += `🚪 *الوحدة:* شقة ${activeResident.flatNumber} (${activeResident.activityType})\n`;
+    text += `🚪 *الوحدة:* ( الوحدة ${activeResident.flatNumber} - ${activeResident.activityType} )\n`;
     text += `👤 *الاسم (${targetRole}):* ${targetName}\n`;
     if (target === 'owner' && activeResident.ownershipType === 'إيجار' && activeResident.tenantName) {
       text += `🏠 *المستأجر الحالي:* ${activeResident.tenantName}\n`;
@@ -1260,7 +1260,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
               بيانات الوحدة والشاغل
             </h2>
             <div className="grid grid-cols-2 gap-y-2 gap-x-4">
-              <div><span className="font-bold text-slate-500">رقم الوحدة:</span> <strong className="text-slate-900">شقة / وحدة ({activeResident.flatNumber})</strong></div>
+              <div><span className="font-bold text-slate-500">رقم الوحدة:</span> <strong className="text-slate-900">( الوحدة {activeResident.flatNumber} - {activeResident.activityType} )</strong></div>
               <div><span className="font-bold text-slate-500">اسم المالك:</span> <strong className="text-slate-900">{activeResident.name}</strong></div>
               <div><span className="font-bold text-slate-500">نوع النشاط:</span> <strong className="text-slate-900">{activeResident.activityType}</strong></div>
               <div><span className="font-bold text-slate-500">رقم هاتف المالك:</span> <strong className="text-slate-900 font-mono phone-number-display" dir="ltr">{activeResident.phone ? formatPhoneForDisplay(activeResident.phone) : '—'}</strong></div>
