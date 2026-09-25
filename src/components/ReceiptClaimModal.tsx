@@ -275,8 +275,9 @@ const ReceiptClaimModalContent: React.FC<{
 
       t += `-----------------------------------\n`;
       if (totalUnitDebt > 0) {
+        const delayedMonthsText = unpaidMonthsCount === 1 ? 'تأخير شهر واحد' : unpaidMonthsCount === 2 ? 'تأخير شهرين' : unpaidMonthsCount <= 10 ? `تأخير ${unpaidMonthsCount} أشهر` : `تأخير ${unpaidMonthsCount} شهراً`;
         t += `⚠️ *بيان تفصيلي بالمديونيات والمتأخرات المتبقية على الوحدة:*\n`;
-        t += `• متأخرات ${paymentCategory}: تأخير ${unpaidMonthsCount} شهور (${Math.round(unpaidMonthsDues).toLocaleString()} ج.م)\n`;
+        t += `• متأخرات ${paymentCategory}: ${delayedMonthsText} (${Math.round(unpaidMonthsDues).toLocaleString()} ج.م)\n`;
         if (oldCarriedDebts > 0) {
           t += `• مديونيات قديمة ومرحلة: ${Math.round(oldCarriedDebts).toLocaleString()} ج.م\n`;
         }
@@ -309,7 +310,8 @@ const ReceiptClaimModalContent: React.FC<{
       }
       t += `⚠️ *حالة سداد الشهر الحالي:* اشتراك شهر ${monthName} ${data.year} (${Math.round(displayMonthlyFee).toLocaleString()} ج.م) غير مسدد حتى تاريخه.\n\n`;
       t += `📋 *بيان وتفصيل المبالغ المستحقة على الوحدة:*\n`;
-      t += `• متأخرات ${paymentCategory}: تأخير ${unpaidMonthsCount} شهور بقيمة ${Math.round(unpaidMonthsDues).toLocaleString()} ج.م (الاشتراك الشهري: ${Math.round(displayMonthlyFee).toLocaleString()} ج.م)\n`;
+      const delayedMonthsText = unpaidMonthsCount === 1 ? 'تأخير شهر واحد' : unpaidMonthsCount === 2 ? 'تأخير شهرين' : unpaidMonthsCount <= 10 ? `تأخير ${unpaidMonthsCount} أشهر` : `تأخير ${unpaidMonthsCount} شهراً`;
+      t += `• متأخرات ${paymentCategory}: ${delayedMonthsText} بقيمة ${Math.round(unpaidMonthsDues).toLocaleString()} ج.م (الاشتراك الشهري: ${Math.round(displayMonthlyFee).toLocaleString()} ج.م)\n`;
       if (oldCarriedDebts > 0) {
         t += `• مديونية قديمة ومرحلة على الوحدة: ${Math.round(oldCarriedDebts).toLocaleString()} ج.م\n`;
       }
@@ -716,7 +718,7 @@ const ReceiptClaimModalContent: React.FC<{
                         <span>⚠️ بيان تفصيلي بالمديونيات والمتأخرات المتبقية على الوحدة:</span>
                       </div>
                       <div className="text-[11.5px] leading-relaxed space-y-0.5">
-                        <div>• متأخرات {paymentCategory}: تأخير {unpaidMonthsCount} شهور ({Math.round(unpaidMonthsDues).toLocaleString()} ج.م){oldCarriedDebts > 0 ? ` + مديونية قديمة مرحلة (${Math.round(oldCarriedDebts).toLocaleString()} ج.م)` : ''}</div>
+                        <div>• متأخرات {paymentCategory}: {unpaidMonthsCount === 1 ? 'تأخير شهر واحد' : unpaidMonthsCount === 2 ? 'تأخير شهرين' : unpaidMonthsCount <= 10 ? `تأخير ${unpaidMonthsCount} أشهر` : `تأخير ${unpaidMonthsCount} شهراً`} ({Math.round(unpaidMonthsDues).toLocaleString()} ج.م){oldCarriedDebts > 0 ? ` + مديونية قديمة مرحلة (${Math.round(oldCarriedDebts).toLocaleString()} ج.م)` : ''}</div>
                         <div className="font-black text-rose-800">• إجمالي المديونية المتبقية على الوحدة: <span className="underline">{Math.round(totalUnitDebt).toLocaleString()} ج.م</span> (المتأخرات الحالية + المديونيات القديمة)</div>
                       </div>
                     </div>

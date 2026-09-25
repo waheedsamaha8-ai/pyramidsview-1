@@ -157,8 +157,9 @@ export function getCarriedPreviousBalance(
   const elapsedMonthsPrior = (yearsDiff * 12) + (12 - startMonth);
   const duesPrior = elapsedMonthsPrior * fee;
 
-  // Retrieve only this resident's payments
-  const residentPayments = getPaymentsForResident(resident, paymentsOrIndex);
+  // Retrieve only this resident's payments (excluding cancelled ones)
+  const residentPayments = getPaymentsForResident(resident, paymentsOrIndex)
+    .filter(p => p.status !== 'cancelled' && p.status !== 'لاغي');
 
   // Sum payments made before targetYear
   const paymentsPrior = residentPayments
@@ -189,7 +190,8 @@ export function calculateResidentFinancials(
   targetYear?: number
 ) {
   const fee = getResidentMonthlyFee(resident, defaultMonthlyFee, activityDefaultFees);
-  const residentPayments = getPaymentsForResident(resident, paymentsOrIndex);
+  const residentPayments = getPaymentsForResident(resident, paymentsOrIndex)
+    .filter(p => p.status !== 'cancelled' && p.status !== 'لاغي');
 
   if (targetYear !== undefined) {
     // Specific fiscal year calculation with automatic previous balance carry-over

@@ -71,6 +71,7 @@ export interface Payment {
   fileUrl?: string; // URL to view the receipt image
   date: string;
   isManuallyPaid: boolean;
+  status?: 'collected' | 'pending' | 'cancelled' | string;
   createdAt?: string;
 }
 

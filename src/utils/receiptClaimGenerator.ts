@@ -376,7 +376,15 @@ export function generateReceiptClaimCanvas(
       ctx.fillText('⚠️ بيان تفصيلي بالمديونيات والمتأخرات المتبقية على الوحدة:', width - padding - 16, currentY + 20);
 
       ctx.font = `bold 11px ${fontFamily}`;
-      let detailLine = `• متأخرات ${meta.paymentCategory}: تأخير ${meta.unpaidMonthsCount} شهور (${Math.round(meta.currentArrears).toLocaleString()} ج.م)`;
+      const delayedMonthsText = meta.unpaidMonthsCount === 1
+        ? 'تأخير شهر واحد'
+        : meta.unpaidMonthsCount === 2
+        ? 'تأخير شهرين'
+        : meta.unpaidMonthsCount <= 10
+        ? `تأخير ${meta.unpaidMonthsCount} أشهر`
+        : `تأخير ${meta.unpaidMonthsCount} شهراً`;
+
+      let detailLine = `• متأخرات ${meta.paymentCategory}: ${delayedMonthsText} (${Math.round(meta.currentArrears).toLocaleString()} ج.م)`;
       if (meta.oldCarriedDebts > 0) {
         detailLine += ` + مديونية قديمة مرحلة (${Math.round(meta.oldCarriedDebts).toLocaleString()} ج.م)`;
       }

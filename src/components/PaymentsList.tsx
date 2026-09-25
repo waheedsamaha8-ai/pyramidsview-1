@@ -1,8 +1,8 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { Payment, Resident, UserRole, FloorConfig, AppConfig } from '../types';
 import { Search, Plus, Calendar, FileText, Image as ImageIcon, Camera, Trash2, Edit, AlertCircle, Eye, User, LayoutGrid, List, Building, ArrowUpDown, Upload, X, ZoomIn, Download, RefreshCw, Share2, CheckCircle2, Receipt, Printer } from 'lucide-react';
-import { deriveFloorConfigsFromResidents, getUnitNumbersForFloor, compareFlatNumbers } from '../utils/buildingStructure';
-import { getResidentMonthlyFee } from '../utils/financialCalculations';
+import { deriveFloorConfigsFromResidents, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber } from '../utils/buildingStructure';
+import { getResidentMonthlyFee, calculateResidentFinancials } from '../utils/financialCalculations';
 import { generateElementImageBlob, GeneratedImageResult } from '../utils/imageExport';
 import { shareImageViaWhatsApp } from '../utils/shareImageViaWhatsApp';
 import { ShareReportModal } from './ShareReportModal';
@@ -66,6 +66,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
   const [paymentType, setPaymentType] = useState('');
   const [amount, setAmount] = useState<number | ''>('');
   const [receiptNumber, setReceiptNumber] = useState('');
+  const [paymentStatus, setPaymentStatus] = useState<'collected' | 'pending' | 'cancelled'>('collected');
   const [notes, setNotes] = useState('');
   const [imageName, setImageName] = useState('');
   const [base64Image, setBase64Image] = useState<string>('');
@@ -388,7 +389,28 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
 
   // Generate & Share Single Payment Receipt via Preview Modal & WhatsApp
   const handleGenerateSinglePaymentReceipt = (payment: Payment) => {
-    const res = residents.find((r) => r.id === payment.residentId || r.flatNumber === payment.flatNumber);
+    const res = residents.find((r) => r.id === payment.residentId || isSameFlatNumber(r.flatNumber, payment.flatNumber));
+    const accountingStartDate = config?.accountingStartDate || '2026-01-01';
+    const defaultMonthlyFee = config?.defaultMonthlyFee || 400;
+    const activityDefaultFees = config?.activityDefaultFees;
+
+    const financials = res
+      ? calculateResidentFinancials(
+          res,
+          payments,
+          accountingStartDate,
+          defaultMonthlyFee,
+          activityDefaultFees
+        )
+      : null;
+
+    const carriedBalance = res?.initialBalance || 0;
+    const oldDebtAmount = carriedBalance < 0 ? Math.abs(carriedBalance) : 0;
+    const monthlyFee = financials ? financials.monthlyFee : (res?.monthlyFee || defaultMonthlyFee);
+    const unpaidMonthsCount = financials ? financials.unpaidMonthsCount : 0;
+    const unpaidMonthsDues = financials ? financials.unpaidMonthsDues : 0;
+    const remainingBalance = financials ? financials.netBalance : 0;
+
     setReceiptModalData({
       type: 'receipt',
       unitNumber: payment.flatNumber,
@@ -404,12 +426,19 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       paymentType: payment.paymentType,
       activityType: res?.activityType || 'سكني',
       occupancyType: res?.ownershipType || 'تمليك',
-      monthlyFee: res?.monthlyFee,
+      monthlyFee: monthlyFee,
+      carriedBalance: carriedBalance,
+      oldDebtAmount: oldDebtAmount,
+      unpaidMonthsCount: unpaidMonthsCount,
+      unpaidMonthsDues: unpaidMonthsDues,
+      remainingBalance: remainingBalance,
       notes: payment.notes,
     });
   };
 
-  const totalAmount = filteredPayments.reduce((sum, p) => sum + p.amount, 0);
+  const totalAmount = filteredPayments
+    .filter(p => p.status !== 'cancelled' && p.status !== 'لاغي')
+    .reduce((sum, p) => sum + p.amount, 0);
 
   const effectiveFloorConfigs = useMemo(() => {
     if (floorConfigs && floorConfigs.length > 0) {
@@ -422,13 +451,22 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
   }, [floorConfigs, residents]);
 
   const floorPaymentGroups = useMemo(() => {
-    const sortedFiltered = [...filteredPayments].sort((a, b) => b.month.localeCompare(a.month) || b.id.localeCompare(a.id));
+    // Sort all payments strictly ascending by flat number, then by month
+    const sortedFiltered = [...filteredPayments].sort((a, b) => {
+      const flatCompare = compareFlatNumbers(a.flatNumber, b.flatNumber);
+      if (flatCompare !== 0) return flatCompare;
+      const monthA = parseInt(a.month, 10) || 0;
+      const monthB = parseInt(b.month, 10) || 0;
+      if (monthA !== monthB) return monthA - monthB;
+      return a.id.localeCompare(b.id);
+    });
+
     const assignedPaymentIds = new Set<string>();
     const groups: { floor: FloorConfig; payments: Payment[] }[] = [];
 
     effectiveFloorConfigs.forEach((floor) => {
       const unitNumbers = getUnitNumbersForFloor(floor, residents);
-      const floorPayments = sortedFiltered.filter(p => unitNumbers.includes(p.flatNumber));
+      const floorPayments = sortedFiltered.filter(p => unitNumbers.some(u => isSameFlatNumber(u, p.flatNumber)));
       floorPayments.forEach(p => assignedPaymentIds.add(p.id));
       if (floorPayments.length > 0) {
         groups.push({ floor, payments: floorPayments });
@@ -492,6 +530,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
     setPaymentType(initialType);
     setAmount(initialFee);
     setReceiptNumber('');
+    setPaymentStatus('collected');
     setNotes('');
     setImageName('');
     setBase64Image('');
@@ -507,6 +546,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
     setPaymentType(payment.paymentType);
     setAmount(payment.amount);
     setReceiptNumber(payment.receiptNumber || '');
+    setPaymentStatus((payment.status as any) || 'collected');
     setNotes(payment.notes || '');
     setImageName(payment.fileUrl || payment.fileId ? 'صورة إيصال مرفوعة مسبقاً' : '');
     setExistingFileUrl(payment.fileUrl || '');
@@ -595,6 +635,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       fileUrl: base64Image ? base64Image : (existingFileUrl || ''),
       date: selectedPayment ? selectedPayment.date : new Date().toISOString().split('T')[0],
       isManuallyPaid: false,
+      status: paymentStatus,
     };
 
     setConfirmData({
@@ -843,7 +884,25 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                         <td className="px-4 py-3 text-slate-500 font-semibold">
                           {monthNamesArabic[parseInt(p.month) - 1]} {p.year}
                         </td>
-                        <td className="px-4 py-3 text-emerald-600 font-black">{Math.round(p.amount)} ج.م</td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-col">
+                            <span className={`text-xs font-black ${
+                              p.status === 'cancelled' ? 'line-through text-rose-500' : p.status === 'pending' ? 'text-amber-600' : 'text-emerald-600'
+                            }`}>
+                              {Math.round(p.amount)} ج.م
+                            </span>
+                            {p.status === 'pending' && (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded text-[9px] font-black w-fit mt-0.5">
+                                ⏳ لم يتم التحصيل
+                              </span>
+                            )}
+                            {p.status === 'cancelled' && (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 rounded text-[9px] font-black w-fit mt-0.5">
+                                🚫 لاغي
+                              </span>
+                            )}
+                          </div>
+                        </td>
                         <td className="px-4 py-3 text-slate-500 font-mono">{p.receiptNumber || 'بدون إيصال'}</td>
                         <td className="px-4 py-3 text-center">
                           <div className="flex items-center justify-center gap-1.5 flex-wrap">
@@ -948,21 +1007,48 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                             <td className="px-4 py-3 text-slate-500 font-semibold">
                               {monthNamesArabic[parseInt(p.month) - 1]} {p.year}
                             </td>
-                            <td className="px-4 py-3 text-emerald-600 font-black">{Math.round(p.amount)} ج.م</td>
+                            <td className="px-4 py-3">
+                              <div className="flex flex-col">
+                                <span className={`text-xs font-black ${
+                                  p.status === 'cancelled' ? 'line-through text-rose-500' : p.status === 'pending' ? 'text-amber-600' : 'text-emerald-600'
+                                }`}>
+                                  {Math.round(p.amount)} ج.م
+                                </span>
+                                {p.status === 'pending' && (
+                                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded text-[9px] font-black w-fit mt-0.5">
+                                    ⏳ لم يتم التحصيل
+                                  </span>
+                                )}
+                                {p.status === 'cancelled' && (
+                                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 rounded text-[9px] font-black w-fit mt-0.5">
+                                    🚫 لاغي
+                                  </span>
+                                )}
+                              </div>
+                            </td>
                             <td className="px-4 py-3 text-slate-500 font-mono">{p.receiptNumber || 'بدون إيصال'}</td>
                             <td className="px-4 py-3 text-center">
-                              {p.fileUrl ? (
+                              <div className="flex items-center justify-center gap-1.5 flex-wrap">
                                 <button
-                                  onClick={(e) => { e.stopPropagation(); onPreviewImage(p.fileUrl!); }}
-                                  className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition inline-flex items-center gap-1 text-[10px] cursor-pointer font-bold"
-                                  title="عرض الإيصال"
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); handleGenerateSinglePaymentReceipt(p); }}
+                                  className="p-1 px-1.5 text-emerald-800 hover:bg-emerald-100 rounded-lg transition inline-flex items-center gap-1 text-[10px] cursor-pointer font-black border border-emerald-200 bg-emerald-50/70"
+                                  title="توليد صورة إيصال سداد ومشاركتها مباشرة لواتساب الوحدة"
                                 >
-                                  <Eye className="w-3.5 h-3.5" />
-                                  <span>عرض الإيصال</span>
+                                  <Share2 className="w-3 h-3 text-emerald-600" />
+                                  <span>توليد صورة إيصال</span>
                                 </button>
-                              ) : (
-                                <span className="text-[10px] text-slate-300 font-bold">لا يوجد</span>
-                              )}
+                                {p.fileUrl && (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); onPreviewImage(p.fileUrl!); }}
+                                    className="p-1 px-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition inline-flex items-center gap-1 text-[10px] cursor-pointer font-bold border border-blue-100"
+                                    title="معاينة المرفق"
+                                  >
+                                    <Eye className="w-3 h-3" />
+                                    <span>المرفق</span>
+                                  </button>
+                                )}
+                              </div>
                             </td>
                             <td className="px-4 py-3 text-slate-500 font-semibold text-xs max-w-[180px] truncate" title={p.notes || ''}>
                               {p.notes || '—'}
@@ -1064,7 +1150,23 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                         
                         <div className="flex items-center justify-between border-t border-slate-50 pt-2 mb-2">
                           <span className="text-[11px] text-slate-400 font-bold">المبلغ المستلم</span>
-                          <span className="text-emerald-600 text-sm font-black">{Math.round(p.amount)} ج.م</span>
+                          <div className="text-left">
+                            <span className={`text-sm font-black ${
+                              p.status === 'cancelled' ? 'line-through text-rose-500' : p.status === 'pending' ? 'text-amber-600' : 'text-emerald-600'
+                            }`}>
+                              {Math.round(p.amount)} ج.م
+                            </span>
+                            {p.status === 'pending' && (
+                              <span className="block text-[9.5px] font-black text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded mt-0.5">
+                                ⏳ لم يتم التحصيل
+                              </span>
+                            )}
+                            {p.status === 'cancelled' && (
+                              <span className="block text-[9.5px] font-black text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded mt-0.5">
+                                🚫 إيصال لاغي
+                              </span>
+                            )}
+                          </div>
                         </div>
 
                         {p.receiptNumber && (
@@ -1261,6 +1363,54 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                     disabled={role === 'ASSISTANT' && !!selectedPayment}
                     className="w-full px-4 py-3 bg-slate-50 border border-slate-100 focus:bg-white rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 outline-none text-right font-medium transition disabled:opacity-60 disabled:cursor-not-allowed"
                   />
+                </div>
+              </div>
+
+              {/* 3 Buttons for Payment/Receipt Status */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-500">حالة السداد / الإيصال</label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPaymentStatus('collected')}
+                    disabled={role === 'ASSISTANT' && !!selectedPayment}
+                    className={`py-2 px-1 sm:px-2 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 border cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${
+                      paymentStatus === 'collected'
+                        ? 'bg-emerald-700 text-white border-emerald-700 shadow-xs ring-2 ring-emerald-600/30'
+                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>تم التحصيل</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPaymentStatus('pending')}
+                    disabled={role === 'ASSISTANT' && !!selectedPayment}
+                    className={`py-2 px-1 sm:px-2 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 border cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${
+                      paymentStatus === 'pending'
+                        ? 'bg-amber-600 text-white border-amber-600 shadow-xs ring-2 ring-amber-500/30'
+                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <AlertCircle className="w-3.5 h-3.5" />
+                    <span>لم يتم التحصيل</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPaymentStatus('cancelled')}
+                    disabled={role === 'ASSISTANT' && !!selectedPayment}
+                    className={`py-2 px-1 sm:px-2 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 border cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${
+                      paymentStatus === 'cancelled'
+                        ? 'bg-rose-700 text-white border-rose-700 shadow-xs ring-2 ring-rose-600/30'
+                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    <span>لاغي</span>
+                  </button>
                 </div>
               </div>
 
