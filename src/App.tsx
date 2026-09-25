@@ -2353,7 +2353,7 @@ export default function App() {
 
   // Stats summaries
   const totalReceived = payments
-    .filter((p) => p.year === currentYear && (viewMode === 'year' || p.month === String(currentMonth + 1).padStart(2, '0')))
+    .filter((p) => p.year === currentYear && (viewMode === 'year' || p.month === String(currentMonth + 1).padStart(2, '0')) && p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل')
     .reduce((sum, p) => sum + p.amount, 0);
 
   const totalSpent = expenses
@@ -2490,7 +2490,7 @@ export default function App() {
   ];
   const chartData = monthsAbbr.map((m, idx) => ({
     name: monthNamesArabic[idx],
-    التحصيلات: payments.filter((p) => p.year === currentYear && p.month === m).reduce((sum, p) => sum + p.amount, 0),
+    التحصيلات: payments.filter((p) => p.year === currentYear && p.month === m && p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل').reduce((sum, p) => sum + p.amount, 0),
     المصروفات: expenses.filter((e) => e.year === currentYear && e.month === m).reduce((sum, e) => sum + e.amount, 0),
   }));
 

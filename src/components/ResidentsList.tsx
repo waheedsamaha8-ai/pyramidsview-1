@@ -32,16 +32,14 @@ export {
 
 const columnLabels: Record<string, string> = {
   flatNumber: "رقم الوحدة",
-  ownerName: "اسم المالك / الساكن",
-  ownerPhone: "تليفون المالك",
-  tenantName: "اسم المستأجر",
-  tenantPhone: "تليفون المستأجر",
+  ownerName: "المالك / المستأجر",
+  ownerPhone: "أرقام التليفون",
   monthlyFee: "الرسوم الشهرية",
   balance: "الرصيد / المديونية",
   activityType: "نوع النشاط",
-  membership: "دعوات العضوية",
   notes: "ملاحظات",
   actions: "الإجراءات",
+  membership: "دعوات الواتس",
 };
 
 interface ResidentsListProps {
@@ -81,14 +79,12 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
     flatNumber: true,
     ownerName: true,
     ownerPhone: true,
-    tenantName: true,
-    tenantPhone: true,
     monthlyFee: true,
     balance: true,
     activityType: true,
-    membership: true,
     notes: true,
     actions: true,
+    membership: true,
   });
 
   // O(1) indexed payments lookup for instant financial calculations
@@ -599,16 +595,10 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                         <th className="px-3 py-3 sticky right-0 bg-slate-50 shadow-xs z-10 border-l border-slate-200">رقم الوحدة</th>
                       )}
                       {visibleColumns.ownerName && (
-                        <th className="px-3 py-3">اسم المالك / الساكن</th>
+                        <th className="px-3 py-3">المالك / المستأجر</th>
                       )}
                       {visibleColumns.ownerPhone && (
-                        <th className="px-3 py-3">تليفون المالك</th>
-                      )}
-                      {visibleColumns.tenantName && (
-                        <th className="px-3 py-3">اسم المستأجر</th>
-                      )}
-                      {visibleColumns.tenantPhone && (
-                        <th className="px-3 py-3">تليفون المستأجر</th>
+                        <th className="px-3 py-3">أرقام التليفون</th>
                       )}
                       {visibleColumns.monthlyFee && (
                         <th className="px-3 py-3 text-center">الرسوم الشهرية</th>
@@ -619,14 +609,14 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                       {visibleColumns.activityType && (
                         <th className="px-3 py-3">نوع النشاط</th>
                       )}
-                      {role === 'ADMIN' && visibleColumns.membership && (
-                        <th className="px-3 py-3 text-center">دعوات الواتساب والعضوية</th>
-                      )}
                       {visibleColumns.notes && (
                         <th className="px-3 py-3">ملاحظات</th>
                       )}
                       {!isReadOnly && role !== 'ASSISTANT' && visibleColumns.actions && (
                         <th className="px-3 py-3 text-center">الإجراءات</th>
+                      )}
+                      {role === 'ADMIN' && visibleColumns.membership && (
+                        <th className="px-3 py-3 text-center">دعوات الواتس</th>
                       )}
                     </tr>
                   </thead>
@@ -699,6 +689,8 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                         const isSelected = selectedItemId === res.id;
                         const status = res.accountStatus || 'ACTIVE';
 
+                        const hasTenant = res.ownershipType === 'إيجار' && Boolean(res.tenantName && res.tenantName.trim());
+
                         return (
                           <tr 
                             key={res.id} 
@@ -720,79 +712,87 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                               </td>
                             )}
 
-                            {/* Resident / Owner Name */}
+                            {/* Resident / Owner & Tenant Name */}
                             {visibleColumns.ownerName && (
-                              <td className="px-3 py-3 font-bold text-slate-900 whitespace-nowrap">
-                                {res.name}
+                              <td className="px-3 py-3 whitespace-nowrap">
+                                <div className="flex flex-col gap-1.5 justify-center">
+                                  {/* Owner Name */}
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="font-bold text-slate-900">{res.name}</span>
+                                    {hasTenant && (
+                                      <span className="text-[9px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">مالك</span>
+                                    )}
+                                  </div>
+
+                                  {/* Tenant Name if exists */}
+                                  {hasTenant && (
+                                    <div className="flex items-center gap-1.5 text-amber-950 font-black text-[11px] pt-0.5 border-t border-slate-100">
+                                      <span className="text-[9px] font-extrabold bg-amber-100 text-amber-900 px-1.5 py-0.5 rounded border border-amber-200/80">مستأجر</span>
+                                      <span>{res.tenantName}</span>
+                                    </div>
+                                  )}
+                                </div>
                               </td>
                             )}
 
-                            {/* Owner Phone (Directly after Owner Name) with calling link */}
+                            {/* Owner Phone & Tenant Phone with calling links */}
                             {visibleColumns.ownerPhone && (
-                              <td className="px-3 py-3 text-slate-600" dir="ltr">
-                                {res.phone ? (
-                                  <div className="flex flex-col items-start gap-1">
-                                    {res.phone.split(/[,/;|\n]+/).map((part, pIdx) => {
-                                      const cleanPhone = formatMobileNumber(part);
-                                      if (!cleanPhone) return null;
-                                      return (
-                                        <a
-                                          key={pIdx}
-                                          href={`tel:${cleanPhone}`}
-                                          onClick={(e) => e.stopPropagation()}
-                                          className="inline-flex items-center gap-1 text-blue-900 hover:text-blue-700 hover:underline font-bold font-mono transition px-1.5 py-0.5 rounded-md hover:bg-blue-50 phone-number-display"
-                                          title={`اتصال هاتفياً بالمالك ${res.name}: ${cleanPhone}`}
-                                          dir="ltr"
-                                        >
-                                          <Phone className="w-3 h-3 text-blue-900 shrink-0" />
-                                          <span dir="ltr">{formatPhoneForDisplay(part)}</span>
-                                        </a>
-                                      );
-                                    })}
-                                  </div>
-                                ) : (
-                                  <span className="text-slate-300 font-normal">—</span>
-                                )}
-                              </td>
-                            )}
+                              <td className="px-3 py-3 text-slate-600 whitespace-nowrap" dir="ltr">
+                                <div className="flex flex-col gap-1.5 items-start justify-center">
+                                  {/* Owner Phone */}
+                                  {res.phone ? (
+                                    <div className="flex flex-wrap items-center gap-1">
+                                      {res.phone.split(/[,/;|\n]+/).map((part, pIdx) => {
+                                        const cleanPhone = formatMobileNumber(part);
+                                        if (!cleanPhone) return null;
+                                        return (
+                                          <a
+                                            key={pIdx}
+                                            href={`tel:${cleanPhone}`}
+                                            onClick={(e) => e.stopPropagation()}
+                                            className="inline-flex items-center gap-1 text-blue-900 hover:text-blue-700 hover:underline font-bold font-mono transition px-1.5 py-0.5 rounded-md hover:bg-blue-50 phone-number-display"
+                                            title={`اتصال هاتفياً بالمالك ${res.name}: ${cleanPhone}`}
+                                            dir="ltr"
+                                          >
+                                            <Phone className="w-3 h-3 text-blue-900 shrink-0" />
+                                            <span dir="ltr">{formatPhoneForDisplay(part)}</span>
+                                          </a>
+                                        );
+                                      })}
+                                    </div>
+                                  ) : (
+                                    <span className="text-slate-300 font-normal text-xs">—</span>
+                                  )}
 
-                            {/* Tenant Name */}
-                            {visibleColumns.tenantName && (
-                              <td className="px-3 py-3 text-slate-700 whitespace-nowrap">
-                                {res.ownershipType === 'إيجار' && res.tenantName ? (
-                                  <span className="text-amber-950 font-black">{res.tenantName}</span>
-                                ) : (
-                                  <span className="text-slate-300 font-normal">—</span>
-                                )}
-                              </td>
-                            )}
-
-                            {/* Tenant Phone (Directly after Tenant Name) with calling link */}
-                            {visibleColumns.tenantPhone && (
-                              <td className="px-3 py-3 text-slate-600" dir="ltr">
-                                {res.ownershipType === 'إيجار' && res.tenantPhone ? (
-                                  <div className="flex flex-col items-start gap-1">
-                                    {res.tenantPhone.split(/[,/;|\n]+/).map((part, pIdx) => {
-                                      const cleanPhone = formatMobileNumber(part);
-                                      if (!cleanPhone) return null;
-                                      return (
-                                        <a
-                                          key={pIdx}
-                                          href={`tel:${cleanPhone}`}
-                                          onClick={(e) => e.stopPropagation()}
-                                          className="inline-flex items-center gap-1 text-amber-800 hover:text-amber-950 hover:underline font-bold font-mono transition px-1.5 py-0.5 rounded-md hover:bg-amber-50 phone-number-display"
-                                          title={`اتصال هاتفياً بالمستأجر ${res.tenantName}: ${cleanPhone}`}
-                                          dir="ltr"
-                                        >
-                                          <Phone className="w-3 h-3 text-amber-800 shrink-0" />
-                                          <span dir="ltr">{formatPhoneForDisplay(part)}</span>
-                                        </a>
-                                      );
-                                    })}
-                                  </div>
-                                ) : (
-                                  <span className="text-slate-300 font-normal">—</span>
-                                )}
+                                  {/* Tenant Phone if exists */}
+                                  {hasTenant && (
+                                    res.tenantPhone ? (
+                                      <div className="flex flex-wrap items-center gap-1 pt-0.5 border-t border-slate-100 w-full">
+                                        {res.tenantPhone.split(/[,/;|\n]+/).map((part, pIdx) => {
+                                          const cleanPhone = formatMobileNumber(part);
+                                          if (!cleanPhone) return null;
+                                          return (
+                                            <a
+                                              key={pIdx}
+                                              href={`tel:${cleanPhone}`}
+                                              onClick={(e) => e.stopPropagation()}
+                                              className="inline-flex items-center gap-1 text-amber-800 hover:text-amber-950 hover:underline font-bold font-mono transition px-1.5 py-0.5 rounded-md hover:bg-amber-50 phone-number-display"
+                                              title={`اتصال هاتفياً بالمستأجر ${res.tenantName}: ${cleanPhone}`}
+                                              dir="ltr"
+                                            >
+                                              <Phone className="w-3 h-3 text-amber-800 shrink-0" />
+                                              <span dir="ltr">{formatPhoneForDisplay(part)}</span>
+                                            </a>
+                                          );
+                                        })}
+                                      </div>
+                                    ) : (
+                                      <div className="pt-0.5 border-t border-slate-100 w-full">
+                                        <span className="text-slate-300 font-normal text-xs">—</span>
+                                      </div>
+                                    )
+                                  )}
+                                </div>
                               </td>
                             )}
 
@@ -835,7 +835,38 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                               </td>
                             )}
 
-                            {/* WhatsApp Invitations & Membership Status */}
+                            {/* Notes */}
+                            {visibleColumns.notes && (
+                              <td className="px-3 py-3 text-slate-500 max-w-[150px] truncate" title={displayNotes}>
+                                {displayNotes || <span className="text-slate-300 font-normal">—</span>}
+                              </td>
+                            )}
+
+                            {/* Actions */}
+                            {!isReadOnly && role !== 'ASSISTANT' && visibleColumns.actions && (
+                              <td className="px-3 py-3 whitespace-nowrap">
+                                <div className="flex items-center justify-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); openEditModal(res); }}
+                                    className="p-1.5 text-slate-500 hover:text-blue-900 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+                                    title="تعديل بيانات الساكن"
+                                  >
+                                    <Edit className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); handleDelete(res.id, res.name); }}
+                                    className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                                    title="حذف الساكن"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </td>
+                            )}
+
+                            {/* WhatsApp Invitations & Membership Status - Moved to the very end after Actions */}
                             {role === 'ADMIN' && visibleColumns.membership && (
                               <td className="px-3 py-3 text-center whitespace-nowrap">
                                 <div className="flex flex-col items-center gap-1">
@@ -931,37 +962,6 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                                       </button>
                                     </div>
                                   )}
-                                </div>
-                              </td>
-                            )}
-
-                            {/* Notes */}
-                            {visibleColumns.notes && (
-                              <td className="px-3 py-3 text-slate-500 max-w-[150px] truncate" title={displayNotes}>
-                                {displayNotes || <span className="text-slate-300 font-normal">—</span>}
-                              </td>
-                            )}
-
-                            {/* Actions */}
-                            {!isReadOnly && role !== 'ASSISTANT' && visibleColumns.actions && (
-                              <td className="px-3 py-3 whitespace-nowrap">
-                                <div className="flex items-center justify-center gap-1.5">
-                                  <button
-                                    type="button"
-                                    onClick={(e) => { e.stopPropagation(); openEditModal(res); }}
-                                    className="p-1.5 text-slate-500 hover:text-blue-900 hover:bg-slate-100 rounded-lg transition cursor-pointer"
-                                    title="تعديل بيانات الساكن"
-                                  >
-                                    <Edit className="w-3.5 h-3.5" />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => { e.stopPropagation(); handleDelete(res.id, res.name); }}
-                                    className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition cursor-pointer"
-                                    title="حذف الساكن"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
                                 </div>
                               </td>
                             )}

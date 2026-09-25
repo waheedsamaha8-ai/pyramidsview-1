@@ -24,7 +24,12 @@ import {
   ExternalLink,
   Check,
   Share2,
-  Contact
+  Contact,
+  Copy,
+  Smartphone,
+  Send,
+  CheckCircle2,
+  Layers
 } from 'lucide-react';
 import { CommunityHeader, CommunityCounts, CommunityServiceId } from './CommunityHeader';
 import { formatMobileNumber, formatPhoneForDisplay, normalizePhoneInput, toWhatsAppNumber, pickContactFromDevice } from '../utils/phoneUtils';
@@ -110,6 +115,11 @@ export const MaintenanceRequests: React.FC<MaintenanceRequestsProps> = ({
   const [newCommentRating, setNewCommentRating] = useState<number>(5);
   const [newCommentAuthor, setNewCommentAuthor] = useState(userName);
   const [newCommentFlat, setNewCommentFlat] = useState<string>(flatNumber ? String(flatNumber) : '');
+
+  // Craftsman Share Modal State (Dual WhatsApp & Comprehensive Details)
+  const [sharingCraftsman, setSharingCraftsman] = useState<Craftsman | null>(null);
+  const [isShareCopied, setIsShareCopied] = useState(false);
+  const [shareToast, setShareToast] = useState<string | null>(null);
 
   // Form states for new maintenance request
   const [title, setTitle] = useState('');
@@ -296,20 +306,102 @@ export const MaintenanceRequests: React.FC<MaintenanceRequestsProps> = ({
     setNewCommentRating(5);
   };
 
-  const handleShareCraftsmanWhatsApp = (c: Craftsman) => {
-    const commentsText = c.comments && c.comments.length > 0
-      ? c.comments.map(cmt => `• [وحدة ${cmt.flatNumber || '?'}] ${cmt.senderName}: "${cmt.text}" (${'★'.repeat(cmt.rating || 5)}${'☆'.repeat(5 - (cmt.rating || 5))})`).join('\n')
-      : 'لا توجد آراء مسجلة بعد.';
+  // Helper to compile comprehensive craftsman share message
+  const buildCraftsmanShareMessage = (c: Craftsman): string => {
+    const avgRating = getAverageRating(c.comments);
+    const commentsCount = c.comments ? c.comments.length : 0;
+    
+    // Formatted phone numbers
+    const phonesFormatted = (c.phone || '')
+      .split(/[,/;|\n]+/)
+      .map(p => p.trim())
+      .filter(Boolean)
+      .map(p => `   📞 ${formatMobileNumber(p)}`)
+      .join('\n');
 
-    const message = `*بطاقة فني من دليل صنايعية العمارة* 🛠️\n\n` +
+    // Work notes & details (ملاحظات وتفاصيل العمل)
+    const notesText = c.notes && c.notes.trim()
+      ? `📝 *ملاحظات وتفاصيل العمل والمصنعية:*\n${c.notes.trim()}`
+      : `📝 *ملاحظات وتفاصيل العمل:*\nفني معتمد بالدليل لمختلف الأعمال والصيانة.`;
+
+    // Neighbor opinions & comments (آراء وتجارب الجيران)
+    let commentsSection = '';
+    if (c.comments && c.comments.length > 0) {
+      const list = c.comments.map((cmt, idx) => {
+        const ratingVal = typeof cmt.rating === 'number' && cmt.rating > 0 ? cmt.rating : 5;
+        const stars = '⭐'.repeat(Math.min(Math.max(ratingVal, 1), 5));
+        const unit = cmt.flatNumber ? ` (شقة ${cmt.flatNumber})` : '';
+        const dt = cmt.timestamp ? ` [${new Date(cmt.timestamp).toLocaleDateString('ar-EG', { month: 'short', day: 'numeric', year: 'numeric' })}]` : '';
+        return `▫️ *${cmt.senderName}${unit}* ${stars}${dt}\n   "${cmt.text}"`;
+      }).join('\n\n');
+      commentsSection = `⭐️ *آراء وتجارب الجيران (${commentsCount} تقييم - متوسط ${avgRating || 5}/5):*\n${list}`;
+    } else {
+      commentsSection = `⭐️ *آراء وتجارب الجيران:*\nلا توجد تقييمات أو تجارب مسجلة بعد.`;
+    }
+
+    const addedByText = c.addedBy ? `\n📌 *أضيف للدليل بواسطة:* ${c.addedBy}` : '';
+
+    return `🛠️ *بطاقة فني معتمد - دليل صنايعية العمارة* 🏢\n` +
+      `═══════════════════════\n` +
       `👤 *الاسم:* ${c.name}\n` +
       `🔧 *التخصص:* ${c.specialty}\n` +
-      `📞 *رقم الهاتف:* ${c.phone}\n\n` +
-      `⭐️ *التقييمات وتعليقات السكان:*\n${commentsText}\n\n` +
-      `تمت المشاركة من تطبيق إدارة العمارة السحابي 🏢`;
+      `📱 *أرقام التواصل:*\n${phonesFormatted || '   📞 ' + c.phone}\n\n` +
+      `${notesText}\n\n` +
+      `${commentsSection}${addedByText}\n` +
+      `═══════════════════════\n` +
+      `🏢 *عمارة بيراميدز فيو ١* - دليل الخدمات والصيانة المعتمد`;
+  };
 
-    const shareUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(message)}`;
-    window.open(shareUrl, '_blank');
+  const handleOpenShareCraftsmanModal = (c: Craftsman) => {
+    setSharingCraftsman(c);
+    setIsShareCopied(false);
+    setShareToast(null);
+  };
+
+  // Native share handler (allows choosing WhatsApp 1 or WhatsApp 2 / Business on mobile devices)
+  const handleNativeMobileShare = async (c: Craftsman) => {
+    const text = buildCraftsmanShareMessage(c);
+    if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+      try {
+        await navigator.share({
+          title: `بطاقة فني: ${c.name} (${c.specialty})`,
+          text: text,
+        });
+        setShareToast('تم فتح قائمة المشاركة بالهاتف! يمكنك اختيار أي من تطبيقي الواتساب لديك.');
+        setTimeout(() => setShareToast(null), 4000);
+      } catch (err: any) {
+        if (err?.name !== 'AbortError') {
+          // Fallback to direct whatsapp URL
+          const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+          window.open(url, '_blank');
+        }
+      }
+    } else {
+      // Fallback for browsers without Web Share API
+      const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+      window.open(url, '_blank');
+    }
+  };
+
+  const handleDirectWhatsApp1 = (text: string) => {
+    const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+    window.open(url, '_blank');
+  };
+
+  const handleDirectWhatsApp2 = (text: string) => {
+    // Open via native scheme (often opens WhatsApp app or business / app chooser)
+    const url = `whatsapp://send?text=${encodeURIComponent(text)}`;
+    window.location.href = url;
+  };
+
+  const handleCopyCraftsmanShareText = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setIsShareCopied(true);
+    setShareToast('تم نسخ بطاقة الفني بالكامل بنجاح! يمكنك الآن فتح أي واتساب ولصقها مباشرة.');
+    setTimeout(() => {
+      setIsShareCopied(false);
+      setShareToast(null);
+    }, 4000);
   };
 
   const handleShareRequestWhatsApp = (req: MaintenanceRequest) => {
@@ -1186,9 +1278,9 @@ export const MaintenanceRequests: React.FC<MaintenanceRequestsProps> = ({
 
                           {/* WhatsApp Share Button */}
                           <button
-                            onClick={() => handleShareCraftsmanWhatsApp(c)}
+                            onClick={() => handleOpenShareCraftsmanModal(c)}
                             className="flex items-center justify-center gap-1.5 text-[11px] font-black text-slate-700 dark:text-slate-200 hover:text-emerald-700 dark:hover:text-emerald-400 bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700/80 border border-slate-200 dark:border-slate-700 py-2 px-2 rounded-xl transition cursor-pointer"
-                            title="مشاركة كارت الفني على الواتساب شامل الاسم والتلفون والتعليقات"
+                            title="مشاركة كارت الفني مع خيارات الواتساب وتفاصيل العمل وآراء الجيران"
                           >
                             <Share2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                             <span>مشاركة الكارت</span>
@@ -1493,6 +1585,194 @@ export const MaintenanceRequests: React.FC<MaintenanceRequestsProps> = ({
           </div>
         </div>
       )}
+
+      {/* Craftsman Share Modal (Dual WhatsApp & Comprehensive Details) */}
+      {sharingCraftsman && (() => {
+        const fullShareText = buildCraftsmanShareMessage(sharingCraftsman);
+        const avgRating = getAverageRating(sharingCraftsman.comments);
+        const commentsCount = sharingCraftsman.comments ? sharingCraftsman.comments.length : 0;
+        
+        return (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-3 sm:p-4 animate-fade-in" dir="rtl">
+            <div className="bg-white dark:bg-[#111a2e] w-full max-w-xl rounded-3xl p-5 sm:p-6 shadow-2xl border border-slate-200/80 dark:border-slate-800 text-right animate-scale-up max-h-[92vh] flex flex-col">
+              
+              {/* Modal Header */}
+              <div className="flex justify-between items-start border-b border-slate-100 dark:border-slate-800 pb-3 mb-3">
+                <button 
+                  onClick={() => setSharingCraftsman(null)}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition cursor-pointer"
+                  title="إغلاق النافذة"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+                <div className="text-right">
+                  <div className="flex items-center gap-2 justify-end">
+                    <span className="text-[11px] text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 px-2 py-0.5 rounded-md font-extrabold flex items-center gap-1">
+                      <Share2 className="w-3 h-3 text-emerald-600" />
+                      <span>مشاركة شاملة</span>
+                    </span>
+                    <h4 className="text-base font-black text-slate-900 dark:text-slate-100">مشاركة بطاقة الفني والصنايعي</h4>
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-bold">
+                    إرسال بيانات الفني وملاحظات العمل وآراء الجيران مع إمكانية اختيار أي من تطبيقي الواتساب على هاتفك.
+                  </p>
+                </div>
+              </div>
+
+              {/* Scrollable Body */}
+              <div className="flex-1 overflow-y-auto space-y-3.5 pr-1 pl-1">
+                
+                {/* Craftsman Summary Box */}
+                <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 rounded-2xl p-3.5 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/50 text-blue-900 dark:text-blue-200 rounded-xl flex items-center justify-center shrink-0">
+                      <HardHat className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h5 className="text-sm font-black text-slate-900 dark:text-slate-100 truncate">{sharingCraftsman.name}</h5>
+                        <span className="text-[10px] text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/40 px-2 py-0.5 rounded font-black">
+                          {sharingCraftsman.specialty}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 mt-1 text-xs text-slate-500 dark:text-slate-400 font-bold">
+                        <div className="flex items-center gap-1 text-amber-500">
+                          <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                          <span className="font-black text-slate-700 dark:text-slate-200">{avgRating || 5}/5</span>
+                        </div>
+                        <span>•</span>
+                        <span>{commentsCount} تقييم من السكان</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="text-left shrink-0">
+                    <span className="text-[10px] text-slate-400 font-bold block">عمارة بيراميدز فيو ١</span>
+                    <span className="text-[11px] font-extrabold text-blue-900 dark:text-blue-300">دليل الحرفيين المعتمد</span>
+                  </div>
+                </div>
+
+                {/* Mobile Dual WhatsApp Smart Hint */}
+                <div className="bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/40 dark:to-teal-950/30 border border-emerald-200 dark:border-emerald-800/80 rounded-2xl p-3.5 flex items-start gap-2.5">
+                  <div className="w-7 h-7 bg-emerald-600 text-white rounded-lg flex items-center justify-center shrink-0 mt-0.5 shadow-2xs">
+                    <Smartphone className="w-4 h-4" />
+                  </div>
+                  <div className="text-xs text-emerald-950 dark:text-emerald-200">
+                    <p className="font-black text-emerald-900 dark:text-emerald-100 mb-0.5 flex items-center gap-1.5">
+                      <span>اختيار أي من تطبيقي الواتساب (WhatsApp 1 / WhatsApp 2) على الموبايل</span>
+                    </p>
+                    <p className="text-[11px] text-emerald-800/90 dark:text-emerald-300/90 leading-relaxed font-semibold">
+                      إذا كان لديك أكثر من رقم أو تطبيقي واتساب على الهاتف (مثل واتساب الأساسي وواتساب للأعمال / Dual Messenger)، اضغط على الزر الرئيسي الأخضر أدناه ليفتح لك الهاتف قائمة المشاركة وتختار منها الواتساب المطلوب مباشرة!
+                    </p>
+                  </div>
+                </div>
+
+                {/* Toast message if active */}
+                {shareToast && (
+                  <div className="bg-emerald-100 dark:bg-emerald-900/60 border border-emerald-300 dark:border-emerald-700 text-emerald-900 dark:text-emerald-100 px-3.5 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 animate-fade-in shadow-xs">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-300 shrink-0" />
+                    <span>{shareToast}</span>
+                  </div>
+                )}
+
+                {/* Main Action Buttons */}
+                <div className="space-y-2">
+                  {/* Native Share Button (Primary for Dual WhatsApp) */}
+                  <button
+                    type="button"
+                    onClick={() => handleNativeMobileShare(sharingCraftsman)}
+                    className="w-full py-3 px-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-black text-xs sm:text-sm rounded-2xl shadow-md shadow-emerald-700/20 transition flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99]"
+                  >
+                    <Smartphone className="w-4 h-4 shrink-0" />
+                    <span>مشاركة عبر تطبيقات الهاتف (لاختيار واتساب 1 أو 2 أو الأعمال)</span>
+                    <Share2 className="w-4 h-4 shrink-0 mr-auto opacity-80" />
+                  </button>
+
+                  {/* Direct WhatsApp Buttons Grid */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleDirectWhatsApp1(fullShareText)}
+                      className="py-2.5 px-3 bg-slate-100 dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-slate-800 dark:text-slate-200 hover:text-emerald-700 dark:hover:text-emerald-300 border border-slate-200 dark:border-slate-700 hover:border-emerald-300 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <MessageCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>فتح واتساب 1 (الأساسي)</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleDirectWhatsApp2(fullShareText)}
+                      className="py-2.5 px-3 bg-slate-100 dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-slate-800 dark:text-slate-200 hover:text-emerald-700 dark:hover:text-emerald-300 border border-slate-200 dark:border-slate-700 hover:border-emerald-300 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <Send className="w-4 h-4 text-blue-600 shrink-0" />
+                      <span>فتح واتساب 2 / الأعمال</span>
+                    </button>
+                  </div>
+
+                  {/* Copy Button */}
+                  <button
+                    type="button"
+                    onClick={() => handleCopyCraftsmanShareText(fullShareText)}
+                    className={`w-full py-2.5 px-3 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-2 cursor-pointer ${
+                      isShareCopied 
+                        ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-200 border-emerald-300' 
+                        : 'bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-700/80 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                    }`}
+                  >
+                    {isShareCopied ? (
+                      <>
+                        <Check className="w-4 h-4 text-emerald-600" />
+                        <span>تم نسخ النص بالكامل للحافظة ✓</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-4 h-4 text-slate-500" />
+                        <span>نسخ تفاصيل البطاقة بالكامل (للصق في أي واتساب)</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* Message Live Preview Box */}
+                <div className="space-y-1.5 pt-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-600 dark:text-slate-300">
+                      معاينة نص الرسالة الشامل (الملاحظات وتفاصيل العمل وآراء الجيران):
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyCraftsmanShareText(fullShareText)}
+                      className="text-[11px] font-bold text-blue-800 dark:text-blue-300 hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <Copy className="w-3 h-3" />
+                      <span>نسخ النص</span>
+                    </button>
+                  </div>
+
+                  <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 rounded-2xl max-h-48 overflow-y-auto">
+                    <pre className="text-xs text-slate-700 dark:text-slate-300 whitespace-pre-wrap font-sans leading-relaxed text-right dir-rtl">
+                      {fullShareText}
+                    </pre>
+                  </div>
+                </div>
+
+              </div>
+
+              {/* Modal Footer */}
+              <div className="border-t border-slate-100 dark:border-slate-800 pt-3 mt-3 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setSharingCraftsman(null)}
+                  className="px-5 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold rounded-xl transition cursor-pointer"
+                >
+                  إغلاق
+                </button>
+              </div>
+
+            </div>
+          </div>
+        );
+      })()}
 
     </div>
   );

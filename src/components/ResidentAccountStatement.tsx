@@ -130,7 +130,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
     }
 
     if (resident) return resident;
-    return residents.length > 0 ? residents[0] : null;
+    return null;
   }, [resident, selectedLocalId, isResidentOnly, config, residents]);
 
   const accountingStartDate = config?.accountingStartDate || '2026-01-01';
@@ -226,7 +226,11 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
         return pMonth === monthNum && pYear === y;
       });
 
-      const paidAmount = matching.reduce((sum, p) => sum + (p.amount || 0), 0);
+      const validPaidMatching = matching.filter(
+        p => p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل'
+      );
+
+      const paidAmount = validPaidMatching.reduce((sum, p) => sum + (p.amount || 0), 0);
       const isPaid = paidAmount >= financials.monthlyFee;
 
       timeline.push({
@@ -573,6 +577,49 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
   };
 
   if (!activeResident) {
+    if (!isResidentOnly) {
+      return (
+        <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-100 shadow-md text-right space-y-3" dir="rtl">
+          <div className="bg-slate-50/80 border border-slate-200/80 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-2xs">
+            <div className="flex items-center gap-3 text-right">
+              <div className="w-9 h-9 rounded-xl bg-blue-900 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                <User className="w-5 h-5" />
+              </div>
+              <div>
+                <span className="text-xs sm:text-sm font-black text-slate-800 block">كشف حساب واشتراكات الوحدة</span>
+                <span className="text-[11px] text-slate-400 font-bold">اختر رقم الوحدة واسم الساكن للاطلاع على كشف الحساب والمديونيات</span>
+              </div>
+            </div>
+            
+            <div className="w-full sm:w-auto flex items-center gap-2 max-w-full">
+              <select
+                value=""
+                onChange={(e) => {
+                  const chosenId = e.target.value;
+                  setSelectedLocalId(chosenId);
+                  const found = residents.find(r => r.id === chosenId || isSameFlatNumber(r.flatNumber, chosenId));
+                  if (found) {
+                    onSelectResidentId?.(found.id);
+                    onSelectFlatNumber?.(found.flatNumber);
+                  } else {
+                    onSelectResidentId?.('');
+                  }
+                }}
+                className="w-full sm:w-64 min-w-0 px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-black text-blue-950 outline-none cursor-pointer hover:border-blue-500 transition shadow-xs"
+              >
+                <option value="">اختار وحدة</option>
+                {residents.slice().sort((a, b) => compareFlatNumbers(a.flatNumber, b.flatNumber)).map(r => (
+                  <option key={r.id} value={r.id}>
+                    وحدة {r.flatNumber} — {r.name} {r.tenantName ? `(المستأجر: ${r.tenantName})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="bg-white rounded-3xl p-8 border border-slate-100 shadow-sm text-center">
         <Building2 className="w-12 h-12 text-slate-300 mx-auto mb-3" />
@@ -604,7 +651,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
               </div>
             </div>
             
-            <div className="w-full sm:w-72">
+            <div className="w-full sm:w-auto flex items-center gap-2 max-w-full">
               <select
                 value={activeResident?.id || ''}
                 onChange={(e) => {
@@ -614,16 +661,33 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                   if (found) {
                     onSelectResidentId?.(found.id);
                     onSelectFlatNumber?.(found.flatNumber);
+                  } else {
+                    onSelectResidentId?.('');
                   }
                 }}
-                className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-black text-blue-950 outline-none cursor-pointer hover:border-blue-300 transition shadow-3xs"
+                className="w-full sm:w-60 min-w-0 px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black text-blue-950 outline-none cursor-pointer hover:border-blue-300 transition shadow-xs"
               >
+                <option value="">اختار وحدة</option>
                 {residents.slice().sort((a, b) => compareFlatNumbers(a.flatNumber, b.flatNumber)).map(r => (
                   <option key={r.id} value={r.id}>
                     وحدة {r.flatNumber} — {r.name} {r.tenantName ? `(المستأجر: ${r.tenantName})` : ''}
                   </option>
                 ))}
               </select>
+
+              {activeResident && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedLocalId('');
+                    onSelectResidentId?.('');
+                  }}
+                  className="p-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl border border-rose-200 transition cursor-pointer shrink-0 flex items-center justify-center"
+                  title="إغلاق كشف الحساب والعودة للوضع الافتراضي"
+                >
+                  <X className="w-4 h-4 stroke-[2.5]" />
+                </button>
+              )}
             </div>
           </div>
         )}

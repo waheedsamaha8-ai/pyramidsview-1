@@ -114,7 +114,7 @@ export const Summaries: React.FC<SummariesProps> = ({
   const monthlyData = useMemo(() => {
     return months.map((m) => {
       const monthPayments = payments
-        .filter((p) => p.year === currentYear && p.month === m)
+        .filter((p) => p.year === currentYear && p.month === m && p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل')
         .reduce((sum, p) => sum + p.amount, 0);
 
       const monthExpenses = expenses
@@ -212,8 +212,12 @@ export const Summaries: React.FC<SummariesProps> = ({
         p.year === currentYear
     );
 
-    const totalAmount = matchingPayments.reduce((sum, p) => sum + p.amount, 0);
-    const isPaid = totalAmount > 0 || matchingPayments.some(p => p.isManuallyPaid);
+    const validCollectedPayments = matchingPayments.filter(
+      (p) => p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل'
+    );
+
+    const totalAmount = validCollectedPayments.reduce((sum, p) => sum + p.amount, 0);
+    const isPaid = totalAmount > 0 || validCollectedPayments.some(p => p.isManuallyPaid);
 
     return {
       paid: isPaid,
@@ -564,7 +568,7 @@ export const Summaries: React.FC<SummariesProps> = ({
                   {/* Residents of this floor */}
                   {group.residents.map((res) => {
                     const residentYearTotal = payments
-                      .filter((p) => p.residentId === res.id && p.year === currentYear)
+                      .filter((p) => p.residentId === res.id && p.year === currentYear && p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل')
                       .reduce((s, p) => s + p.amount, 0);
 
                     return (

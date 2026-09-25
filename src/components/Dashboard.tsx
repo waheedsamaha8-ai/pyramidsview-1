@@ -174,7 +174,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       </div>
       
       {/* Interactive Unit Activities Distribution Bar & Statistical Counters */}
-      <div className="bg-white rounded-2xl p-3.5 sm:p-4 border border-slate-100 shadow-xs space-y-3">
+      <div className="bg-white rounded-2xl p-3.5 sm:p-4 border border-slate-100 shadow-xs space-y-2.5">
         {/* Header */}
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
@@ -183,10 +183,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </div>
             <div>
               <h3 className="text-xs sm:text-sm font-black text-blue-950 leading-tight">
-                إحصائيات العمارة
+                إحصائيات العمارة ونشاط الوحدات
               </h3>
               <p className="text-[10px] text-slate-400 font-bold">
-                عداد تفاعلي يتغير حسب النشاط
+                توزيع الوحدات حسب النشاط (انقر على أي نشاط للفلترة)
               </p>
             </div>
           </div>
@@ -199,17 +199,20 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
         {/* Dynamic Stacked Bar */}
         <div className="relative pt-0.5">
-          <div className="flex h-4 sm:h-5 w-full rounded-xl overflow-hidden bg-slate-100 p-0.5 gap-0.5 border border-slate-200/70 shadow-xs">
+          <div className="flex h-6 sm:h-7 w-full rounded-xl overflow-hidden bg-slate-100 p-0.5 gap-0.5 border border-slate-200/70 shadow-xs">
             {unitActivityStats.breakdown.map((item, idx) => {
               const theme = getActivityTheme(item.activity, idx);
               return (
                 <div
                   key={item.activity}
-                  style={{ width: `${Math.max(item.percentage, 1.5)}%` }}
-                  className={`${theme.barBg} h-full rounded-md transition-all duration-500 hover:brightness-110 cursor-pointer relative group`}
+                  style={{ width: `${Math.max(item.percentage, 2.5)}%` }}
+                  className={`${theme.barBg} h-full rounded-md transition-all duration-500 hover:brightness-110 cursor-pointer relative group flex items-center justify-center overflow-hidden`}
                   title={`${item.activity}: ${item.count} وحدة (${item.percentage.toFixed(1)}%)`}
                   onClick={() => onSelectActivityModal(item.activity)}
                 >
+                  <span className="text-[10px] sm:text-xs font-black text-white drop-shadow-xs select-none px-0.5 truncate">
+                    {item.count}
+                  </span>
                   <div className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 hidden group-hover:flex flex-col items-center z-30 pointer-events-none">
                     <div className="bg-slate-900 text-white text-[10px] font-bold px-2 py-1 rounded-lg shadow-lg whitespace-nowrap">
                       {item.activity}: {item.count} وحدة ({item.percentage.toFixed(1)}%)
@@ -220,33 +223,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
               );
             })}
           </div>
-        </div>
-
-        {/* Dynamic Counters List */}
-        <div className="flex flex-col gap-1.5 pt-1">
-          {unitActivityStats.breakdown.map((item, idx) => {
-            const theme = getActivityTheme(item.activity, idx);
-            return (
-              <div
-                key={item.activity}
-                onClick={() => onSelectActivityModal(item.activity)}
-                className={`px-3 py-1.5 sm:py-2 rounded-xl border transition-all cursor-pointer hover:shadow-xs hover:scale-[1.005] active:scale-[0.99] flex items-center justify-between w-full min-h-0 gap-2 ${theme.badgeBg}`}
-              >
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className={`w-2.5 h-2.5 rounded-full ${theme.dotBg} shrink-0`} />
-                  <span className="text-xs font-black truncate">{item.activity}</span>
-                  <span className="text-[10px] font-extrabold opacity-75 bg-white/60 px-1.5 py-0.5 rounded-md border border-black/5">
-                    {item.percentage.toFixed(0)}%
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-1 shrink-0 dir-rtl">
-                  <span className="text-xs sm:text-sm font-black tracking-tight">{item.count}</span>
-                  <span className="text-[10px] font-extrabold opacity-80">وحدة</span>
-                </div>
-              </div>
-            );
-          })}
         </div>
       </div>
       
@@ -530,7 +506,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       ) : (
         <div className="pt-2">
           <ResidentAccountStatement
-            resident={residents.find(r => r.id === reportResidentId) || residents.find(r => isSameFlatNumber(r.flatNumber, reportResidentId)) || residents[0]}
+            resident={residents.find(r => r.id === reportResidentId) || residents.find(r => isSameFlatNumber(r.flatNumber, reportResidentId))}
             residents={residents}
             payments={payments}
             config={config}

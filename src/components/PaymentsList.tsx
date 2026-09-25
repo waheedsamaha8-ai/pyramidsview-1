@@ -411,18 +411,22 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
     const unpaidMonthsDues = financials ? financials.unpaidMonthsDues : 0;
     const remainingBalance = financials ? financials.netBalance : 0;
 
+    const isUncollected = payment.status === 'pending' || payment.status === 'لم يتم التحصيل';
+    const isCancelled = payment.status === 'cancelled' || payment.status === 'لاغي';
+
     setReceiptModalData({
-      type: 'receipt',
+      type: isUncollected ? 'claim' : 'receipt',
       unitNumber: payment.flatNumber,
       residentName: res?.name || payment.residentName,
       tenantName: res?.tenantName,
       phone: res?.phone,
       tenantPhone: res?.tenantPhone,
-      amount: payment.amount,
+      amount: isUncollected ? (unpaidMonthsDues + oldDebtAmount || payment.amount) : payment.amount,
       month: payment.month,
       year: payment.year,
       date: payment.date,
-      receiptNumber: payment.receiptNumber,
+      receiptNumber: isUncollected ? undefined : payment.receiptNumber,
+      claimNumber: isUncollected ? (payment.receiptNumber || `CLM-${payment.flatNumber}-${payment.month}${payment.year}`) : undefined,
       paymentType: payment.paymentType,
       activityType: res?.activityType || 'سكني',
       occupancyType: res?.ownershipType || 'تمليك',
@@ -432,12 +436,12 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       unpaidMonthsCount: unpaidMonthsCount,
       unpaidMonthsDues: unpaidMonthsDues,
       remainingBalance: remainingBalance,
-      notes: payment.notes,
+      notes: isCancelled ? `(إيصال لاغي) ${payment.notes || ''}` : isUncollected ? `(لم يتم التحصيل بعد) ${payment.notes || ''}` : payment.notes,
     });
   };
 
   const totalAmount = filteredPayments
-    .filter(p => p.status !== 'cancelled' && p.status !== 'لاغي')
+    .filter(p => p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل')
     .reduce((sum, p) => sum + p.amount, 0);
 
   const effectiveFloorConfigs = useMemo(() => {
@@ -820,8 +824,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                 <tr className="bg-slate-50 text-slate-400 font-extrabold text-[11px] border-b border-slate-100">
                   <th className="px-4 py-3 sticky right-0 bg-slate-50 shadow-xs z-10 border-l border-slate-100">الوحدة</th>
                   <th className="px-4 py-3">الساكن</th>
-                  <th className="px-4 py-3">فئة الاشتراك</th>
-                  <th className="px-4 py-3">الشهر</th>
+                  <th className="px-4 py-3">الفئة / الشهر</th>
                   <th className="px-4 py-3">المبلغ المستلم</th>
                   <th 
                     onClick={toggleReceiptSort}
@@ -837,15 +840,15 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                       )}
                     </div>
                   </th>
-                  <th className="px-4 py-3 text-center">الإيصال الصادر</th>
                   <th className="px-4 py-3">الملاحظات</th>
                   {!isReadOnly && role !== 'ASSISTANT' && <th className="px-4 py-3 text-center">الإجراءات</th>}
+                  <th className="px-4 py-3 text-center">الإيصال الصادر</th>
                 </tr>
               </thead>
                <tbody className="divide-y divide-slate-100 text-xs font-bold text-slate-800">
                 {filteredPayments.length === 0 ? (
                   <tr>
-                    <td colSpan={!isReadOnly && role !== 'ASSISTANT' ? 9 : 8} className="px-4 py-10 text-center text-slate-400 font-bold">
+                    <td colSpan={!isReadOnly && role !== 'ASSISTANT' ? 8 : 7} className="px-4 py-10 text-center text-slate-400 font-bold">
                       <div className="flex flex-col items-center gap-1.5">
                         <FileText className="w-7 h-7 stroke-[1.5]" />
                         <span>لا توجد عمليات تحصيل مسجلة تطابق هذه الشروط في {currentYear}</span>
@@ -856,6 +859,15 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                   /* Flat sorted list by receipt number */
                   sortedFilteredPayments.map((p) => {
                     const isSelected = selectedItemId === p.id;
+                    const resObj = residents.find(r => r.id === p.residentId || isSameFlatNumber(r.flatNumber, p.flatNumber));
+                    const ownerName = resObj?.name || p.residentName;
+                    const hasTenant = resObj?.ownershipType === 'إيجار' && Boolean(resObj?.tenantName && resObj.tenantName.trim());
+                    const tenantName = hasTenant ? resObj?.tenantName : '';
+
+                    const isUncollected = p.status === 'pending' || p.status === 'لم يتم التحصيل' || p.status === 'uncollected';
+                    const isCancelled = p.status === 'cancelled' || p.status === 'لاغي';
+                    const isAttention = isUncollected || isCancelled;
+
                     return (
                       <tr 
                         key={p.id} 
@@ -863,48 +875,108 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                         className={`group transition cursor-pointer ${
                           isSelected 
                             ? 'bg-yellow-50/90 border-y border-yellow-400' 
-                            : 'hover:bg-slate-50/50'
+                            : isAttention
+                              ? 'bg-rose-50/70 hover:bg-rose-100/60 border-y border-rose-200/80'
+                              : 'hover:bg-slate-50/50'
                         }`}
                       >
                         <td className={`px-4 py-3 sticky right-0 z-5 border-l border-slate-100 shadow-xs transition ${
                           isSelected 
                             ? 'bg-yellow-50 text-amber-950' 
-                            : 'bg-white group-hover:bg-slate-50'
+                            : isAttention
+                              ? 'bg-rose-50/90 text-rose-950 group-hover:bg-rose-100/80'
+                              : 'bg-white group-hover:bg-slate-50'
                         }`}>
-                          <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-[10px] font-black">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-black ${
+                            isAttention ? 'bg-rose-100 text-rose-900 border border-rose-200' : 'bg-blue-50 text-blue-700'
+                          }`}>
                             وحدة {p.flatNumber}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-slate-900">{p.residentName}</td>
-                        <td className="px-4 py-3">
-                          <span className="px-2 py-0.5 border border-slate-100 bg-slate-50 text-slate-600 rounded text-[10px]">
-                            {p.paymentType}
-                          </span>
+
+                        {/* Resident: Owner & Tenant */}
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <div className="flex flex-col gap-1 justify-center">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-bold text-slate-900">{ownerName}</span>
+                              {hasTenant && (
+                                <span className="text-[9px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">مالك</span>
+                              )}
+                            </div>
+                            {hasTenant && (
+                              <div className="flex items-center gap-1.5 text-amber-950 font-black text-[11px] pt-0.5 border-t border-slate-100">
+                                <span className="text-[9px] font-extrabold bg-amber-100 text-amber-900 px-1.5 py-0.5 rounded border border-amber-200/80">مستأجر</span>
+                                <span>{tenantName}</span>
+                              </div>
+                            )}
+                          </div>
                         </td>
-                        <td className="px-4 py-3 text-slate-500 font-semibold">
-                          {monthNamesArabic[parseInt(p.month) - 1]} {p.year}
+
+                        {/* Type & Month combined */}
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <div className="flex flex-col gap-1 justify-center">
+                            <span className="px-2 py-0.5 border border-slate-100 bg-slate-50 text-slate-700 rounded text-[10px] font-extrabold w-fit">
+                              {p.paymentType}
+                            </span>
+                            <span className="text-[11px] text-slate-500 font-bold">
+                              {monthNamesArabic[parseInt(p.month, 10) - 1]} {p.year}
+                            </span>
+                          </div>
                         </td>
-                        <td className="px-4 py-3">
+
+                        {/* Amount */}
+                        <td className="px-4 py-3 whitespace-nowrap">
                           <div className="flex flex-col">
                             <span className={`text-xs font-black ${
-                              p.status === 'cancelled' ? 'line-through text-rose-500' : p.status === 'pending' ? 'text-amber-600' : 'text-emerald-600'
+                              isCancelled ? 'line-through text-rose-500' : isUncollected ? 'text-amber-600' : 'text-emerald-600'
                             }`}>
                               {Math.round(p.amount)} ج.م
                             </span>
-                            {p.status === 'pending' && (
+                            {isUncollected && (
                               <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded text-[9px] font-black w-fit mt-0.5">
                                 ⏳ لم يتم التحصيل
                               </span>
                             )}
-                            {p.status === 'cancelled' && (
+                            {isCancelled && (
                               <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 rounded text-[9px] font-black w-fit mt-0.5">
                                 🚫 لاغي
                               </span>
                             )}
                           </div>
                         </td>
-                        <td className="px-4 py-3 text-slate-500 font-mono">{p.receiptNumber || 'بدون إيصال'}</td>
-                        <td className="px-4 py-3 text-center">
+
+                        {/* Receipt Number */}
+                        <td className="px-4 py-3 text-slate-500 font-mono whitespace-nowrap">{p.receiptNumber || 'بدون إيصال'}</td>
+
+                        {/* Notes */}
+                        <td className="px-4 py-3 text-slate-500 font-semibold text-xs max-w-[180px] truncate" title={p.notes || ''}>
+                          {p.notes || '—'}
+                        </td>
+
+                        {/* Actions */}
+                        {!isReadOnly && role !== 'ASSISTANT' && (
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            <div className="flex items-center justify-center gap-1.5">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); openEditModal(p); }}
+                                className="p-1 text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded transition cursor-pointer"
+                                title="تعديل"
+                              >
+                                <Edit className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleDelete(p.id); }}
+                                className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded transition cursor-pointer"
+                                title="حذف"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        )}
+
+                        {/* Receipt Generation & Preview (Last Column) */}
+                        <td className="px-4 py-3 text-center whitespace-nowrap">
                           <div className="flex items-center justify-center gap-1.5 flex-wrap">
                             <button
                               type="button"
@@ -927,29 +999,6 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                             )}
                           </div>
                         </td>
-                        <td className="px-4 py-3 text-slate-500 font-semibold text-xs max-w-[180px] truncate" title={p.notes || ''}>
-                          {p.notes || '—'}
-                        </td>
-                        {!isReadOnly && role !== 'ASSISTANT' && (
-                          <td className="px-4 py-3">
-                            <div className="flex items-center justify-center gap-1.5">
-                              <button
-                                onClick={(e) => { e.stopPropagation(); openEditModal(p); }}
-                                className="p-1 text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded transition"
-                                title="تعديل"
-                              >
-                                <Edit className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); handleDelete(p.id); }}
-                                className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded transition"
-                                title="حذف"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </td>
-                        )}
                       </tr>
                     );
                   })
@@ -959,7 +1008,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                     <React.Fragment key={group.floor.id}>
                       {/* Floor Separator Row */}
                       <tr className="bg-slate-100/90 border-y border-slate-200">
-                        <td colSpan={!isReadOnly && role !== 'ASSISTANT' ? 9 : 8} className="py-2.5 px-4 text-right border-r-4 border-r-blue-800 sticky right-0 z-5 bg-slate-100/95 shadow-xs">
+                        <td colSpan={!isReadOnly && role !== 'ASSISTANT' ? 8 : 7} className="py-2.5 px-4 text-right border-r-4 border-r-blue-800 sticky right-0 z-5 bg-slate-100/95 shadow-xs">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2.5">
                               <Building className="w-5 h-5 text-blue-900" />
@@ -979,6 +1028,15 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
 
                       {group.payments.map((p) => {
                         const isSelected = selectedItemId === p.id;
+                        const resObj = residents.find(r => r.id === p.residentId || isSameFlatNumber(r.flatNumber, p.flatNumber));
+                        const ownerName = resObj?.name || p.residentName;
+                        const hasTenant = resObj?.ownershipType === 'إيجار' && Boolean(resObj?.tenantName && resObj.tenantName.trim());
+                        const tenantName = hasTenant ? resObj?.tenantName : '';
+
+                        const isUncollected = p.status === 'pending' || p.status === 'لم يتم التحصيل' || p.status === 'uncollected';
+                        const isCancelled = p.status === 'cancelled' || p.status === 'لاغي';
+                        const isAttention = isUncollected || isCancelled;
+
                         return (
                           <tr 
                             key={p.id} 
@@ -986,48 +1044,108 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                             className={`group transition cursor-pointer ${
                               isSelected 
                                 ? 'bg-yellow-50/90 border-y border-yellow-400' 
-                                : 'hover:bg-slate-50/50'
+                                : isAttention
+                                  ? 'bg-rose-50/70 hover:bg-rose-100/60 border-y border-rose-200/80'
+                                  : 'hover:bg-slate-50/50'
                             }`}
                           >
                             <td className={`px-4 py-3 sticky right-0 z-5 border-l border-slate-100 shadow-xs transition ${
                               isSelected 
                                 ? 'bg-yellow-50 text-amber-950' 
-                                : 'bg-white group-hover:bg-slate-50'
+                                : isAttention
+                                  ? 'bg-rose-50/90 text-rose-950 group-hover:bg-rose-100/80'
+                                  : 'bg-white group-hover:bg-slate-50'
                             }`}>
-                              <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-[10px] font-black">
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-black ${
+                                isAttention ? 'bg-rose-100 text-rose-900 border border-rose-200' : 'bg-blue-50 text-blue-700'
+                              }`}>
                                 وحدة {p.flatNumber}
                               </span>
                             </td>
-                            <td className="px-4 py-3 text-slate-900">{p.residentName}</td>
-                            <td className="px-4 py-3">
-                              <span className="px-2 py-0.5 border border-slate-100 bg-slate-50 text-slate-600 rounded text-[10px]">
-                                {p.paymentType}
-                              </span>
+
+                            {/* Resident: Owner & Tenant */}
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <div className="flex flex-col gap-1 justify-center">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-bold text-slate-900">{ownerName}</span>
+                                  {hasTenant && (
+                                    <span className="text-[9px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">مالك</span>
+                                  )}
+                                </div>
+                                {hasTenant && (
+                                  <div className="flex items-center gap-1.5 text-amber-950 font-black text-[11px] pt-0.5 border-t border-slate-100">
+                                    <span className="text-[9px] font-extrabold bg-amber-100 text-amber-900 px-1.5 py-0.5 rounded border border-amber-200/80">مستأجر</span>
+                                    <span>{tenantName}</span>
+                                  </div>
+                                )}
+                              </div>
                             </td>
-                            <td className="px-4 py-3 text-slate-500 font-semibold">
-                              {monthNamesArabic[parseInt(p.month) - 1]} {p.year}
+
+                            {/* Type & Month combined */}
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <div className="flex flex-col gap-1 justify-center">
+                                <span className="px-2 py-0.5 border border-slate-100 bg-slate-50 text-slate-700 rounded text-[10px] font-extrabold w-fit">
+                                  {p.paymentType}
+                                </span>
+                                <span className="text-[11px] text-slate-500 font-bold">
+                                  {monthNamesArabic[parseInt(p.month, 10) - 1]} {p.year}
+                                </span>
+                              </div>
                             </td>
-                            <td className="px-4 py-3">
+
+                            {/* Amount */}
+                            <td className="px-4 py-3 whitespace-nowrap">
                               <div className="flex flex-col">
                                 <span className={`text-xs font-black ${
-                                  p.status === 'cancelled' ? 'line-through text-rose-500' : p.status === 'pending' ? 'text-amber-600' : 'text-emerald-600'
+                                  isCancelled ? 'line-through text-rose-500' : isUncollected ? 'text-amber-600' : 'text-emerald-600'
                                 }`}>
                                   {Math.round(p.amount)} ج.م
                                 </span>
-                                {p.status === 'pending' && (
+                                {isUncollected && (
                                   <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded text-[9px] font-black w-fit mt-0.5">
                                     ⏳ لم يتم التحصيل
                                   </span>
                                 )}
-                                {p.status === 'cancelled' && (
+                                {isCancelled && (
                                   <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 rounded text-[9px] font-black w-fit mt-0.5">
                                     🚫 لاغي
                                   </span>
                                 )}
                               </div>
                             </td>
-                            <td className="px-4 py-3 text-slate-500 font-mono">{p.receiptNumber || 'بدون إيصال'}</td>
-                            <td className="px-4 py-3 text-center">
+
+                            {/* Receipt Number */}
+                            <td className="px-4 py-3 text-slate-500 font-mono whitespace-nowrap">{p.receiptNumber || 'بدون إيصال'}</td>
+
+                            {/* Notes */}
+                            <td className="px-4 py-3 text-slate-500 font-semibold text-xs max-w-[180px] truncate" title={p.notes || ''}>
+                              {p.notes || '—'}
+                            </td>
+
+                            {/* Actions */}
+                            {!isReadOnly && role !== 'ASSISTANT' && (
+                              <td className="px-4 py-3 whitespace-nowrap">
+                                <div className="flex items-center justify-center gap-1.5">
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); openEditModal(p); }}
+                                    className="p-1 text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded transition cursor-pointer"
+                                    title="تعديل"
+                                  >
+                                    <Edit className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); handleDelete(p.id); }}
+                                    className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded transition cursor-pointer"
+                                    title="حذف"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </td>
+                            )}
+
+                            {/* Receipt Generation & Preview (Last Column) */}
+                            <td className="px-4 py-3 text-center whitespace-nowrap">
                               <div className="flex items-center justify-center gap-1.5 flex-wrap">
                                 <button
                                   type="button"
@@ -1050,29 +1168,6 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                                 )}
                               </div>
                             </td>
-                            <td className="px-4 py-3 text-slate-500 font-semibold text-xs max-w-[180px] truncate" title={p.notes || ''}>
-                              {p.notes || '—'}
-                            </td>
-                            {!isReadOnly && role !== 'ASSISTANT' && (
-                              <td className="px-4 py-3">
-                                <div className="flex items-center justify-center gap-1.5">
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); openEditModal(p); }}
-                                    className="p-1 text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded transition"
-                                    title="تعديل"
-                                  >
-                                    <Edit className="w-3.5 h-3.5" />
-                                  </button>
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); handleDelete(p.id); }}
-                                    className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded transition"
-                                    title="حذف"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-                              </td>
-                            )}
                           </tr>
                         );
                       })}
@@ -1081,7 +1176,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                 )}
                 {filteredPayments.length > 0 && (
                   <tr className="bg-emerald-50/90 border-t-2 border-emerald-200 font-extrabold text-slate-900">
-                    <td colSpan={4} className="px-4 py-3.5 text-right font-black text-emerald-950 text-xs sm:text-sm sticky right-0 z-5 bg-emerald-50/95 shadow-xs border-l border-slate-100">
+                    <td colSpan={3} className="px-4 py-3.5 text-right font-black text-emerald-950 text-xs sm:text-sm sticky right-0 z-5 bg-emerald-50/95 shadow-xs border-l border-slate-100">
                       إجمالي التحصيلات الكلي:
                     </td>
                     <td className="px-4 py-3.5 text-emerald-700 text-sm font-black whitespace-nowrap">
@@ -1124,6 +1219,15 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {group.payments.map((p) => {
                     const isSelected = selectedItemId === p.id;
+                    const resObj = residents.find(r => r.id === p.residentId || isSameFlatNumber(r.flatNumber, p.flatNumber));
+                    const ownerName = resObj?.name || p.residentName;
+                    const hasTenant = resObj?.ownershipType === 'إيجار' && Boolean(resObj?.tenantName && resObj.tenantName.trim());
+                    const tenantName = hasTenant ? resObj?.tenantName : '';
+
+                    const isUncollected = p.status === 'pending' || p.status === 'لم يتم التحصيل' || p.status === 'uncollected';
+                    const isCancelled = p.status === 'cancelled' || p.status === 'لاغي';
+                    const isAttention = isUncollected || isCancelled;
+
                     return (
                       <div 
                         key={p.id} 
@@ -1131,37 +1235,51 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                         className={`rounded-2xl px-3.5 py-2.5 border shadow-sm flex flex-col justify-between transition duration-200 cursor-pointer ${
                           isSelected 
                             ? 'bg-yellow-50/90 border-yellow-400 shadow-md ring-2 ring-yellow-400/20' 
-                            : 'bg-white border-slate-100 hover:border-blue-100'
+                            : isAttention
+                              ? 'bg-rose-50/60 border-rose-200/80 hover:border-rose-300 hover:bg-rose-100/60 shadow-xs'
+                              : 'bg-white border-slate-100 hover:border-blue-100'
                         }`}
                       >
                       <div>
-                        <div className="flex items-center justify-between mb-3">
-                          <span className="px-2.5 py-1 bg-blue-50 text-blue-700 rounded-lg text-[10px] font-black">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black ${
+                            isAttention ? 'bg-rose-100 text-rose-900 border border-rose-200' : 'bg-blue-50 text-blue-700'
+                          }`}>
                             وحدة {p.flatNumber}
                           </span>
                           <span className="px-2 py-0.5 bg-slate-50 text-slate-600 border border-slate-100 rounded-md text-[10px] font-extrabold">
                             {p.paymentType}
                           </span>
                         </div>
-                        <h4 className="text-xs font-black text-slate-900 mb-1">{p.residentName}</h4>
+                        
+                        <div className="mb-1.5">
+                          <h4 className="text-xs font-black text-slate-900">{ownerName}</h4>
+                          {hasTenant && (
+                            <div className="text-[10px] text-amber-900 font-extrabold flex items-center gap-1 mt-0.5">
+                              <span className="text-[8.5px] bg-amber-100 text-amber-900 px-1 py-0.2 rounded font-black">مستأجر</span>
+                              <span>{tenantName}</span>
+                            </div>
+                          )}
+                        </div>
+
                         <div className="text-[11px] text-slate-500 font-bold mb-2">
-                          شهر: {monthNamesArabic[parseInt(p.month) - 1]} {p.year}
+                          شهر: {monthNamesArabic[parseInt(p.month, 10) - 1]} {p.year}
                         </div>
                         
-                        <div className="flex items-center justify-between border-t border-slate-50 pt-2 mb-2">
+                        <div className="flex items-center justify-between border-t border-slate-100/80 pt-2 mb-2">
                           <span className="text-[11px] text-slate-400 font-bold">المبلغ المستلم</span>
                           <div className="text-left">
                             <span className={`text-sm font-black ${
-                              p.status === 'cancelled' ? 'line-through text-rose-500' : p.status === 'pending' ? 'text-amber-600' : 'text-emerald-600'
+                              isCancelled ? 'line-through text-rose-500' : isUncollected ? 'text-amber-600' : 'text-emerald-600'
                             }`}>
                               {Math.round(p.amount)} ج.م
                             </span>
-                            {p.status === 'pending' && (
+                            {isUncollected && (
                               <span className="block text-[9.5px] font-black text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded mt-0.5">
                                 ⏳ لم يتم التحصيل
                               </span>
                             )}
-                            {p.status === 'cancelled' && (
+                            {isCancelled && (
                               <span className="block text-[9.5px] font-black text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded mt-0.5">
                                 🚫 إيصال لاغي
                               </span>
