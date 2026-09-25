@@ -189,14 +189,10 @@ export function useAppSync({
             const serverIdSet = new Set(validServer.map(m => m.id));
             const map = new Map<string, ChatMessage>();
 
-            const now = Date.now();
+            // Keep ALL Firestore messages; never purge them
             prev.forEach(m => {
               if (m && m.id && !deletedMsgIds.has(m.id)) {
-                const msgTime = new Date(m.timestamp).getTime();
-                const isRecent = (now - msgTime) < 15000;
-                if (serverIdSet.has(m.id) || isRecent) {
-                  map.set(m.id, m);
-                }
+                map.set(m.id, m);
               }
             });
 
@@ -234,14 +230,10 @@ export function useAppSync({
             const serverIdSet = new Set(validServer.map(c => c.id));
             const map = new Map<string, PublicComplaint>();
 
-            const now = Date.now();
+            // Keep ALL Firestore complaints; never purge them
             prev.forEach(c => {
               if (c && c.id && !deletedCompIds.has(c.id)) {
-                const compTime = new Date(c.date).getTime();
-                const isRecent = (now - compTime) < 15000;
-                if (serverIdSet.has(c.id) || isRecent) {
-                  map.set(c.id, c);
-                }
+                map.set(c.id, c);
               }
             });
 

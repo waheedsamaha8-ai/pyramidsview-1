@@ -1046,36 +1046,18 @@ export default function App() {
       const syncedResidents = await syncApprovedRequestsWithResidents(loadedResidents);
 
       if (syncedResidents && syncedResidents.length > 0) {
-        setResidents(prev => {
-          const map = new Map<string, Resident>();
-          prev.forEach(r => map.set(String(r.id), r));
-          syncedResidents.forEach(r => map.set(String(r.id), r));
-          const list = Array.from(map.values());
-          offlineSync.saveCachedData('residents', list);
-          return list;
-        });
+        setResidents(syncedResidents);
+        offlineSync.saveCachedData('residents', syncedResidents);
       }
 
       if (loadedPayments && loadedPayments.length > 0) {
-        setPayments(prev => {
-          const map = new Map<string, Payment>();
-          prev.forEach(p => map.set(String(p.id), p));
-          loadedPayments.forEach(p => map.set(String(p.id), p));
-          const list = Array.from(map.values());
-          offlineSync.saveCachedData('payments', list);
-          return list;
-        });
+        setPayments(loadedPayments);
+        offlineSync.saveCachedData('payments', loadedPayments);
       }
 
       if (loadedExpenses && loadedExpenses.length > 0) {
-        setExpenses(prev => {
-          const map = new Map<string, Expense>();
-          prev.forEach(e => map.set(String(e.id), e));
-          loadedExpenses.forEach(e => map.set(String(e.id), e));
-          const list = Array.from(map.values());
-          offlineSync.saveCachedData('expenses', list);
-          return list;
-        });
+        setExpenses(loadedExpenses);
+        offlineSync.saveCachedData('expenses', loadedExpenses);
       }
 
       if (loadedRules && loadedRules.length > 0) {
@@ -1084,14 +1066,8 @@ export default function App() {
       }
 
       if (loadedCraftsmen && loadedCraftsmen.length > 0) {
-        setCraftsmen(prev => {
-          const map = new Map<string, Craftsman>();
-          prev.forEach(c => map.set(String(c.id), c));
-          loadedCraftsmen.forEach(c => map.set(String(c.id), c));
-          const list = Array.from(map.values());
-          offlineSync.saveCachedData('craftsmen', list);
-          return list;
-        });
+        setCraftsmen(loadedCraftsmen);
+        offlineSync.saveCachedData('craftsmen', loadedCraftsmen);
       }
 
       const delMsgIds = deletedMessageIdsRef.current;
@@ -1369,12 +1345,14 @@ export default function App() {
 
     // Persist directly to Firestore
     firestoreService.savePaymentToFirestore(localPayment)
+      .then(() => {
+        addNotification('تسجيل دفعة جديدة', `تم تسجيل دفعة بقيمة ${payment.amount} ج.م للوحدة ${payment.flatNumber} (${payment.residentName}) بنجاح.`, 'success', 'services');
+      })
       .catch(err => {
         logError(err, 'addPayment');
         offlineSync.enqueueAction('ADD_PAYMENT', payload);
+        addNotification('حفظ محلي (قيد المزامنة)', `تم حفظ الدفعة محلياً وسيتم رفعها لفايربيز تلقائياً.`, 'info', 'services');
       });
-
-    addNotification('تسجيل دفعة جديدة', `تم تسجيل دفعة بقيمة ${payment.amount} ج.م للوحدة ${payment.flatNumber} (${payment.residentName}) بنجاح.`, 'success', 'services');
   };
 
   const editPayment = (payment: Payment, base64Image?: string) => {
@@ -1393,12 +1371,14 @@ export default function App() {
     offlineSync.saveCachedData('payments', updatedPayments);
 
     firestoreService.savePaymentToFirestore(localPayment)
+      .then(() => {
+        addNotification('تعديل دفعة', `تم تحديث بيانات الدفعة للوحدة ${payment.flatNumber} بنجاح.`, 'success', 'services');
+      })
       .catch(err => {
         logError(err, 'editPayment');
         offlineSync.enqueueAction('EDIT_PAYMENT', payload);
+        addNotification('حفظ محلي (قيد المزامنة)', `تم تحديث الدفعة محلياً وسيتم رفعها لفايربيز تلقائياً.`, 'info', 'services');
       });
-
-    addNotification('تعديل دفعة', `تم تحديث بيانات الدفعة للوحدة ${payment.flatNumber} بنجاح.`, 'success', 'services');
   };
 
   const deletePayment = (id: string) => {
@@ -1408,14 +1388,15 @@ export default function App() {
     offlineSync.saveCachedData('payments', updatedPayments);
 
     firestoreService.deletePaymentFromFirestore(id)
+      .then(() => {
+        if (target) {
+          addNotification('حذف دفعة', `تم حذف دفعة الوحدة ${target.flatNumber} بقيمة ${target.amount} ج.م.`, 'info', 'services');
+        }
+      })
       .catch(err => {
         logError(err, 'deletePayment');
         offlineSync.enqueueAction('DELETE_PAYMENT', { id });
       });
-
-    if (target) {
-      addNotification('حذف دفعة', `تم حذف دفعة الوحدة ${target.flatNumber} بقيمة ${target.amount} ج.م.`, 'info', 'services');
-    }
   };
 
   const addExpense = (expense: Expense, base64Image?: string) => {
@@ -1434,12 +1415,14 @@ export default function App() {
     offlineSync.saveCachedData('expenses', updatedExpenses);
 
     firestoreService.saveExpenseToFirestore(localExpense)
+      .then(() => {
+        addNotification('تسجيل مصروف جديد', `تم تسجيل مصروف ${expense.expenseType} بقيمة ${expense.amount} ج.م بنجاح.`, 'success', 'services');
+      })
       .catch(err => {
         logError(err, 'addExpense');
         offlineSync.enqueueAction('ADD_EXPENSE', payload);
+        addNotification('حفظ محلي (قيد المزامنة)', `تم حفظ المصروف محلياً وسيتم رفعه لفايربيز تلقائياً.`, 'info', 'services');
       });
-
-    addNotification('تسجيل مصروف جديد', `تم تسجيل مصروف ${expense.expenseType} بقيمة ${expense.amount} ج.م بنجاح.`, 'success', 'services');
   };
 
   const editExpense = (expense: Expense, base64Image?: string) => {
@@ -1458,12 +1441,13 @@ export default function App() {
     offlineSync.saveCachedData('expenses', updatedExpenses);
 
     firestoreService.saveExpenseToFirestore(localExpense)
+      .then(() => {
+        addNotification('تعديل مصروف', `تم تحديث بيانات مصروف ${expense.expenseType} بنجاح.`, 'success', 'services');
+      })
       .catch(err => {
         logError(err, 'editExpense');
         offlineSync.enqueueAction('EDIT_EXPENSE', payload);
       });
-
-    addNotification('تعديل مصروف', `تم تحديث بيانات مصروف ${expense.expenseType} بنجاح.`, 'success', 'services');
   };
 
   const deleteExpense = (id: string) => {

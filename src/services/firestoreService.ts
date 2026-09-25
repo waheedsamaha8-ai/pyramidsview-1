@@ -55,23 +55,14 @@ export function getActiveBuildingId(): string {
 export { isUsingCustomFirebase, getActiveFirebaseConfig, applyCustomFirebaseConfig } from './firebaseConfig';
 
 export function getBuildingCacheKey(key: string): string {
-  // Delegate cache key names directly to offlineSync's single unified getBuildingCacheKey
   return key;
 }
 
 export function getBuildingColRef(colName: string) {
-  const activeId = getActiveBuildingId();
-  if (activeId && activeId !== DEFAULT_BUILDING_ID) {
-    return collection(db, 'buildings', activeId, colName);
-  }
   return collection(db, colName);
 }
 
 export function getBuildingDocRef(colName: string, docId: string) {
-  const activeId = getActiveBuildingId();
-  if (activeId && activeId !== DEFAULT_BUILDING_ID) {
-    return doc(db, 'buildings', activeId, colName, docId);
-  }
   return doc(db, colName, docId);
 }
 
@@ -131,12 +122,22 @@ export async function getResidentsFromFirestore(): Promise<Resident[]> {
     snapshot.forEach(docSnap => {
       residents.push(docSnap.data() as Resident);
     });
+
+    const activeId = getActiveBuildingId();
+    if (activeId && activeId !== DEFAULT_BUILDING_ID) {
+      try {
+        const subSnap = await getDocs(collection(db, 'buildings', activeId, 'residents'));
+        subSnap.forEach(docSnap => {
+          if (!residents.some(r => String(r.id) === String(docSnap.id))) {
+            residents.push(docSnap.data() as Resident);
+          }
+        });
+      } catch {}
+    }
+
     if (residents.length > 0) {
-      const remoteIds = new Set(residents.map(r => String(r.id)));
-      const unsyncedLocal = cached.filter(r => !remoteIds.has(String(r.id)));
-      const merged = [...residents, ...unsyncedLocal];
-      offlineSync.saveCachedData(cacheKey, merged);
-      return merged;
+      offlineSync.saveCachedData(cacheKey, residents);
+      return residents;
     }
     return cached;
   } catch (error) {
@@ -151,15 +152,29 @@ export async function getResidentsFromFirestore(): Promise<Resident[]> {
 
 export async function saveResidentToFirestore(resident: Resident): Promise<void> {
   const cleanId = String(resident.id || `res_${resident.flatNumber}_${Date.now()}`);
-  const payload = { ...resident, id: cleanId };
+  const activeId = getActiveBuildingId();
+  const payload: Resident = { 
+    ...resident, 
+    id: cleanId,
+    buildingId: (resident as any).buildingId || activeId
+  };
+
   try {
     const docRef = getBuildingDocRef('residents', cleanId);
     await setDoc(docRef, sanitizeForFirestore(payload), { merge: true });
+
+    if (activeId && activeId !== DEFAULT_BUILDING_ID) {
+      try {
+        const subDocRef = doc(db, 'buildings', activeId, 'residents', cleanId);
+        await setDoc(subDocRef, sanitizeForFirestore(payload), { merge: true });
+      } catch {}
+    }
   } catch (error) {
     handleFirestoreError(error, {
       operation: OperationType.UPDATE,
       path: `residents/${cleanId}`
     });
+    throw error;
   }
   // Local cache update
   const cacheKey = getBuildingCacheKey('residents');
@@ -174,14 +189,23 @@ export async function saveResidentToFirestore(resident: Resident): Promise<void>
 }
 
 export async function deleteResidentFromFirestore(id: string): Promise<void> {
+  const activeId = getActiveBuildingId();
   try {
     const docRef = getBuildingDocRef('residents', String(id));
     await deleteDoc(docRef);
+
+    if (activeId && activeId !== DEFAULT_BUILDING_ID) {
+      try {
+        const subDocRef = doc(db, 'buildings', activeId, 'residents', String(id));
+        await deleteDoc(subDocRef);
+      } catch {}
+    }
   } catch (error) {
     handleFirestoreError(error, {
       operation: OperationType.DELETE,
       path: `residents/${id}`
     });
+    throw error;
   }
   const cacheKey = getBuildingCacheKey('residents');
   let list = offlineSync.getCachedData<Resident[]>(cacheKey) || [];
@@ -253,12 +277,23 @@ export async function getPaymentsFromFirestore(): Promise<Payment[]> {
     snapshot.forEach(docSnap => {
       payments.push(docSnap.data() as Payment);
     });
+
+    // Check subcollection fallback if any legacy data exists
+    const activeId = getActiveBuildingId();
+    if (activeId && activeId !== DEFAULT_BUILDING_ID) {
+      try {
+        const subSnap = await getDocs(collection(db, 'buildings', activeId, 'payments'));
+        subSnap.forEach(docSnap => {
+          if (!payments.some(p => String(p.id) === String(docSnap.id))) {
+            payments.push(docSnap.data() as Payment);
+          }
+        });
+      } catch {}
+    }
+
     if (payments.length > 0) {
-      const remoteIds = new Set(payments.map(p => String(p.id)));
-      const unsyncedLocal = cached.filter(p => !remoteIds.has(String(p.id)));
-      const merged = [...payments, ...unsyncedLocal];
-      offlineSync.saveCachedData(cacheKey, merged);
-      return merged;
+      offlineSync.saveCachedData(cacheKey, payments);
+      return payments;
     }
     return cached;
   } catch (error) {
@@ -272,16 +307,33 @@ export async function getPaymentsFromFirestore(): Promise<Payment[]> {
 
 export async function savePaymentToFirestore(payment: Payment): Promise<void> {
   const cleanId = String(payment.id || `pay_${Date.now()}`);
-  const payload = { ...payment, id: cleanId };
+  const activeId = getActiveBuildingId();
+  const payload: Payment = { 
+    ...payment, 
+    id: cleanId,
+    amount: Number(payment.amount) || 0,
+    buildingId: (payment as any).buildingId || activeId
+  };
+
   try {
     const docRef = getBuildingDocRef('payments', cleanId);
     await setDoc(docRef, sanitizeForFirestore(payload), { merge: true });
+
+    // Dual-write to building subcollection if custom building exists
+    if (activeId && activeId !== DEFAULT_BUILDING_ID) {
+      try {
+        const subDocRef = doc(db, 'buildings', activeId, 'payments', cleanId);
+        await setDoc(subDocRef, sanitizeForFirestore(payload), { merge: true });
+      } catch {}
+    }
   } catch (error) {
     handleFirestoreError(error, {
       operation: OperationType.UPDATE,
       path: `payments/${cleanId}`
     });
+    throw error;
   }
+
   const cacheKey = getBuildingCacheKey('payments');
   let list = offlineSync.getCachedData<Payment[]>(cacheKey) || [];
   const idx = list.findIndex(p => String(p.id) === cleanId);
@@ -294,15 +346,25 @@ export async function savePaymentToFirestore(payment: Payment): Promise<void> {
 }
 
 export async function deletePaymentFromFirestore(id: string): Promise<void> {
+  const activeId = getActiveBuildingId();
   try {
     const docRef = getBuildingDocRef('payments', String(id));
     await deleteDoc(docRef);
+
+    if (activeId && activeId !== DEFAULT_BUILDING_ID) {
+      try {
+        const subDocRef = doc(db, 'buildings', activeId, 'payments', String(id));
+        await deleteDoc(subDocRef);
+      } catch {}
+    }
   } catch (error) {
     handleFirestoreError(error, {
       operation: OperationType.DELETE,
       path: `payments/${id}`
     });
+    throw error;
   }
+
   const cacheKey = getBuildingCacheKey('payments');
   let list = offlineSync.getCachedData<Payment[]>(cacheKey) || [];
   list = list.filter(p => String(p.id) !== String(id));
@@ -322,12 +384,22 @@ export async function getExpensesFromFirestore(): Promise<Expense[]> {
     snapshot.forEach(docSnap => {
       expenses.push(docSnap.data() as Expense);
     });
+
+    const activeId = getActiveBuildingId();
+    if (activeId && activeId !== DEFAULT_BUILDING_ID) {
+      try {
+        const subSnap = await getDocs(collection(db, 'buildings', activeId, 'expenses'));
+        subSnap.forEach(docSnap => {
+          if (!expenses.some(e => String(e.id) === String(docSnap.id))) {
+            expenses.push(docSnap.data() as Expense);
+          }
+        });
+      } catch {}
+    }
+
     if (expenses.length > 0) {
-      const remoteIds = new Set(expenses.map(e => String(e.id)));
-      const unsyncedLocal = cached.filter(e => !remoteIds.has(String(e.id)));
-      const merged = [...expenses, ...unsyncedLocal];
-      offlineSync.saveCachedData(cacheKey, merged);
-      return merged;
+      offlineSync.saveCachedData(cacheKey, expenses);
+      return expenses;
     }
     return cached;
   } catch (error) {
@@ -341,16 +413,32 @@ export async function getExpensesFromFirestore(): Promise<Expense[]> {
 
 export async function saveExpenseToFirestore(expense: Expense): Promise<void> {
   const cleanId = String(expense.id || `exp_${Date.now()}`);
-  const payload = { ...expense, id: cleanId };
+  const activeId = getActiveBuildingId();
+  const payload: Expense = { 
+    ...expense, 
+    id: cleanId,
+    amount: Number(expense.amount) || 0,
+    buildingId: (expense as any).buildingId || activeId
+  };
+
   try {
     const docRef = getBuildingDocRef('expenses', cleanId);
     await setDoc(docRef, sanitizeForFirestore(payload), { merge: true });
+
+    if (activeId && activeId !== DEFAULT_BUILDING_ID) {
+      try {
+        const subDocRef = doc(db, 'buildings', activeId, 'expenses', cleanId);
+        await setDoc(subDocRef, sanitizeForFirestore(payload), { merge: true });
+      } catch {}
+    }
   } catch (error) {
     handleFirestoreError(error, {
       operation: OperationType.UPDATE,
       path: `expenses/${cleanId}`
     });
+    throw error;
   }
+
   const cacheKey = getBuildingCacheKey('expenses');
   let list = offlineSync.getCachedData<Expense[]>(cacheKey) || [];
   const idx = list.findIndex(e => String(e.id) === cleanId);
@@ -363,15 +451,25 @@ export async function saveExpenseToFirestore(expense: Expense): Promise<void> {
 }
 
 export async function deleteExpenseFromFirestore(id: string): Promise<void> {
+  const activeId = getActiveBuildingId();
   try {
     const docRef = getBuildingDocRef('expenses', String(id));
     await deleteDoc(docRef);
+
+    if (activeId && activeId !== DEFAULT_BUILDING_ID) {
+      try {
+        const subDocRef = doc(db, 'buildings', activeId, 'expenses', String(id));
+        await deleteDoc(subDocRef);
+      } catch {}
+    }
   } catch (error) {
     handleFirestoreError(error, {
       operation: OperationType.DELETE,
       path: `expenses/${id}`
     });
+    throw error;
   }
+
   const cacheKey = getBuildingCacheKey('expenses');
   let list = offlineSync.getCachedData<Expense[]>(cacheKey) || [];
   list = list.filter(e => String(e.id) !== String(id));
@@ -465,12 +563,23 @@ export async function getChatMessagesFromFirestore(): Promise<ChatMessage[]> {
     snapshot.forEach(docSnap => {
       messages.push(docSnap.data() as ChatMessage);
     });
+
+    const activeId = getActiveBuildingId();
+    if (activeId && activeId !== DEFAULT_BUILDING_ID) {
+      try {
+        const subSnap = await getDocs(collection(db, 'buildings', activeId, 'chat_messages'));
+        subSnap.forEach(docSnap => {
+          if (!messages.some(m => String(m.id) === String(docSnap.id))) {
+            messages.push(docSnap.data() as ChatMessage);
+          }
+        });
+        messages.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      } catch {}
+    }
+
     if (messages.length > 0) {
-      const remoteIds = new Set(messages.map(m => String(m.id)));
-      const unsyncedLocal = cached.filter(m => !remoteIds.has(String(m.id)));
-      const merged = [...messages, ...unsyncedLocal].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-      offlineSync.saveCachedData(cacheKey, merged);
-      return merged;
+      offlineSync.saveCachedData(cacheKey, messages);
+      return messages;
     }
     return cached;
   } catch (error) {
@@ -484,16 +593,31 @@ export async function getChatMessagesFromFirestore(): Promise<ChatMessage[]> {
 
 export async function saveChatMessageToFirestore(msg: ChatMessage): Promise<void> {
   const cleanId = String(msg.id || `msg_${Date.now()}`);
-  const payload = { ...msg, id: cleanId };
+  const activeId = getActiveBuildingId();
+  const payload: ChatMessage = { 
+    ...msg, 
+    id: cleanId,
+    buildingId: (msg as any).buildingId || activeId
+  };
+
   try {
     const docRef = getBuildingDocRef('chat_messages', cleanId);
     await setDoc(docRef, sanitizeForFirestore(payload), { merge: true });
+
+    if (activeId && activeId !== DEFAULT_BUILDING_ID) {
+      try {
+        const subDocRef = doc(db, 'buildings', activeId, 'chat_messages', cleanId);
+        await setDoc(subDocRef, sanitizeForFirestore(payload), { merge: true });
+      } catch {}
+    }
   } catch (error) {
     handleFirestoreError(error, {
       operation: OperationType.CREATE,
       path: `chat_messages/${cleanId}`
     });
+    throw error;
   }
+
   const cacheKey = getBuildingCacheKey('chat_messages');
   let list = offlineSync.getCachedData<ChatMessage[]>(cacheKey) || [];
   if (!list.some(m => m && String(m.id) === String(cleanId))) {
@@ -503,15 +627,25 @@ export async function saveChatMessageToFirestore(msg: ChatMessage): Promise<void
 }
 
 export async function deleteChatMessageFromFirestore(id: string): Promise<void> {
+  const activeId = getActiveBuildingId();
   try {
     const docRef = getBuildingDocRef('chat_messages', String(id));
     await deleteDoc(docRef);
+
+    if (activeId && activeId !== DEFAULT_BUILDING_ID) {
+      try {
+        const subDocRef = doc(db, 'buildings', activeId, 'chat_messages', String(id));
+        await deleteDoc(subDocRef);
+      } catch {}
+    }
   } catch (error) {
     handleFirestoreError(error, {
       operation: OperationType.DELETE,
       path: `chat_messages/${id}`
     });
+    throw error;
   }
+
   const cacheKey = getBuildingCacheKey('chat_messages');
   let list = offlineSync.getCachedData<ChatMessage[]>(cacheKey) || [];
   list = list.filter(m => String(m.id) !== String(id));
@@ -519,15 +653,25 @@ export async function deleteChatMessageFromFirestore(id: string): Promise<void> 
 }
 
 export async function updateChatMessageInFirestore(id: string, newText: string): Promise<void> {
+  const activeId = getActiveBuildingId();
   try {
     const docRef = getBuildingDocRef('chat_messages', String(id));
     await setDoc(docRef, { text: newText, editedAt: new Date().toISOString() }, { merge: true });
+
+    if (activeId && activeId !== DEFAULT_BUILDING_ID) {
+      try {
+        const subDocRef = doc(db, 'buildings', activeId, 'chat_messages', String(id));
+        await setDoc(subDocRef, { text: newText, editedAt: new Date().toISOString() }, { merge: true });
+      } catch {}
+    }
   } catch (error) {
     handleFirestoreError(error, {
       operation: OperationType.UPDATE,
       path: `chat_messages/${id}`
     });
+    throw error;
   }
+
   const cacheKey = getBuildingCacheKey('chat_messages');
   let list = offlineSync.getCachedData<ChatMessage[]>(cacheKey) || [];
   list = list.map(m => String(m.id) === String(id) ? { ...m, text: newText } : m);

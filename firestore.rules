@@ -17,15 +17,7 @@ service cloud.firestore {
     }
 
     function isValidId(id) {
-      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-\\.:]+$');
-    }
-
-    function incoming() {
-      return request.resource.data;
-    }
-
-    function existing() {
-      return resource.data;
+      return id is string && id.size() > 0 && id.size() <= 128;
     }
 
     // Default deny-all safety net
@@ -42,7 +34,7 @@ service cloud.firestore {
     // Buildings: Master Multi-tenant collections
     match /buildings/{buildingId} {
       allow read: if true;
-      allow write: if isAdmin() || (isAuthenticated() && isValidId(buildingId));
+      allow write: if isValidId(buildingId);
 
       match /{subcollection=**} {
         allow read: if true;
@@ -53,111 +45,84 @@ service cloud.firestore {
     // Residents Directory
     match /residents/{residentId} {
       allow read: if true;
-      allow write: if isValidId(residentId) && (
-        isAdmin() ||
-        isAuthenticated() ||
-        (incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 200)
-      );
+      allow create, update, delete: if isValidId(residentId);
     }
 
     // Payments Records
     match /payments/{paymentId} {
       allow read: if true;
-      allow write: if isValidId(paymentId) && (
-        isAdmin() ||
-        isAuthenticated() ||
-        (incoming().amount is number && incoming().amount >= 0)
-      );
+      allow create, update, delete: if isValidId(paymentId);
     }
 
     // Expenses Records
     match /expenses/{expenseId} {
       allow read: if true;
-      allow write: if isValidId(expenseId) && (
-        isAdmin() ||
-        isAuthenticated() ||
-        (incoming().amount is number && incoming().amount >= 0)
-      );
+      allow create, update, delete: if isValidId(expenseId);
     }
 
     // Chat Messages
     match /chat_messages/{messageId} {
       allow read: if true;
-      allow create: if isValidId(messageId) && (
-        incoming().text is string && 
-        incoming().text.size() > 0 && 
-        incoming().text.size() <= 3000
-      );
-      allow update, delete: if isValidId(messageId);
+      allow create, update, delete: if isValidId(messageId);
     }
 
     // Public Complaints and Suggestions
     match /public_complaints/{complaintId} {
       allow read: if true;
-      allow create: if isValidId(complaintId) && (
-        incoming().title is string &&
-        incoming().title.size() > 0 &&
-        incoming().title.size() <= 300
-      );
-      allow update, delete: if isValidId(complaintId);
+      allow create, update, delete: if isValidId(complaintId);
     }
 
     // Maintenance Tickets
     match /maintenance/{maintenanceId} {
       allow read: if true;
-      allow write: if isValidId(maintenanceId);
+      allow create, update, delete: if isValidId(maintenanceId);
     }
 
     // Polls & Voting
     match /polls/{pollId} {
       allow read: if true;
-      allow write: if isValidId(pollId);
+      allow create, update, delete: if isValidId(pollId);
     }
 
     // Board Decisions
     match /admin_decisions/{decisionId} {
       allow read: if true;
-      allow write: if isValidId(decisionId);
+      allow create, update, delete: if isValidId(decisionId);
     }
 
     // Events Calendar
     match /events/{eventId} {
       allow read: if true;
-      allow write: if isValidId(eventId);
+      allow create, update, delete: if isValidId(eventId);
     }
 
     // Craftsmen Directory
     match /craftsmen/{craftsmanId} {
       allow read: if true;
-      allow write: if isValidId(craftsmanId);
+      allow create, update, delete: if isValidId(craftsmanId);
     }
 
     // Join Requests
     match /join_requests/{requestId} {
       allow read: if true;
-      allow create: if isValidId(requestId) && (
-        incoming().email is string &&
-        incoming().email.size() > 0 &&
-        incoming().email.size() <= 150
-      );
-      allow update, delete: if isValidId(requestId);
+      allow create, update, delete: if isValidId(requestId);
     }
 
     // Notifications
     match /notifications/{notificationId} {
       allow read: if true;
-      allow write: if isValidId(notificationId);
+      allow create, update, delete: if isValidId(notificationId);
     }
 
     // App Configuration & Association Rules
     match /config/{configId} {
       allow read: if true;
-      allow write: if isValidId(configId);
+      allow create, update, delete: if isValidId(configId);
     }
 
     match /rules/{rulesId} {
       allow read: if true;
-      allow write: if isValidId(rulesId);
+      allow create, update, delete: if isValidId(rulesId);
     }
   }
 }

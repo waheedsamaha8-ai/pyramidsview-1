@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChanged, User } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChanged, signInAnonymously, User } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import defaultConfig from '../../firebase-applet-config.json';
 
@@ -91,6 +91,21 @@ export function notifyFirebaseStatus(status: FirebaseStatusType) {
   try {
     window.dispatchEvent(new CustomEvent('firebase-status-change', { detail: { status } }));
   } catch {}
+}
+
+export async function ensureFirebaseAuth(): Promise<void> {
+  try {
+    if (!auth.currentUser) {
+      await signInAnonymously(auth);
+    }
+  } catch (err) {
+    console.warn('[Firebase Auth] Anonymous sign-in notice:', err);
+  }
+}
+
+// Automatically ensure auth session for immediate read/write access
+if (typeof window !== 'undefined') {
+  ensureFirebaseAuth().catch(() => {});
 }
 
 export function handleFirestoreError(error: unknown, context: FirestoreErrorContext): void {

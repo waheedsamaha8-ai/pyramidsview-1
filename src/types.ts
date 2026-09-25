@@ -33,6 +33,7 @@ export interface AdminResidentProfile {
 
 export interface Resident {
   id: string;
+  buildingId?: string;
   flatNumber: number | string;
   name: string;
   activityType: string;
@@ -56,6 +57,7 @@ export interface Resident {
 
 export interface Payment {
   id: string;
+  buildingId?: string;
   year: number;
   month: string;
   residentId: string;
@@ -74,6 +76,7 @@ export interface Payment {
 
 export interface Expense {
   id: string;
+  buildingId?: string;
   year: number;
   month: string;
   expenseType: string;
@@ -248,6 +251,7 @@ export interface ChatMessageReply {
 
 export interface ChatMessage {
   id: string;
+  buildingId?: string;
   senderName: string;
   senderRole?: UserRole;
   flatNumber?: number | string;
