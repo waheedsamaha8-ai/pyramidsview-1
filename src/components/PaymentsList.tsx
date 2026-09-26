@@ -21,6 +21,7 @@ interface PaymentsListProps {
   onEdit: (payment: Payment, base64Image?: string) => void;
   onDelete: (id: string) => void;
   onPreviewImage: (url: string) => void;
+  onEditResident?: (resident: Resident) => void;
 }
 
 export const PaymentsList: React.FC<PaymentsListProps> = ({
@@ -35,6 +36,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
   onEdit,
   onDelete,
   onPreviewImage,
+  onEditResident,
 }) => {
   const [filterResident, setFilterResident] = useState('');
   const [filterMonth, setFilterMonth] = useState('');
@@ -58,11 +60,21 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('table');
-  const [confirmData, setConfirmData] = useState<{ type: 'add' | 'edit' | 'delete'; paymentData?: Payment; base64Image?: string; deleteId?: string } | null>(null);
+  const [confirmData, setConfirmData] = useState<{
+    type: 'add' | 'edit' | 'delete';
+    paymentData?: Payment;
+    multiplePayments?: Payment[];
+    residentToUpdate?: Resident;
+    base64Image?: string;
+    deleteId?: string;
+  } | null>(null);
 
   // Form states
   const [residentId, setResidentId] = useState('');
   const [month, setMonth] = useState(actualCurrentMonth);
+  const [additionalMonths, setAdditionalMonths] = useState<string[]>([]);
+  const [showMultiMonthPicker, setShowMultiMonthPicker] = useState<boolean>(false);
+  const [targetActivityType, setTargetActivityType] = useState<string>('سكني');
   const [paymentType, setPaymentType] = useState('');
   const [amount, setAmount] = useState<number | ''>('');
   const [receiptNumber, setReceiptNumber] = useState('');
@@ -497,14 +509,75 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
   const defaultMonthlyFee = config?.defaultMonthlyFee || 400;
   const activityDefaultFees = config?.activityDefaultFees;
 
+  const allAvailableActivityTypes = useMemo(() => {
+    const fromConfig = config?.activityTypes || [];
+    const defaults = ['سكني', 'سكني مغلق', 'مفروش', 'إداري', 'تجاري', 'بدون تشطيب', 'بدون تحصيل'];
+    return Array.from(new Set([...defaults, ...fromConfig]));
+  }, [config?.activityTypes]);
+
+  const getActivityDefaultFee = (act: string): number => {
+    if (config?.activityDefaultFees && config.activityDefaultFees[act] !== undefined) {
+      return config.activityDefaultFees[act];
+    }
+    switch (act) {
+      case 'بدون تحصيل': return 0;
+      case 'بدون تشطيب': return 0;
+      case 'سكني': return 400;
+      case 'سكني مغلق': return 200;
+      case 'مفروش': return 600;
+      case 'إداري': return 800;
+      case 'تجاري': return 500;
+      default:
+        if (act.includes('بدون تحصيل') || act.includes('بدون تشطيب')) return 0;
+        return config?.defaultMonthlyFee || 400;
+    }
+  };
+
   const handleResidentSelect = (newResidentId: string) => {
     setResidentId(newResidentId);
-    if (!selectedPayment) {
-      const selectedRes = residents.find(r => r.id === newResidentId);
-      if (selectedRes) {
+    const selectedRes = residents.find(r => r.id === newResidentId);
+    if (selectedRes) {
+      setTargetActivityType(selectedRes.activityType || 'سكني');
+      if (!selectedPayment) {
         const fee = getResidentMonthlyFee(selectedRes, defaultMonthlyFee, activityDefaultFees);
-        setAmount(fee);
+        const totalMonthsCount = 1 + additionalMonths.length;
+        setAmount(fee * totalMonthsCount);
       }
+    }
+  };
+
+  const handleActivityTypeChange = (newAct: string) => {
+    setTargetActivityType(newAct);
+    if (!selectedPayment) {
+      const actFee = getActivityDefaultFee(newAct);
+      const totalMonthsCount = 1 + additionalMonths.length;
+      setAmount(actFee * totalMonthsCount);
+    }
+  };
+
+  const applyDefaultFeeForActivity = (act: string) => {
+    const actFee = getActivityDefaultFee(act);
+    const totalMonthsCount = 1 + additionalMonths.length;
+    setAmount(actFee * totalMonthsCount);
+  };
+
+  const toggleAdditionalMonth = (m: string) => {
+    if (m === month) return;
+    let updated: string[];
+    if (additionalMonths.includes(m)) {
+      updated = additionalMonths.filter(x => x !== m);
+    } else {
+      updated = [...additionalMonths, m].sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
+    }
+    setAdditionalMonths(updated);
+
+    const selectedRes = residents.find(r => r.id === residentId);
+    if (selectedRes && (!paymentType || paymentType === 'اشتراك شهري' || paymentType.includes('اشتراك'))) {
+      const baseFee = targetActivityType !== selectedRes.activityType
+        ? getActivityDefaultFee(targetActivityType)
+        : getResidentMonthlyFee(selectedRes, defaultMonthlyFee, activityDefaultFees);
+      const totalMonthsCount = 1 + updated.length;
+      setAmount(baseFee * totalMonthsCount);
     }
   };
 
@@ -514,8 +587,11 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       const selectedRes = residents.find(r => r.id === residentId);
       if (selectedRes) {
         if (newType === 'اشتراك شهري' || newType.includes('اشتراك') || newType.includes('شهري')) {
-          const fee = getResidentMonthlyFee(selectedRes, defaultMonthlyFee, activityDefaultFees);
-          setAmount(fee);
+          const fee = targetActivityType !== selectedRes.activityType
+            ? getActivityDefaultFee(targetActivityType)
+            : getResidentMonthlyFee(selectedRes, defaultMonthlyFee, activityDefaultFees);
+          const totalMonthsCount = 1 + additionalMonths.length;
+          setAmount(fee * totalMonthsCount);
         }
       }
     }
@@ -531,6 +607,9 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
 
     setResidentId(initialResId);
     setMonth(String(new Date().getMonth() + 1).padStart(2, '0'));
+    setAdditionalMonths([]);
+    setShowMultiMonthPicker(false);
+    setTargetActivityType(firstRes?.activityType || 'سكني');
     setPaymentType(initialType);
     setAmount(initialFee);
     setReceiptNumber('');
@@ -547,6 +626,10 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
     setSelectedPayment(payment);
     setResidentId(payment.residentId);
     setMonth(payment.month);
+    setAdditionalMonths([]);
+    setShowMultiMonthPicker(false);
+    const foundRes = residents.find(r => r.id === payment.residentId);
+    setTargetActivityType(foundRes?.activityType || 'سكني');
     setPaymentType(payment.paymentType);
     setAmount(payment.amount);
     setReceiptNumber(payment.receiptNumber || '');
@@ -624,29 +707,66 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       return;
     }
 
-    const paymentData: Payment = {
-      id: selectedPayment ? selectedPayment.id : `pay_${Date.now()}`,
-      year: currentYear,
-      month,
-      residentId,
-      residentName: resident.name,
-      flatNumber: resident.flatNumber,
-      paymentType,
-      amount: numAmount,
-      receiptNumber: (receiptNumber || '').trim(),
-      notes: (notes || '').trim(),
-      fileId: base64Image ? '' : (existingFileUrl ? (selectedPayment?.fileId || '') : ''),
-      fileUrl: base64Image ? base64Image : (existingFileUrl || ''),
-      date: selectedPayment ? selectedPayment.date : new Date().toISOString().split('T')[0],
-      isManuallyPaid: false,
-      status: paymentStatus,
-    };
+    const allTargetMonths = Array.from(new Set([month, ...additionalMonths])).sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
+    const residentToUpdate = (targetActivityType && targetActivityType !== resident.activityType)
+      ? { ...resident, activityType: targetActivityType }
+      : undefined;
 
-    setConfirmData({
-      type: selectedPayment ? 'edit' : 'add',
-      paymentData,
-      base64Image: base64Image || undefined
-    });
+    if (allTargetMonths.length > 1 && !selectedPayment) {
+      const basePerMonth = Math.floor(numAmount / allTargetMonths.length);
+      const remainder = numAmount - (basePerMonth * allTargetMonths.length);
+      const multiPayments: Payment[] = allTargetMonths.map((m, idx) => ({
+        id: `pay_${Date.now()}_${m}_${idx}`,
+        year: currentYear,
+        month: m,
+        residentId,
+        residentName: resident.name,
+        flatNumber: resident.flatNumber,
+        paymentType,
+        amount: basePerMonth + (idx === 0 ? remainder : 0),
+        receiptNumber: (receiptNumber || '').trim(),
+        notes: (notes || '').trim()
+          ? `${notes} (سداد مجمع ${allTargetMonths.length} شهور)`
+          : `سداد مجمع عن شهور: ${allTargetMonths.map(x => monthNamesArabic[parseInt(x, 10) - 1]).join('، ')}`,
+        fileId: base64Image ? '' : (existingFileUrl ? (selectedPayment?.fileId || '') : ''),
+        fileUrl: base64Image ? base64Image : (existingFileUrl || ''),
+        date: new Date().toISOString().split('T')[0],
+        isManuallyPaid: false,
+        status: paymentStatus,
+      }));
+
+      setConfirmData({
+        type: 'add',
+        multiplePayments: multiPayments,
+        residentToUpdate,
+        base64Image: base64Image || undefined
+      });
+    } else {
+      const paymentData: Payment = {
+        id: selectedPayment ? selectedPayment.id : `pay_${Date.now()}`,
+        year: currentYear,
+        month,
+        residentId,
+        residentName: resident.name,
+        flatNumber: resident.flatNumber,
+        paymentType,
+        amount: numAmount,
+        receiptNumber: (receiptNumber || '').trim(),
+        notes: (notes || '').trim(),
+        fileId: base64Image ? '' : (existingFileUrl ? (selectedPayment?.fileId || '') : ''),
+        fileUrl: base64Image ? base64Image : (existingFileUrl || ''),
+        date: selectedPayment ? selectedPayment.date : new Date().toISOString().split('T')[0],
+        isManuallyPaid: false,
+        status: paymentStatus,
+      };
+
+      setConfirmData({
+        type: selectedPayment ? 'edit' : 'add',
+        paymentData,
+        residentToUpdate,
+        base64Image: base64Image || undefined
+      });
+    }
   };
 
   const handleDelete = (id: string) => {
@@ -1392,34 +1512,41 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
 
       {/* Add/Edit Payment Modal */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
-          <div className="w-full max-w-md bg-white rounded-3xl p-6 border border-slate-100 shadow-2xl animate-scale-up text-right">
-            <h3 className="text-lg font-extrabold text-slate-950 border-b pb-3 mb-5">
-              {selectedPayment ? (role === 'ASSISTANT' ? 'تعديل ملاحظات التحصيل' : 'تعديل التحصيل') : 'إضافة تحصيل جديد'}
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-3 sm:p-4">
+          <div className="w-full max-w-md max-h-[94vh] overflow-y-auto bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-5 border border-slate-100 shadow-2xl animate-scale-up text-right">
+            <h3 className="text-base sm:text-lg font-black text-slate-950 border-b pb-2.5 mb-3 flex items-center justify-between">
+              <span>{selectedPayment ? (role === 'ASSISTANT' ? 'تعديل ملاحظات التحصيل' : 'تعديل التحصيل') : 'إضافة تحصيل جديد'}</span>
+              <button
+                type="button"
+                onClick={() => setShowModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </h3>
 
             {role === 'ASSISTANT' && selectedPayment && (
-              <div className="bg-blue-50 border border-blue-200 text-blue-900 text-xs p-3 rounded-xl mb-4 font-bold flex items-center gap-2">
+              <div className="bg-blue-50 border border-blue-200 text-blue-900 text-xs p-2.5 rounded-xl mb-3 font-bold flex items-center gap-2">
                 <AlertCircle className="w-4 h-4 shrink-0 text-blue-600" />
                 <span>صلاحية المساعد الفني تتيح لك التعديل في "خانة الملاحظات" فقط.</span>
               </div>
             )}
 
             {error && (
-              <div className="bg-red-50 border border-red-100 text-red-600 text-xs p-4 rounded-xl mb-4 font-semibold flex items-center gap-2">
+              <div className="bg-red-50 border border-red-100 text-red-600 text-xs p-2.5 rounded-xl mb-3 font-semibold flex items-center gap-2">
                 <AlertCircle className="w-4 h-4" />
                 <span>{error}</span>
               </div>
             )}
 
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-500">الساكن / الوحدة <span className="text-red-500">*</span></label>
+            <form onSubmit={handleSubmit} className="space-y-2.5 sm:space-y-3">
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-500">الساكن / الوحدة <span className="text-red-500">*</span></label>
                 <select
                   value={residentId}
                   onChange={(e) => handleResidentSelect(e.target.value)}
                   disabled={role === 'ASSISTANT' && !!selectedPayment}
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-100 focus:bg-white rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 outline-none text-right font-medium transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 focus:bg-white rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-500/10 outline-none text-right font-bold transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                   required
                 >
                   {residents
@@ -1432,14 +1559,36 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                 </select>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-500">الشهر المستهدف</label>
+              {/* Row 1: Target Month & Payment Type in EXACT SAME ROW */}
+              <div className="grid grid-cols-2 gap-2 sm:gap-3 items-start">
+                {/* Target Month + Multi-Month selector */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-bold text-slate-500">الشهر المستهدف</label>
+                    {!selectedPayment && (
+                      <button
+                        type="button"
+                        onClick={() => setShowMultiMonthPicker(!showMultiMonthPicker)}
+                        className="text-[10px] font-black text-blue-900 hover:text-blue-950 flex items-center gap-0.5 bg-blue-50 hover:bg-blue-100 px-1.5 py-0.5 rounded-md border border-blue-200 transition cursor-pointer"
+                        title="إضافة شهور أخرى مستهدفة بالسداد"
+                      >
+                        <Plus className="w-2.5 h-2.5 text-blue-800" />
+                        <span>{additionalMonths.length > 0 ? `(${additionalMonths.length + 1})` : 'شهور أخرى +'}</span>
+                      </button>
+                    )}
+                  </div>
+
                   <select
                     value={month}
-                    onChange={(e) => setMonth(e.target.value)}
+                    onChange={(e) => {
+                      const newM = e.target.value;
+                      setMonth(newM);
+                      if (additionalMonths.includes(newM)) {
+                        setAdditionalMonths(additionalMonths.filter(x => x !== newM));
+                      }
+                    }}
                     disabled={role === 'ASSISTANT' && !!selectedPayment}
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-100 focus:bg-white rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 outline-none text-right font-medium transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                    className="w-full px-2.5 py-2 bg-slate-50 border border-slate-200 focus:bg-white rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-500/10 outline-none text-right font-bold transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                   >
                     {monthNamesArabic.map((name, idx) => (
                       <option key={idx} value={String(idx + 1).padStart(2, '0')}>
@@ -1449,13 +1598,14 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                   </select>
                 </div>
 
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-500">نوع التحصيل <span className="text-red-500">*</span></label>
+                {/* Payment Type */}
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-500">نوع التحصيل <span className="text-red-500">*</span></label>
                   <select
                     value={paymentType}
                     onChange={(e) => handlePaymentTypeSelect(e.target.value)}
                     disabled={role === 'ASSISTANT' && !!selectedPayment}
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-100 focus:bg-white rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 outline-none text-right font-medium transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                    className="w-full px-2.5 py-2 bg-slate-50 border border-slate-200 focus:bg-white rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-500/10 outline-none text-right font-bold transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                   >
                     {paymentTypes.map((type) => (
                       <option key={type} value={type}>
@@ -1464,50 +1614,155 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                     ))}
                   </select>
                 </div>
+
+                {/* Multi-Month Expandable Selector & Badges (Spans Full Width across 2 columns) */}
+                {!selectedPayment && showMultiMonthPicker && (
+                  <div className="col-span-2 p-2 bg-blue-50/80 border border-blue-200 rounded-xl space-y-1.5 animate-scale-up">
+                    <div className="flex items-center justify-between text-[10.5px] font-black text-blue-950">
+                      <span>اختر الشهور الإضافية بنفس الإيصال:</span>
+                      {additionalMonths.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setAdditionalMonths([])}
+                          className="text-[10px] text-red-600 hover:underline font-bold cursor-pointer"
+                        >
+                          إلغاء التحديد
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-4 gap-1">
+                      {monthNamesArabic.map((name, idx) => {
+                        const mStr = String(idx + 1).padStart(2, '0');
+                        const isPrimary = mStr === month;
+                        const isSelected = additionalMonths.includes(mStr);
+
+                        return (
+                          <button
+                            key={mStr}
+                            type="button"
+                            disabled={isPrimary}
+                            onClick={() => toggleAdditionalMonth(mStr)}
+                            className={`py-1 px-0.5 rounded-lg text-[10px] font-black transition cursor-pointer text-center ${
+                              isPrimary
+                                ? 'bg-blue-900 text-white shadow-2xs cursor-not-allowed'
+                                : isSelected
+                                ? 'bg-emerald-600 text-white shadow-2xs ring-1 ring-emerald-400'
+                                : 'bg-white text-slate-700 border border-slate-200 hover:bg-blue-100/50'
+                            }`}
+                            title={isPrimary ? 'الشهر الأساسي' : `إضافة شهر ${name}`}
+                          >
+                            {name}
+                            {isPrimary && <span className="block text-[7.5px] opacity-80">(الأساسي)</span>}
+                            {isSelected && <span className="block text-[7.5px] opacity-90">✓</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {additionalMonths.length > 0 && (
+                      <div className="text-[10px] text-blue-900 font-bold bg-white/90 px-2 py-1 rounded-lg border border-blue-200/60 flex items-center justify-between">
+                        <span>إجمالي الشهور: <strong className="text-emerald-700 font-black">{additionalMonths.length + 1} شهور</strong></span>
+                        <span>(توزيع المبلغ بالتساوي)</span>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-500">المبلغ المستلم بالجنيه <span className="text-red-500">*</span></label>
+              {/* Unit Activity Change & Default Subscription Fee Box (Below Payment Type) */}
+              <div className="bg-slate-50 border border-slate-200/90 rounded-xl p-2.5 space-y-1.5 text-right">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-black text-slate-800 flex items-center gap-1">
+                    <Building className="w-3 h-3 text-blue-900" />
+                    <span>تغيير نوع نشاط الوحدة في هذا الشهر:</span>
+                  </label>
+                  {targetActivityType !== (residents.find(r => r.id === residentId)?.activityType || 'سكني') && (
+                    <span className="text-[9.5px] font-black text-blue-900 bg-blue-100 px-1.5 py-0.2 rounded border border-blue-200">
+                      نشاط جديد
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 items-center">
+                  {/* Activity Type Dropdown */}
+                  <div>
+                    <select
+                      value={targetActivityType}
+                      onChange={(e) => handleActivityTypeChange(e.target.value)}
+                      disabled={role === 'ASSISTANT' && !!selectedPayment}
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-200 focus:border-blue-500 rounded-lg text-xs font-bold outline-none cursor-pointer"
+                    >
+                      {allAvailableActivityTypes.map((act) => (
+                        <option key={act} value={act}>
+                          {act}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Apply Default Fee for this Activity Button */}
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => applyDefaultFeeForActivity(targetActivityType)}
+                      disabled={role === 'ASSISTANT' && !!selectedPayment}
+                      className="w-full px-2 py-1.5 bg-blue-900 hover:bg-blue-950 text-white rounded-lg text-[10.5px] sm:text-[11px] font-black transition flex items-center justify-center gap-1 cursor-pointer shadow-2xs truncate"
+                      title="تطبيق قيمة الاشتراك الافتراضية للوحدة بهذا النشاط"
+                    >
+                      <RefreshCw className="w-2.5 h-2.5 shrink-0" />
+                      <span className="truncate">تطبيق اشتراك النشاط ({getActivityDefaultFee(targetActivityType) * (1 + additionalMonths.length)} ج.م)</span>
+                    </button>
+                  </div>
+                </div>
+
+                <p className="text-[9.5px] text-slate-400 font-semibold">
+                  * الافتراضي: <strong className="text-slate-700">{residents.find(r => r.id === residentId)?.activityType || 'سكني'}</strong> (يتم حفظ النشاط وتحديث خريطة السداد تلقائياً).
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-500">المبلغ المستلم بالجنيه <span className="text-red-500">*</span></label>
                   <input
                     type="number"
                     placeholder="مثال: 200"
                     value={amount === '' || isNaN(Number(amount)) ? '' : amount}
                     onChange={(e) => setAmount(e.target.value !== '' ? Number(e.target.value) : '')}
                     disabled={role === 'ASSISTANT' && !!selectedPayment}
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-100 focus:bg-white rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 outline-none text-right font-medium transition disabled:opacity-60 disabled:cursor-not-allowed"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 focus:bg-white rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-500/10 outline-none text-right font-bold transition disabled:opacity-60 disabled:cursor-not-allowed"
                     required
                   />
                 </div>
 
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-500">رقم الإيصال</label>
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-500">رقم الإيصال</label>
                   <input
                     type="text"
                     placeholder="مثال: 4501"
                     value={receiptNumber}
                     onChange={(e) => setReceiptNumber(e.target.value)}
                     disabled={role === 'ASSISTANT' && !!selectedPayment}
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-100 focus:bg-white rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 outline-none text-right font-medium transition disabled:opacity-60 disabled:cursor-not-allowed"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 focus:bg-white rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-500/10 outline-none text-right font-bold transition disabled:opacity-60 disabled:cursor-not-allowed"
                   />
                 </div>
               </div>
 
               {/* 3 Buttons for Payment/Receipt Status */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-500">حالة السداد / الإيصال</label>
-                <div className="grid grid-cols-3 gap-2">
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-500">حالة السداد / الإيصال</label>
+                <div className="grid grid-cols-3 gap-1.5">
                   <button
                     type="button"
                     onClick={() => setPaymentStatus('collected')}
                     disabled={role === 'ASSISTANT' && !!selectedPayment}
-                    className={`py-2 px-1 sm:px-2 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 border cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${
+                    className={`py-1.5 px-1 rounded-xl text-[11px] font-black transition flex items-center justify-center gap-1 border cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${
                       paymentStatus === 'collected'
-                        ? 'bg-emerald-700 text-white border-emerald-700 shadow-xs ring-2 ring-emerald-600/30'
+                        ? 'bg-emerald-700 text-white border-emerald-700 shadow-2xs ring-1 ring-emerald-600/30'
                         : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
                     }`}
                   >
-                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <CheckCircle2 className="w-3 h-3" />
                     <span>تم التحصيل</span>
                   </button>
 
@@ -1515,34 +1770,34 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                     type="button"
                     onClick={() => setPaymentStatus('pending')}
                     disabled={role === 'ASSISTANT' && !!selectedPayment}
-                    className={`py-2 px-1 sm:px-2 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 border cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${
+                    className={`py-1.5 px-1 rounded-xl text-[11px] font-black transition flex items-center justify-center gap-1 border cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${
                       paymentStatus === 'pending'
-                        ? 'bg-amber-600 text-white border-amber-600 shadow-xs ring-2 ring-amber-500/30'
+                        ? 'bg-amber-600 text-white border-amber-600 shadow-2xs ring-1 ring-amber-500/30'
                         : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
                     }`}
                   >
-                    <AlertCircle className="w-3.5 h-3.5" />
-                    <span>لم يتم التحصيل</span>
+                    <AlertCircle className="w-3 h-3" />
+                    <span>لم يتم</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => setPaymentStatus('cancelled')}
                     disabled={role === 'ASSISTANT' && !!selectedPayment}
-                    className={`py-2 px-1 sm:px-2 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 border cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${
+                    className={`py-1.5 px-1 rounded-xl text-[11px] font-black transition flex items-center justify-center gap-1 border cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${
                       paymentStatus === 'cancelled'
-                        ? 'bg-rose-700 text-white border-rose-700 shadow-xs ring-2 ring-rose-600/30'
+                        ? 'bg-rose-700 text-white border-rose-700 shadow-2xs ring-1 ring-rose-600/30'
                         : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
                     }`}
                   >
-                    <X className="w-3.5 h-3.5" />
+                    <X className="w-3 h-3" />
                     <span>لاغي</span>
                   </button>
                 </div>
               </div>
 
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-blue-900 flex items-center justify-between">
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-blue-900 flex items-center justify-between">
                   <span>ملاحظات {role === 'ASSISTANT' && selectedPayment && <span className="text-emerald-700 font-extrabold">(مسموح للتعديل)</span>}</span>
                 </label>
                 <input
@@ -1550,32 +1805,32 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                   placeholder="ملاحظات (مثال: تم الاستلام نقداً)"
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  className="w-full px-4 py-3 bg-white border-2 border-blue-200 focus:border-blue-600 rounded-xl text-sm outline-none text-right font-medium transition"
+                  className="w-full px-3 py-1.5 bg-white border border-blue-200 focus:border-blue-600 rounded-xl text-xs sm:text-sm outline-none text-right font-medium transition"
                 />
               </div>
 
               {/* Receipt Image Upload & Interactive Preview */}
-              <div className="space-y-2 pt-2 border-t border-slate-100">
+              <div className="space-y-1.5 pt-1.5 border-t border-slate-100">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-black text-slate-700 flex items-center gap-1.5">
-                    <ImageIcon className="w-4 h-4 text-blue-900" />
+                  <label className="text-[11px] font-black text-slate-700 flex items-center gap-1">
+                    <ImageIcon className="w-3.5 h-3.5 text-blue-900" />
                     <span>صورة الإيصال أو سند التحصيل</span>
                   </label>
                   {(base64Image || existingFileUrl) && (
-                    <span className="text-[10px] text-emerald-700 bg-emerald-50 font-black px-2 py-0.5 rounded-md border border-emerald-200/60">
-                      {base64Image ? 'صورة جديدة جاهزة للحفظ' : 'صورة محفوظة مسبقاً'}
+                    <span className="text-[9.5px] text-emerald-700 bg-emerald-50 font-black px-1.5 py-0.2 rounded border border-emerald-200/60">
+                      {base64Image ? 'صورة جديدة' : 'صورة محفوظة'}
                     </span>
                   )}
                 </div>
 
                 {/* If an image is selected or exists */}
                 {(base64Image || existingFileUrl) ? (
-                  <div className="bg-slate-50 border border-slate-200/90 rounded-2xl p-2.5 flex items-center justify-between gap-3 shadow-2xs">
-                    <div className="flex items-center gap-2.5 overflow-hidden">
+                  <div className="bg-slate-50 border border-slate-200/90 rounded-xl p-2 flex items-center justify-between gap-2 shadow-2xs">
+                    <div className="flex items-center gap-2 overflow-hidden">
                       {/* Image Thumbnail with zoom overlay */}
                       <div 
                         onClick={() => onPreviewImage(base64Image || existingFileUrl)}
-                        className="relative w-14 h-14 rounded-xl overflow-hidden border border-slate-200 cursor-pointer shadow-2xs shrink-0 group bg-slate-200 flex items-center justify-center"
+                        className="relative w-11 h-11 rounded-lg overflow-hidden border border-slate-200 cursor-pointer shadow-2xs shrink-0 group bg-slate-200 flex items-center justify-center"
                         title="انقر لمشاهدة تفاصيل الصورة بالحجم الكامل"
                       >
                         <img 
@@ -1584,30 +1839,30 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                           className="w-full h-full object-cover group-hover:scale-105 transition duration-200"
                         />
                         <div className="absolute inset-0 bg-black/35 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white">
-                          <Eye className="w-4 h-4" />
+                          <Eye className="w-3.5 h-3.5" />
                         </div>
                       </div>
 
-                      <div className="space-y-1 text-right min-w-0">
-                        <p className="text-xs font-black text-slate-800 truncate">
+                      <div className="space-y-0.5 text-right min-w-0">
+                        <p className="text-[11px] font-black text-slate-800 truncate">
                           {imageName || (base64Image ? 'صورة إيصال جديدة' : 'صورة الإيصال المسجلة')}
                         </p>
                         <button
                           type="button"
                           onClick={() => onPreviewImage(base64Image || existingFileUrl)}
-                          className="text-[10.5px] text-blue-900 hover:text-blue-950 font-black flex items-center gap-1 cursor-pointer bg-blue-50/80 px-2 py-0.5 rounded-md border border-blue-100/60 w-fit"
+                          className="text-[10px] text-blue-900 hover:text-blue-950 font-black flex items-center gap-1 cursor-pointer bg-blue-50/80 px-1.5 py-0.2 rounded border border-blue-100/60 w-fit"
                         >
-                          <Eye className="w-3 h-3 text-blue-700" />
-                          <span>معاينة الصورة كاملة</span>
+                          <Eye className="w-2.5 h-2.5 text-blue-700" />
+                          <span>معاينة الصورة</span>
                         </button>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="flex items-center gap-1 shrink-0">
                       <button
                         type="button"
                         onClick={() => triggerFileSelection(false)}
-                        className="px-2 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-[10px] font-black transition cursor-pointer shadow-2xs"
+                        className="px-2 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-[10px] font-black transition cursor-pointer shadow-2xs"
                         title="تغيير الصورة"
                       >
                         تغيير
@@ -1615,10 +1870,10 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                       <button
                         type="button"
                         onClick={handleRemoveImage}
-                        className="p-1.5 bg-red-50 hover:bg-red-100 text-red-600 border border-red-100 rounded-lg transition cursor-pointer shadow-2xs"
+                        className="p-1 bg-red-50 hover:bg-red-100 text-red-600 border border-red-100 rounded-lg transition cursor-pointer shadow-2xs"
                         title="حذف الصورة"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-3 h-3" />
                       </button>
                     </div>
                   </div>
@@ -1628,17 +1883,17 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                     <button
                       type="button"
                       onClick={() => triggerFileSelection(true)}
-                      className="flex items-center justify-center gap-2 px-3 py-2.5 bg-blue-50/80 hover:bg-blue-100 text-blue-900 border border-blue-200/70 rounded-xl text-xs font-black transition cursor-pointer active:scale-[0.98]"
+                      className="flex items-center justify-center gap-1.5 px-2.5 py-2 bg-blue-50/80 hover:bg-blue-100 text-blue-900 border border-blue-200/70 rounded-xl text-xs font-black transition cursor-pointer active:scale-[0.98]"
                     >
-                      <Camera className="w-4 h-4 text-blue-800" />
+                      <Camera className="w-3.5 h-3.5 text-blue-800" />
                       <span>التقاط صورة</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => triggerFileSelection(false)}
-                      className="flex items-center justify-center gap-2 px-3 py-2.5 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-black transition cursor-pointer active:scale-[0.98]"
+                      className="flex items-center justify-center gap-1.5 px-2.5 py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-black transition cursor-pointer active:scale-[0.98]"
                     >
-                      <Upload className="w-4 h-4 text-slate-500" />
+                      <Upload className="w-3.5 h-3.5 text-slate-500" />
                       <span>رفع صورة</span>
                     </button>
                   </div>
@@ -1653,19 +1908,19 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                 />
               </div>
 
-              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-50 mt-6">
+              <div className="flex items-center justify-end gap-2 pt-2.5 border-t border-slate-100 mt-2">
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className="px-4 py-2 text-slate-500 hover:bg-slate-50 rounded-lg text-sm font-bold transition"
+                  className="px-3 py-1.5 text-slate-500 hover:bg-slate-100 rounded-lg text-xs font-bold transition cursor-pointer"
                 >
                   إلغاء
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 bg-blue-900 text-white rounded-lg text-sm font-bold hover:bg-blue-950 active:scale-[0.98] transition shadow-md shadow-blue-900/10"
+                  className="px-4 py-1.5 bg-blue-900 hover:bg-blue-950 text-white rounded-xl text-xs font-black transition shadow-sm cursor-pointer"
                 >
-                  {selectedPayment ? 'حفظ التعديلات' : 'إضافة'}
+                  {selectedPayment ? 'حفظ التعديلات' : 'إضافة التحصيل'}
                 </button>
               </div>
             </form>
@@ -1686,8 +1941,10 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
               {confirmData.type === 'delete' 
                 ? 'هل أنت متأكد من حذف هذه العملية؟ سيؤدي هذا إلى مسح سجل التحصيل المحدد بالكامل ولا يمكن التراجع عن هذا الإجراء.'
                 : confirmData.type === 'edit'
-                ? `هل تود حفظ التعديلات الجديدة على عملية التحصيل الخاصة بالوحدة ${confirmData.paymentData?.flatNumber} بمبلغ ${confirmData.paymentData?.amount} ج.م؟`
-                : `أنت على وشك إضافة عملية تحصيل جديدة للوحدة ${confirmData.paymentData?.flatNumber} بمبلغ ${confirmData.paymentData?.amount} ج.م. هل تود التأكيد؟`}
+                ? `هل تود حفظ التعديلات الجديدة على عملية التحصيل الخاصة بالوحدة ${confirmData.paymentData?.flatNumber} بمبلغ ${confirmData.paymentData?.amount} ج.م؟${confirmData.residentToUpdate ? ` (مع حفظ نشاط الوحدة الجديد: ${confirmData.residentToUpdate.activityType})` : ''}`
+                : confirmData.multiplePayments && confirmData.multiplePayments.length > 1
+                ? `أنت على وشك تسجيل سداد مجمع لعدد ${confirmData.multiplePayments.length} شهور (${confirmData.multiplePayments.map(p => monthNamesArabic[parseInt(p.month, 10) - 1]).join('، ')}) للوحدة ${confirmData.multiplePayments[0]?.flatNumber} بإجمالي ${confirmData.multiplePayments.reduce((s, p) => s + p.amount, 0)} ج.م (موزعة بالتساوي وتسجيل كل شهر في خريطة العمارة وكشوف التحصيل).${confirmData.residentToUpdate ? ` (مع حفظ نشاط الوحدة الجديد: ${confirmData.residentToUpdate.activityType})` : ''} هل تود التأكيد؟`
+                : `أنت على وشك إضافة عملية تحصيل جديدة للوحدة ${confirmData.paymentData?.flatNumber} بمبلغ ${confirmData.paymentData?.amount} ج.م.${confirmData.residentToUpdate ? ` (مع حفظ نشاط الوحدة الجديد: ${confirmData.residentToUpdate.activityType})` : ''} هل تود التأكيد؟`}
             </p>
             <div className="flex items-center justify-center gap-2">
               <button
@@ -1700,8 +1957,17 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
               <button
                 type="button"
                 onClick={() => {
+                  if (confirmData.residentToUpdate && onEditResident) {
+                    onEditResident(confirmData.residentToUpdate);
+                  }
+
                   if (confirmData.type === 'delete' && confirmData.deleteId) {
                     onDelete(confirmData.deleteId);
+                  } else if (confirmData.multiplePayments && confirmData.multiplePayments.length > 0) {
+                    confirmData.multiplePayments.forEach((p) => {
+                      onAdd(p, confirmData.base64Image);
+                    });
+                    setShowModal(false);
                   } else if (confirmData.paymentData) {
                     if (confirmData.type === 'edit') {
                       onEdit(confirmData.paymentData, confirmData.base64Image);

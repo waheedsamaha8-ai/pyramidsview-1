@@ -174,7 +174,13 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
         if (!res || st === 'empty') {
           emptyCount++;
         } else {
-          const isRaw = Boolean(res.activityType === 'بدون تشطيب' || res.activityType.includes('بدون تشطيب'));
+          const isRaw = Boolean(
+            res.activityType === 'بدون تحصيل' ||
+            res.activityType === 'بدون تشطيب' ||
+            res.activityType?.includes('بدون تحصيل') ||
+            res.activityType?.includes('بدون تشطيب') ||
+            res.monthlyFee === 0
+          );
           if (isRaw) {
             rawNoFeeCount++;
           } else if (st === 'paid') {
@@ -677,7 +683,15 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
                 {units.map(unitNum => {
                   const status = getPaymentStatus(unitNum);
                   const resident = residents.find(r => isSameFlatNumber(r.flatNumber, unitNum));
-                  const isRaw = Boolean(resident && (resident.activityType === 'بدون تشطيب' || resident.activityType.includes('بدون تشطيب')));
+                  const isRaw = Boolean(
+                    resident && (
+                      resident.activityType === 'بدون تحصيل' ||
+                      resident.activityType === 'بدون تشطيب' ||
+                      resident.activityType.includes('بدون تحصيل') ||
+                      resident.activityType.includes('بدون تشطيب') ||
+                      resident.monthlyFee === 0
+                    )
+                  );
                   const isFinishing = Boolean(resident && !isRaw && (resident.activityType === 'تحت التشطيب' || resident.activityType.includes('تشطيب')));
                   const isPaid = status === 'paid';
                   const isUnpaid = status === 'unpaid';

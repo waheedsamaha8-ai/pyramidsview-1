@@ -2832,6 +2832,7 @@ export default function App() {
             onEdit={editPayment}
             onDelete={deletePayment}
             onPreviewImage={handlePreviewImage}
+            onEditResident={editResident}
           />
         )}
 

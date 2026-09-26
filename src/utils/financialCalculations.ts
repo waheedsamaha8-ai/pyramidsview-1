@@ -9,19 +9,23 @@ export function getResidentMonthlyFee(
   defaultMonthlyFee: number = 400,
   activityDefaultFees?: Record<string, number>
 ): number {
-  if (resident.monthlyFee !== undefined && !isNaN(resident.monthlyFee) && resident.monthlyFee > 0) {
+  if (resident.monthlyFee !== undefined && !isNaN(resident.monthlyFee) && resident.monthlyFee >= 0) {
     return resident.monthlyFee;
   }
   if (activityDefaultFees && activityDefaultFees[resident.activityType] !== undefined) {
     return activityDefaultFees[resident.activityType];
   }
   switch (resident.activityType) {
+    case 'بدون تحصيل': return 0;
+    case 'بدون تشطيب': return 0;
     case 'سكني': return 400;
     case 'سكني مغلق': return 200;
     case 'مفروش': return 600;
     case 'إداري': return 800;
     case 'تجاري': return 500;
-    default: return defaultMonthlyFee || 400;
+    default: 
+      if (resident.activityType?.includes('بدون تحصيل') || resident.activityType?.includes('بدون تشطيب')) return 0;
+      return defaultMonthlyFee || 400;
   }
 }
 

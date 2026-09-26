@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useRef } from 'react';
 import { Resident, Payment, Expense, UserRole, FloorConfig, AppConfig } from '../types';
-import { Calendar, Check, AlertCircle, RefreshCw, X, ExternalLink, Trash2, PlusCircle, CreditCard, Clock, Layers, Receipt, Edit, Save } from 'lucide-react';
+import { Calendar, Check, AlertCircle, RefreshCw, X, ExternalLink, Trash2, PlusCircle, CreditCard, Clock, Layers, Receipt, Edit, Save, Minus } from 'lucide-react';
 import { BuildingMap } from './BuildingMap';
 import { deriveFloorConfigsFromResidents, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber } from '../utils/buildingStructure';
 
@@ -585,6 +585,21 @@ export const Summaries: React.FC<SummariesProps> = ({
                           const status = getSubscriptionStatus(res.id, m);
                           const isMulti = status.paymentsList.length > 1;
                           const isQuarterEnd = idx === 2 || idx === 5 || idx === 8;
+                          const isNoFeeActivity = Boolean(
+                            res.activityType === 'بدون تحصيل' ||
+                            res.activityType === 'بدون تشطيب' ||
+                            res.activityType?.includes('بدون تحصيل') ||
+                            res.activityType?.includes('بدون تشطيب') ||
+                            (res.monthlyFee === 0)
+                          );
+
+                          let cellBgClass = 'bg-red-50/40 text-red-600 hover:bg-red-100/50';
+                          if (status.paid) {
+                            cellBgClass = 'bg-emerald-50/40 text-emerald-700 hover:bg-emerald-100/50';
+                          } else if (isNoFeeActivity) {
+                            cellBgClass = 'bg-slate-100/70 text-slate-500 hover:bg-slate-200/60';
+                          }
+
                           return (
                             <td
                               key={m}
@@ -593,6 +608,7 @@ export const Summaries: React.FC<SummariesProps> = ({
                                 const defaultAmt = getDefaultFeeForResident(res);
                                 setNewAmount(String(defaultAmt));
                                 setNewPaymentType('اشتراك شهري');
+                                setNewPaymentType(isNoFeeActivity ? 'تحصيلات اخرى' : 'اشتراك شهري');
                                 setEditingPaymentId(null);
                                 setDeleteConfirmId(null);
                                 setSelectedCell({
@@ -604,11 +620,7 @@ export const Summaries: React.FC<SummariesProps> = ({
                               }}
                               className={`px-1 py-1 text-center border-x border-slate-50 ${
                                 isQuarterEnd ? 'border-l-2 border-l-slate-200' : ''
-                              } cursor-pointer ${
-                                status.paid
-                                  ? 'bg-emerald-50/40 text-emerald-700 hover:bg-emerald-100/50'
-                                  : 'bg-red-50/40 text-red-600 hover:bg-red-100/50'
-                              } transition`}
+                              } cursor-pointer ${cellBgClass} transition`}
                             >
                               <div className="flex flex-col items-center justify-center gap-0.5 min-h-[30px]">
                                 {status.paid ? (
@@ -626,6 +638,11 @@ export const Summaries: React.FC<SummariesProps> = ({
                                         {status.amount}
                                       </span>
                                     )}
+                                  </>
+                                ) : isNoFeeActivity ? (
+                                  <>
+                                    <Minus className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-slate-400 stroke-[2.5]" />
+                                    <span className="text-[7.5px] sm:text-[8.5px] font-bold text-slate-500 whitespace-nowrap">غير مطالبة</span>
                                   </>
                                 ) : (
                                   <>
