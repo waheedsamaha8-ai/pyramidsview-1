@@ -51,6 +51,7 @@ export const Summaries: React.FC<SummariesProps> = ({
   const [editingPaymentId, setEditingPaymentId] = useState<string | null>(null);
   const [editAmount, setEditAmount] = useState<string>('');
   const [editPaymentType, setEditPaymentType] = useState<string>('');
+  const [editPaymentStatus, setEditPaymentStatus] = useState<string>('collected');
   const [editReceiptNumber, setEditReceiptNumber] = useState<string>('');
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
@@ -216,11 +217,19 @@ export const Summaries: React.FC<SummariesProps> = ({
       (p) => p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل'
     );
 
+    const pendingPayments = matchingPayments.filter(
+      (p) => p.status === 'pending' || p.status === 'لم يتم التحصيل'
+    );
+
     const totalAmount = validCollectedPayments.reduce((sum, p) => sum + p.amount, 0);
     const isPaid = totalAmount > 0 || validCollectedPayments.some(p => p.isManuallyPaid);
+    const isPending = !isPaid && pendingPayments.length > 0;
+    const pendingAmount = pendingPayments.reduce((sum, p) => sum + p.amount, 0);
 
     return {
       paid: isPaid,
+      pending: isPending,
+      pendingAmount: pendingAmount,
       amount: totalAmount,
       paymentsList: matchingPayments,
     };
@@ -496,9 +505,9 @@ export const Summaries: React.FC<SummariesProps> = ({
       </section>
 
       {/* Section 3: Interactive Collections Table Grouped by Floor */}
-      <section className="bg-white rounded-2xl border border-slate-100 shadow-xs overflow-hidden">
-        <div className="px-3.5 py-2.5 border-b border-slate-50 flex flex-col sm:flex-row items-center justify-between gap-2 bg-slate-50/50">
-          <div className="flex items-center gap-1.5 text-[10px] sm:text-[11px] text-slate-400 font-bold">
+      <section className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+        <div className="px-3.5 py-2.5 border-b border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-2 bg-slate-50/70">
+          <div className="flex items-center gap-1.5 text-[10px] sm:text-[11px] text-slate-500 font-bold">
             <RefreshCw className="w-3.5 h-3.5 text-blue-900" />
             <span>
               {role === 'ASSISTANT'
@@ -509,6 +518,25 @@ export const Summaries: React.FC<SummariesProps> = ({
           <div className="flex items-center gap-2">
             <Layers className="w-4 h-4 text-blue-900" />
             <h3 className="text-xs sm:text-sm font-black text-slate-900">جدول كشف التحصيل الشهري للاشتراكات لعام {currentYear}</h3>
+          </div>
+        </div>
+
+        {/* Status Legend Bar - Single Row */}
+        <div className="px-2 sm:px-3 py-1.5 bg-slate-100/80 border-b border-slate-200 overflow-x-auto scrollbar-none flex items-center justify-between sm:justify-start gap-1 sm:gap-2 text-[9.5px] sm:text-[11px] font-black whitespace-nowrap">
+          <span className="text-slate-500 font-bold shrink-0 hidden md:inline ml-1">دليل الألوان:</span>
+          <div className="flex items-center gap-1 sm:gap-1.5 w-full sm:w-auto justify-between sm:justify-start">
+            <span className="inline-flex items-center gap-0.5 sm:gap-1 px-1.5 sm:px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-2xs shrink-0">
+              <Check className="w-2.5 h-2.5 sm:w-3 sm:h-3 stroke-[3.5]" /> مسدد (أخضر)
+            </span>
+            <span className="inline-flex items-center gap-0.5 sm:gap-1 px-1.5 sm:px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs shrink-0">
+              <Clock className="w-2.5 h-2.5 sm:w-3 sm:h-3 stroke-[2.5]" /> لم يحصل (برتقالي)
+            </span>
+            <span className="inline-flex items-center gap-0.5 sm:gap-1 px-1.5 sm:px-2 py-0.5 rounded-md bg-slate-200 text-slate-800 border border-slate-300 shadow-2xs shrink-0">
+              <Minus className="w-2.5 h-2.5 sm:w-3 sm:h-3 stroke-[3]" /> غير مطالبة (رمادي)
+            </span>
+            <span className="inline-flex items-center gap-0.5 sm:gap-1 px-1.5 sm:px-2 py-0.5 rounded-md bg-red-100 text-red-800 border border-red-300 shadow-2xs shrink-0">
+              <AlertCircle className="w-2.5 h-2.5 sm:w-3 sm:h-3 stroke-[2.5]" /> غير مسدد (أحمر)
+            </span>
           </div>
         </div>
 
@@ -593,11 +621,13 @@ export const Summaries: React.FC<SummariesProps> = ({
                             (res.monthlyFee === 0)
                           );
 
-                          let cellBgClass = 'bg-red-50/40 text-red-600 hover:bg-red-100/50';
+                          let cellBgClass = 'bg-red-100/90 text-red-950 hover:bg-red-200 border-red-200/70';
                           if (status.paid) {
-                            cellBgClass = 'bg-emerald-50/40 text-emerald-700 hover:bg-emerald-100/50';
+                            cellBgClass = 'bg-emerald-100/90 text-emerald-950 hover:bg-emerald-200 border-emerald-200/70';
+                          } else if (status.pending) {
+                            cellBgClass = 'bg-amber-100/95 text-amber-950 hover:bg-amber-200 border-amber-300';
                           } else if (isNoFeeActivity) {
-                            cellBgClass = 'bg-slate-100/70 text-slate-500 hover:bg-slate-200/60';
+                            cellBgClass = 'bg-slate-200/90 text-slate-800 hover:bg-slate-300 border-slate-300';
                           }
 
                           return (
@@ -619,35 +649,45 @@ export const Summaries: React.FC<SummariesProps> = ({
                                 });
                               }}
                               className={`px-1 py-1 text-center border-x border-slate-50 ${
-                                isQuarterEnd ? 'border-l-2 border-l-slate-200' : ''
-                              } cursor-pointer ${cellBgClass} transition`}
+                                isQuarterEnd ? 'border-l-2 border-l-slate-300' : ''
+                              } cursor-pointer ${cellBgClass} transition font-bold`}
                             >
                               <div className="flex flex-col items-center justify-center gap-0.5 min-h-[30px]">
                                 {status.paid ? (
                                   <>
                                     <div className="flex items-center gap-0.5">
-                                      <Check className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-600 stroke-[3]" />
+                                      <Check className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-700 stroke-[3.5]" />
                                       {isMulti && (
-                                        <span className="text-[7.5px] sm:text-[8.5px] font-black px-0.5 py-0.2 bg-blue-100 text-blue-800 rounded-xs">
+                                        <span className="text-[7.5px] sm:text-[8.5px] font-black px-0.5 py-0.2 bg-blue-200 text-blue-900 rounded-xs">
                                           {status.paymentsList.length}
                                         </span>
                                       )}
                                     </div>
                                     {status.amount > 0 && (
-                                      <span className="text-[9px] sm:text-[10px] font-black text-emerald-800 leading-none">
+                                      <span className="text-[9px] sm:text-[10px] font-black text-emerald-900 leading-none">
                                         {status.amount}
+                                      </span>
+                                    )}
+                                  </>
+                                ) : status.pending ? (
+                                  <>
+                                    <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-700 stroke-[2.5]" />
+                                    <span className="text-[8px] sm:text-[9px] font-black text-amber-900 whitespace-nowrap">لم يحصل</span>
+                                    {status.pendingAmount > 0 && (
+                                      <span className="text-[8.5px] sm:text-[9.5px] font-black text-amber-950 leading-none">
+                                        {status.pendingAmount}
                                       </span>
                                     )}
                                   </>
                                 ) : isNoFeeActivity ? (
                                   <>
-                                    <Minus className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-slate-400 stroke-[2.5]" />
-                                    <span className="text-[7.5px] sm:text-[8.5px] font-bold text-slate-500 whitespace-nowrap">غير مطالبة</span>
+                                    <Minus className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-slate-600 stroke-[3]" />
+                                    <span className="text-[7.5px] sm:text-[8.5px] font-bold text-slate-700 whitespace-nowrap">غير مطالبة</span>
                                   </>
                                 ) : (
                                   <>
-                                    <AlertCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-red-400 stroke-[2]" />
-                                    <span className="text-[8px] sm:text-[9px] font-bold text-red-400">غير مسدد</span>
+                                    <AlertCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-red-600 stroke-[2.5]" />
+                                    <span className="text-[8px] sm:text-[9px] font-bold text-red-700">غير مسدد</span>
                                   </>
                                 )}
                               </div>
@@ -722,17 +762,46 @@ export const Summaries: React.FC<SummariesProps> = ({
                   <div className="space-y-1.5 max-h-[36vh] overflow-y-auto pr-0.5">
                     {selectedCell.payments.map((pay) => {
                       const isEditing = editingPaymentId === pay.id;
+                      const isCancelled = pay.status === 'cancelled' || pay.status === 'لاغي';
+                      const isPending = !isCancelled && (pay.status === 'pending' || pay.status === 'لم يتم التحصيل');
+                      const isCollected = !isCancelled && !isPending;
+
+                      let cardThemeClass = 'bg-emerald-50/70 border-emerald-300 hover:bg-emerald-100/60 text-emerald-950';
+                      let statusBadge = (
+                        <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 border border-emerald-300 text-[9px] font-black rounded flex items-center gap-0.5 shadow-2xs">
+                          <Check className="w-2.5 h-2.5 stroke-[3.5]" />
+                          <span>مسدد</span>
+                        </span>
+                      );
+
+                      if (isCancelled) {
+                        cardThemeClass = 'bg-rose-50/70 border-rose-300 hover:bg-rose-100/60 text-rose-950 opacity-80';
+                        statusBadge = (
+                          <span className="px-1.5 py-0.5 bg-rose-100 text-rose-800 border border-rose-300 text-[9px] font-black rounded flex items-center gap-0.5 shadow-2xs">
+                            <X className="w-2.5 h-2.5 stroke-[3]" />
+                            <span>لاغي</span>
+                          </span>
+                        );
+                      } else if (isPending) {
+                        cardThemeClass = 'bg-amber-50/80 border-amber-300 hover:bg-amber-100/70 text-amber-950';
+                        statusBadge = (
+                          <span className="px-1.5 py-0.5 bg-amber-100 text-amber-900 border border-amber-300 text-[9px] font-black rounded flex items-center gap-0.5 shadow-2xs">
+                            <Clock className="w-2.5 h-2.5 stroke-[2.5]" />
+                            <span>لم يحصل</span>
+                          </span>
+                        );
+                      }
 
                       return (
                         <div 
                           key={pay.id} 
-                          className="px-2.5 py-1.5 bg-slate-50/70 border border-slate-200/80 rounded-lg shadow-2xs hover:bg-slate-100/60 transition"
+                          className={`px-2.5 py-1.5 border rounded-lg shadow-2xs transition ${cardThemeClass}`}
                         >
                           {isEditing ? (
                             /* Inline Edit Form */
-                            <div className="space-y-1.5 w-full text-right" dir="rtl">
+                            <div className="space-y-1.5 w-full text-right bg-white p-2 rounded-lg border border-slate-200" dir="rtl">
                               <h5 className="text-[9.5px] font-black text-blue-900 border-b border-slate-200 pb-0.5">تعديل الدفعة:</h5>
-                              <div className="grid grid-cols-2 gap-2">
+                              <div className="grid grid-cols-3 gap-1.5">
                                 <div className="space-y-0.5">
                                   <label className="text-[8.5px] font-bold text-slate-500 block">المبلغ (ج.م)</label>
                                   <input
@@ -747,11 +816,23 @@ export const Summaries: React.FC<SummariesProps> = ({
                                   <select
                                     value={editPaymentType}
                                     onChange={(e) => setEditPaymentType(e.target.value)}
-                                    className="w-full px-2 py-1 bg-white border border-slate-200 rounded text-xs text-right font-bold focus:border-blue-500 outline-none"
+                                    className="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs text-right font-bold focus:border-blue-500 outline-none"
                                   >
                                     {(paymentTypes && paymentTypes.length > 0 ? paymentTypes : ['اشتراك شهري', 'صيانة طارئة', 'تحصيلات اخرى']).map(type => (
                                       <option key={type} value={type}>{type}</option>
                                     ))}
+                                  </select>
+                                </div>
+                                <div className="space-y-0.5">
+                                  <label className="text-[8.5px] font-bold text-slate-500 block">حالة الدفعة</label>
+                                  <select
+                                    value={editPaymentStatus}
+                                    onChange={(e) => setEditPaymentStatus(e.target.value)}
+                                    className="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs text-right font-bold focus:border-blue-500 outline-none"
+                                  >
+                                    <option value="collected">مسدد</option>
+                                    <option value="pending">لم يحصل</option>
+                                    <option value="cancelled">لاغي</option>
                                   </select>
                                 </div>
                               </div>
@@ -770,6 +851,7 @@ export const Summaries: React.FC<SummariesProps> = ({
                                         ...pay,
                                         amount: parsedAmount,
                                         paymentType: editPaymentType,
+                                        status: (editPaymentStatus as 'collected' | 'pending' | 'cancelled') || 'collected',
                                       };
                                       onEditPayment(updatedPayment);
                                       setSelectedCell(prev => prev ? {
@@ -796,18 +878,19 @@ export const Summaries: React.FC<SummariesProps> = ({
                           ) : (
                             /* Regular Compact View */
                             <div className="flex items-center justify-between gap-2 w-full">
-                              <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
-                                <span className="px-1.5 py-0.5 bg-emerald-100/90 text-emerald-800 text-[9.5px] font-black rounded">
+                              <div className="flex items-center gap-1.5 flex-wrap flex-1 min-w-0">
+                                {statusBadge}
+                                <span className="px-1.5 py-0.5 bg-white/80 text-slate-800 text-[9.5px] font-black rounded border border-slate-200/80">
                                   {pay.paymentType || 'اشتراك شهري'}
                                 </span>
                                 <span className="text-xs font-black text-slate-900">
                                   {pay.amount} ج.م
                                 </span>
-                                <span className="text-[9.5px] text-slate-400 font-semibold">
+                                <span className="text-[9px] text-slate-500 font-semibold">
                                   {pay.date}
                                 </span>
                                 {pay.receiptNumber && (
-                                  <span className="text-[8.5px] text-slate-500 font-bold bg-slate-200/70 px-1.5 py-0.5 rounded">
+                                  <span className="text-[8.5px] text-slate-600 font-bold bg-white/90 px-1.5 py-0.5 rounded border border-slate-200/60">
                                     #{pay.receiptNumber}
                                   </span>
                                 )}
@@ -833,9 +916,10 @@ export const Summaries: React.FC<SummariesProps> = ({
                                         setEditingPaymentId(pay.id);
                                         setEditAmount(String(pay.amount));
                                         setEditPaymentType(pay.paymentType || 'اشتراك شهري');
+                                        setEditPaymentStatus(pay.status || 'collected');
                                         setEditReceiptNumber(pay.receiptNumber || '');
                                       }}
-                                      className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-200/70 rounded transition cursor-pointer"
+                                      className="p-1 text-slate-500 hover:text-slate-800 hover:bg-white/80 rounded transition cursor-pointer"
                                       title="تعديل"
                                     >
                                       <Edit className="w-3 h-3" />

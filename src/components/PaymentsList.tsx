@@ -601,15 +601,22 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
     setSelectedPayment(null);
     const sortedRes = [...residents].sort((a, b) => compareFlatNumbers(a.flatNumber, b.flatNumber));
     const firstRes = sortedRes[0] || residents[0];
-    const initialResId = firstRes?.id || '';
+    const initialResId = (filterResident && residents.some(r => r.id === filterResident)) 
+      ? filterResident 
+      : (firstRes?.id || '');
+    const initialRes = residents.find(r => r.id === initialResId) || firstRes;
     const initialType = paymentTypes[0] || 'اشتراك شهري';
-    const initialFee = firstRes ? getResidentMonthlyFee(firstRes, defaultMonthlyFee, activityDefaultFees) : '';
+    const initialFee = initialRes ? getResidentMonthlyFee(initialRes, defaultMonthlyFee, activityDefaultFees) : '';
+
+    const defaultTargetMonth = (filterMonth && filterMonth.trim()) 
+      ? filterMonth 
+      : String(new Date().getMonth() + 1).padStart(2, '0');
 
     setResidentId(initialResId);
-    setMonth(String(new Date().getMonth() + 1).padStart(2, '0'));
+    setMonth(defaultTargetMonth);
     setAdditionalMonths([]);
     setShowMultiMonthPicker(false);
-    setTargetActivityType(firstRes?.activityType || 'سكني');
+    setTargetActivityType(initialRes?.activityType || 'سكني');
     setPaymentType(initialType);
     setAmount(initialFee);
     setReceiptNumber('');

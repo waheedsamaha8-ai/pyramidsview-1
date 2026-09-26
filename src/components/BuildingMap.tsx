@@ -50,6 +50,7 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
   const currentMonthNum = new Date().getMonth() + 1;
   const initialMonth = currentMonthNum < 10 ? `0${currentMonthNum}` : `${currentMonthNum}`;
   const [selectedMonth, setSelectedMonth] = useState<string>(initialMonth);
+  const [selectedPaymentType, setSelectedPaymentType] = useState<string>('اشتراك شهري');
   const [activeUnit, setActiveUnit] = useState<{ unitNum: number | string; floor: FloorConfig; resident?: Resident } | null>(null);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -67,6 +68,24 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
   const defaultMonthlyFee = config?.defaultMonthlyFee || 400;
   const activityDefaultFees = config?.activityDefaultFees;
 
+  // Available Payment Types list - ONLY from config.paymentTypes (إدارة أنواع التحصيل) without duplicates or arbitrary additions
+  const availablePaymentTypes = useMemo(() => {
+    const configured = (config?.paymentTypes && config.paymentTypes.length > 0)
+      ? config.paymentTypes
+      : ['اشتراك شهري', 'صيانة طارئة', 'تحصيلات اخرى'];
+
+    const seen = new Set<string>();
+    const result: string[] = [];
+    for (const type of configured) {
+      const trimmed = type?.trim();
+      if (trimmed && !seen.has(trimmed)) {
+        seen.add(trimmed);
+        result.push(trimmed);
+      }
+    }
+    return result;
+  }, [config?.paymentTypes]);
+
   // Derive floor configs automatically from existing residents if no custom layout is saved
   const effectiveFloorConfigs = useMemo(() => {
     if (floorConfigs && floorConfigs.length > 0) {
@@ -77,6 +96,20 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
     }
     return [];
   }, [floorConfigs, residents]);
+
+  const matchesPaymentType = (payType: string | undefined, filterType: string) => {
+    if (!filterType || filterType === 'all' || filterType === 'الكل') return true;
+    if (!payType) return false;
+    const cleanPay = payType.trim();
+    const cleanFilter = filterType.trim();
+    if (cleanPay === cleanFilter) return true;
+    // Handle arabic normalization (أ/إ/ا and ى/ي)
+    const normPay = cleanPay.replace(/ي$/g, 'ى').replace(/[أإآ]/g, 'ا');
+    const normFilter = cleanFilter.replace(/ي$/g, 'ى').replace(/[أإآ]/g, 'ا');
+    if (normPay === normFilter) return true;
+    if (normFilter.includes('اشتراك') && (normPay.includes('اشتراك') || normPay.includes('شهر'))) return true;
+    return false;
+  };
 
   const getPaymentStatus = (flatNumber: number | string) => {
     const resident = residents.find(r => isSameFlatNumber(r.flatNumber, flatNumber));
@@ -89,10 +122,11 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
       p.year === currentYear && 
       parseInt(p.month, 10) === targetMonthNum &&
       p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل' &&
-      (p.paymentType === 'اشتراك شهري' || p.paymentType?.includes('اشتراك') || p.paymentType?.includes('شهري') || p.amount > 0)
+      matchesPaymentType(p.paymentType, selectedPaymentType) &&
+      (p.amount > 0 || p.isManuallyPaid)
     );
 
-    if (payment && (payment.amount > 0 || payment.isManuallyPaid)) return 'paid';
+    if (payment) return 'paid';
     return 'unpaid';
   };
 
@@ -109,7 +143,8 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
     const targetMonthNum = parseInt(selectedMonth, 10);
     const currentMonthPayment = unitPayments.find(p => 
       parseInt(p.month, 10) === targetMonthNum && 
-      (p.paymentType === 'اشتراك شهري' || p.paymentType?.includes('اشتراك') || p.paymentType?.includes('شهري') || p.amount > 0)
+      matchesPaymentType(p.paymentType, selectedPaymentType) &&
+      (p.amount > 0 || p.isManuallyPaid)
     );
     
     // Overall financial calculations
@@ -198,7 +233,7 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
     });
 
     return { paidCount, unpaidCount, finishingUnpaidCount, rawNoFeeCount, emptyCount };
-  }, [effectiveFloorConfigs, residents, payments, currentYear, selectedMonth]);
+  }, [effectiveFloorConfigs, residents, payments, currentYear, selectedMonth, selectedPaymentType]);
 
   // WhatsApp Electronic Receipt Generator & Direct Trigger
   const sendWhatsAppReceipt = (target: 'owner' | 'tenant' | 'both') => {
@@ -620,34 +655,53 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
   return (
     <div className="space-y-4 text-right">
       {/* Month & Legend Bar */}
-      <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-100 shadow-xs flex flex-col md:flex-row items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5 w-full md:w-auto justify-between md:justify-start">
+      <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col lg:flex-row items-center justify-between gap-3">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 w-full lg:w-auto justify-between lg:justify-start">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-blue-50 text-blue-900 rounded-xl flex items-center justify-center">
-              <Building2 className="w-4 h-4" />
+            <div className="w-9 h-9 bg-blue-50 text-blue-900 rounded-xl flex items-center justify-center">
+              <Building2 className="w-4.5 h-4.5" />
             </div>
             <div>
               <h3 className="text-xs sm:text-sm font-black text-slate-900">خريطة سداد العمارة التفاعلية</h3>
-              <p className="text-[10px] text-slate-400 font-bold">حالة سداد اشتراكات شواغل الوحدات</p>
+              <p className="text-[10px] text-slate-400 font-bold">متابعة دقيقة لموقف سداد كافة أنواع التحصيلات</p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 bg-slate-50 px-2.5 py-1 rounded-xl border border-slate-100">
-            <span className="text-[10px] font-bold text-slate-500">شهر:</span>
-            <select 
-              value={selectedMonth}
-              onChange={(e) => setSelectedMonth(e.target.value)}
-              className="bg-white border border-slate-200 rounded-lg px-2.5 py-1 text-xs font-black text-blue-950 outline-none cursor-pointer"
-            >
-              {months.map((m, idx) => (
-                <option key={m} value={m}>{monthNamesArabic[idx]}</option>
-              ))}
-            </select>
+          {/* Filters Box: Month & Payment Type Selectors */}
+          <div className="flex flex-wrap items-center gap-2 bg-slate-50 p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl border border-slate-200 w-full sm:w-auto">
+            {/* Month selector */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10.5px] font-bold text-slate-500 whitespace-nowrap">الشهر:</span>
+              <select 
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(e.target.value)}
+                className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs font-black text-blue-950 outline-none cursor-pointer hover:border-blue-300 transition"
+              >
+                {months.map((m, idx) => (
+                  <option key={m} value={m}>{monthNamesArabic[idx]}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Payment Type selector */}
+            <div className="flex items-center gap-1.5 sm:border-r sm:border-slate-200 sm:pr-2">
+              <span className="text-[10.5px] font-bold text-slate-500 whitespace-nowrap">نوع التحصيل:</span>
+              <select 
+                value={selectedPaymentType}
+                onChange={(e) => setSelectedPaymentType(e.target.value)}
+                className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs font-black text-blue-950 outline-none cursor-pointer hover:border-blue-300 transition"
+              >
+                <option value="all">كافة أنواع التحصيلات</option>
+                {availablePaymentTypes.map((type) => (
+                  <option key={type} value={type}>{type}</option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
 
         {/* Legend */}
-        <div className="flex flex-wrap items-center gap-2.5 sm:gap-4 text-[10px] font-black bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200 w-full md:w-auto justify-center">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-[10px] font-black bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 w-full lg:w-auto justify-center">
           <div className="flex items-center gap-1.5">
             <div className="w-3.5 h-3.5 bg-emerald-600 rounded-md shadow-2xs border border-emerald-700"></div>
             <span className="text-slate-800 font-bold">تم السداد ({stats.paidCount})</span>
@@ -662,7 +716,7 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
           </div>
           <div className="flex items-center gap-1.5">
             <div className="w-3.5 h-3.5 bg-slate-700 rounded-md shadow-2xs border border-slate-800"></div>
-            <span className="text-slate-800 font-bold">بدون تشطيب (بدون تحصيل) ({stats.rawNoFeeCount})</span>
+            <span className="text-slate-800 font-bold">بدون تحصيل ({stats.rawNoFeeCount})</span>
           </div>
         </div>
       </div>
