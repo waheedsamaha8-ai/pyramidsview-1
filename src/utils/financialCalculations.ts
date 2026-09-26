@@ -121,6 +121,15 @@ export function getPaymentsForResident(
 }
 
 /**
+ * Checks whether a payment type represents the regular recurring monthly subscription
+ */
+export function isMonthlySubscriptionType(paymentType?: string): boolean {
+  if (!paymentType) return true;
+  const t = paymentType.trim();
+  return t === 'اشتراك شهري' || t.includes('اشتراك') || t.includes('شهري');
+}
+
+/**
  * Calculates the carried forward previous balance for a resident up to the start of targetYear.
  * 
  * Automatic Rollover Logic:
@@ -129,7 +138,7 @@ export function getPaymentsForResident(
  *     Returns resident.initialBalance || 0 (the balance from before the system started).
  * - For targetYear > startYear:
  *     1) Starts with resident.initialBalance || 0
- *     2) Adds all payments made in all previous years (year < targetYear)
+ *     2) Adds all monthly subscription payments made in all previous years (year < targetYear)
  *     3) Subtracts all monthly dues for all elapsed months from accountingStartDate up to 31 Dec of (targetYear - 1).
  *     The result is the exact carried over balance (positive = surplus/credit, negative = debt).
  */
@@ -157,12 +166,14 @@ export function getCarriedPreviousBalance(
   const elapsedMonthsPrior = (yearsDiff * 12) + (12 - startMonth);
   const duesPrior = elapsedMonthsPrior * fee;
 
-  // Retrieve only this resident's valid paid payments (excluding cancelled and pending/uncollected ones)
-  const residentPayments = getPaymentsForResident(resident, paymentsOrIndex)
-    .filter(p => p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل');
+  // Retrieve only this resident's valid paid monthly payments (excluding cancelled and pending/uncollected ones)
+  const allResidentPayments = getPaymentsForResident(resident, paymentsOrIndex);
+  const residentMonthlyPayments = allResidentPayments
+    .filter(p => p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل')
+    .filter(p => isMonthlySubscriptionType(p.paymentType));
 
-  // Sum payments made before targetYear
-  const paymentsPrior = residentPayments
+  // Sum monthly subscription payments made before targetYear
+  const paymentsPrior = residentMonthlyPayments
     .filter(p => {
       const pYear = Number(p.year) || (p.date ? new Date(p.date).getFullYear() : startYear);
       return pYear < targetYear;
@@ -180,6 +191,10 @@ export function getCarriedPreviousBalance(
  *   Calculates previous balance carried over into targetYear, plus dues and payments inside targetYear.
  * If targetYear is undefined:
  *   Calculates cumulative all-time financials from accountingStartDate to today.
+ *
+ * Rules:
+ * - "الاشتراك الشهري": pays for regular monthly dues, calculates unpaid months and monthly delay amount.
+ * - "تحصيلات أخرى": special assessments/other collections calculated independently; paid amounts don't reduce monthly delay, unpaid amounts count as other collections debt.
  */
 export function calculateResidentFinancials(
   resident: Resident,
@@ -190,8 +205,13 @@ export function calculateResidentFinancials(
   targetYear?: number
 ) {
   const fee = getResidentMonthlyFee(resident, defaultMonthlyFee, activityDefaultFees);
-  const residentPayments = getPaymentsForResident(resident, paymentsOrIndex)
+  const allResidentPayments = getPaymentsForResident(resident, paymentsOrIndex);
+
+  const validPayments = allResidentPayments
     .filter(p => p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل');
+
+  const pendingPayments = allResidentPayments
+    .filter(p => p.status === 'pending' || p.status === 'لم يتم التحصيل' || p.status === 'uncollected');
 
   if (targetYear !== undefined) {
     // Specific fiscal year calculation with automatic previous balance carry-over
@@ -227,24 +247,46 @@ export function calculateResidentFinancials(
       }
     }
 
-    // Expected dues in targetYear = (monthsInYear * fee) - carriedPreviousBalance
-    const expectedDues = (monthsInYear * fee) - carriedPreviousBalance;
+    // Filter payments in targetYear
+    const validPaymentsInYear = validPayments.filter(p => {
+      const pYear = Number(p.year) || (p.date ? new Date(p.date).getFullYear() : startYear);
+      return pYear === targetYear;
+    });
 
-    // Payments in targetYear from resident's payments
-    const totalPaid = residentPayments
-      .filter(p => {
-        const pYear = Number(p.year) || (p.date ? new Date(p.date).getFullYear() : startYear);
-        return pYear === targetYear;
-      })
+    const pendingPaymentsInYear = pendingPayments.filter(p => {
+      const pYear = Number(p.year) || (p.date ? new Date(p.date).getFullYear() : startYear);
+      return pYear === targetYear;
+    });
+
+    // Monthly subscription payments in targetYear
+    const monthlyPaid = validPaymentsInYear
+      .filter(p => isMonthlySubscriptionType(p.paymentType))
       .reduce((sum, p) => sum + (p.amount || 0), 0);
 
-    const netBalance = totalPaid - expectedDues;
+    // Other collections paid in targetYear (e.g. maintenance, elevator, etc.)
+    const otherCollectionsPaid = validPaymentsInYear
+      .filter(p => !isMonthlySubscriptionType(p.paymentType))
+      .reduce((sum, p) => sum + (p.amount || 0), 0);
 
-    const paidMonthsCount = fee > 0 ? Math.floor(totalPaid / fee) : 0;
+    // Other collections unpaid/pending in targetYear
+    const otherCollectionsDebt = pendingPaymentsInYear
+      .filter(p => !isMonthlySubscriptionType(p.paymentType))
+      .reduce((sum, p) => sum + (p.amount || 0), 0);
+
+    const totalPaid = monthlyPaid + otherCollectionsPaid;
+
+    // Expected dues in targetYear for monthly subscriptions
+    const expectedDues = (monthsInYear * fee) - carriedPreviousBalance;
+
+    const paidMonthsCount = fee > 0 ? Math.floor(monthlyPaid / fee) : 0;
     const unpaidMonthsCount = Math.max(0, monthsInYear - paidMonthsCount);
     const unpaidMonthsDues = unpaidMonthsCount * fee;
     const periodExpectedDues = monthsInYear * fee;
     const oldDebtAmount = carriedPreviousBalance < 0 ? Math.abs(carriedPreviousBalance) : 0;
+
+    // Net balance: monthly net balance minus any unpaid other collections debt
+    const monthlyNetBalance = monthlyPaid - expectedDues;
+    const netBalance = monthlyNetBalance - otherCollectionsDebt;
 
     return {
       monthlyFee: fee,
@@ -256,6 +298,9 @@ export function calculateResidentFinancials(
       oldDebtAmount,
       expectedDues,
       totalPaid,
+      monthlyPaid,
+      otherCollectionsPaid,
+      otherCollectionsDebt,
       netBalance,
       carriedPreviousBalance,
       isDebt: netBalance < 0,
@@ -280,14 +325,29 @@ export function calculateResidentFinancials(
 
   const initialBal = resident.initialBalance || 0;
   const expectedDues = (monthsElapsed * fee) - initialBal;
-  const totalPaid = residentPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
-  const netBalance = totalPaid - expectedDues;
 
-  const paidMonthsCount = fee > 0 ? Math.floor(totalPaid / fee) : 0;
+  const monthlyPaid = validPayments
+    .filter(p => isMonthlySubscriptionType(p.paymentType))
+    .reduce((sum, p) => sum + (p.amount || 0), 0);
+
+  const otherCollectionsPaid = validPayments
+    .filter(p => !isMonthlySubscriptionType(p.paymentType))
+    .reduce((sum, p) => sum + (p.amount || 0), 0);
+
+  const otherCollectionsDebt = pendingPayments
+    .filter(p => !isMonthlySubscriptionType(p.paymentType))
+    .reduce((sum, p) => sum + (p.amount || 0), 0);
+
+  const totalPaid = monthlyPaid + otherCollectionsPaid;
+
+  const paidMonthsCount = fee > 0 ? Math.floor(monthlyPaid / fee) : 0;
   const unpaidMonthsCount = Math.max(0, monthsElapsed - paidMonthsCount);
   const unpaidMonthsDues = unpaidMonthsCount * fee;
   const periodExpectedDues = monthsElapsed * fee;
   const oldDebtAmount = initialBal < 0 ? Math.abs(initialBal) : 0;
+
+  const monthlyNetBalance = monthlyPaid - expectedDues;
+  const netBalance = monthlyNetBalance - otherCollectionsDebt;
 
   return {
     monthlyFee: fee,
@@ -299,6 +359,9 @@ export function calculateResidentFinancials(
     oldDebtAmount,
     expectedDues,
     totalPaid,
+    monthlyPaid,
+    otherCollectionsPaid,
+    otherCollectionsDebt,
     netBalance,
     carriedPreviousBalance: initialBal,
     isDebt: netBalance < 0,

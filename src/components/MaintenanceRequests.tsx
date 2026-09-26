@@ -383,17 +383,6 @@ export const MaintenanceRequests: React.FC<MaintenanceRequestsProps> = ({
     }
   };
 
-  const handleDirectWhatsApp1 = (text: string) => {
-    const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
-    window.open(url, '_blank');
-  };
-
-  const handleDirectWhatsApp2 = (text: string) => {
-    // Open via native scheme (often opens WhatsApp app or business / app chooser)
-    const url = `whatsapp://send?text=${encodeURIComponent(text)}`;
-    window.location.href = url;
-  };
-
   const handleCopyCraftsmanShareText = (text: string) => {
     navigator.clipboard.writeText(text);
     setIsShareCopied(true);
@@ -514,19 +503,19 @@ export const MaintenanceRequests: React.FC<MaintenanceRequestsProps> = ({
               <button
                 type="button"
                 onClick={() => setShowAddForm(!showAddForm)}
-                className="px-3 py-1.5 bg-blue-900 hover:bg-blue-950 text-white rounded-lg text-xs font-bold transition shadow-2xs flex items-center gap-1 cursor-pointer"
+                className="px-2.5 py-1 sm:px-3 sm:py-1.5 bg-blue-900 hover:bg-blue-950 text-white rounded-lg text-[11px] sm:text-xs font-black transition shadow-2xs flex items-center gap-1 cursor-pointer whitespace-nowrap"
               >
                 <Plus className="w-3.5 h-3.5" />
-                <span>{showAddForm ? 'إلغاء النموذج' : 'طلب صيانة جديد'}</span>
+                <span>{showAddForm ? 'إلغاء' : 'طلب صيانة'}</span>
               </button>
             ) : (
               <button
                 type="button"
                 onClick={() => setShowAddCraftsmanForm(!showAddCraftsmanForm)}
-                className="px-3 py-1.5 bg-blue-900 hover:bg-blue-950 text-white rounded-lg text-xs font-bold transition shadow-2xs flex items-center gap-1 cursor-pointer"
+                className="px-2.5 py-1 sm:px-3 sm:py-1.5 bg-blue-900 hover:bg-blue-950 text-white rounded-lg text-[11px] sm:text-xs font-black transition shadow-2xs flex items-center gap-1 cursor-pointer whitespace-nowrap"
               >
                 <Plus className="w-3.5 h-3.5" />
-                <span>{showAddCraftsmanForm ? 'إلغاء النموذج' : 'إضافة فني جديد'}</span>
+                <span>{showAddCraftsmanForm ? 'إلغاء' : 'إضافة فني'}</span>
               </button>
             )
           )
@@ -681,67 +670,69 @@ export const MaintenanceRequests: React.FC<MaintenanceRequestsProps> = ({
             </form>
           )}
 
-          {/* Scope Selector for Building vs My Unit */}
-          {flatNumber && (
-            <div className="flex items-center gap-2 bg-white dark:bg-[#111a2e] p-2 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs text-xs">
-              <span className="text-slate-500 dark:text-slate-400 font-extrabold text-[11px] pr-1 whitespace-nowrap">عرض البلاغات:</span>
-              <div className="flex items-center gap-1.5 flex-1">
-                <button
-                  type="button"
-                  onClick={() => setFilterScope('ALL')}
-                  className={`flex-1 py-2 px-3 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 cursor-pointer ${
-                    filterScope === 'ALL'
-                      ? 'bg-blue-900 text-white shadow-xs'
-                      : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-                  }`}
-                >
-                  <Building className="w-3.5 h-3.5" />
-                  <span>جميع بلاغات العمارة ({requests.length})</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFilterScope('MY_UNIT')}
-                  className={`flex-1 py-2 px-3 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 cursor-pointer ${
-                    filterScope === 'MY_UNIT'
-                      ? 'bg-blue-900 text-white shadow-xs'
-                      : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-                  }`}
-                >
-                  <Home className="w-3.5 h-3.5" />
-                  <span>بلاغات وحدتي ({requests.filter(r => r.flatNumber === flatNumber).length})</span>
-                </button>
+          {/* Compact Unified Controls: Scope Selector + Status & Priority Filters */}
+          <div className="bg-white dark:bg-[#111a2e] p-1.5 sm:p-2 rounded-xl border border-slate-200/80 dark:border-slate-800 shadow-2xs space-y-1.5 text-xs">
+            {flatNumber && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-slate-500 dark:text-slate-400 font-extrabold text-[10px] sm:text-[11px] whitespace-nowrap">عرض:</span>
+                <div className="flex items-center gap-1 flex-1">
+                  <button
+                    type="button"
+                    onClick={() => setFilterScope('ALL')}
+                    className={`flex-1 py-1 px-2 rounded-lg text-[11px] font-black transition flex items-center justify-center gap-1 cursor-pointer ${
+                      filterScope === 'ALL'
+                        ? 'bg-blue-900 text-white shadow-2xs'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    <Building className="w-3 h-3 shrink-0" />
+                    <span className="truncate">جميع البلاغات ({requests.length})</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFilterScope('MY_UNIT')}
+                    className={`flex-1 py-1 px-2 rounded-lg text-[11px] font-black transition flex items-center justify-center gap-1 cursor-pointer ${
+                      filterScope === 'MY_UNIT'
+                        ? 'bg-blue-900 text-white shadow-2xs'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    <Home className="w-3 h-3 shrink-0" />
+                    <span className="truncate">وحدتي ({requests.filter(r => r.flatNumber === flatNumber).length})</span>
+                  </button>
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Filters: Priority & Status on Single Row */}
-          <div className="grid grid-cols-2 gap-2 bg-white dark:bg-[#111a2e] p-2.5 sm:p-3 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs text-xs">
-            <div className="flex items-center gap-1.5">
-              <span className="text-slate-500 dark:text-slate-400 font-bold whitespace-nowrap text-[11px]">حالة الطلب:</span>
-              <select
-                value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value)}
-                className="flex-1 min-w-0 px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 rounded-lg font-bold text-xs outline-none cursor-pointer"
-              >
-                <option value="ALL">جميع الحالات</option>
-                <option value="PENDING">قيد الانتظار</option>
-                <option value="IN_PROGRESS">جاري العمل</option>
-                <option value="COMPLETED">تم الإنجاز</option>
-              </select>
-            </div>
+            {/* Filters: Priority & Status in Single Tight Row */}
+            <div className="grid grid-cols-2 gap-1.5">
+              <div className="flex items-center gap-1 min-w-0">
+                <span className="text-slate-500 dark:text-slate-400 font-bold whitespace-nowrap text-[10px] sm:text-[11px]">الحالة:</span>
+                <select
+                  value={filterStatus}
+                  onChange={(e) => setFilterStatus(e.target.value)}
+                  className="flex-1 min-w-0 px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 rounded-lg font-bold text-[11px] outline-none cursor-pointer"
+                >
+                  <option value="ALL">الكل</option>
+                  <option value="PENDING">قيد الانتظار</option>
+                  <option value="IN_PROGRESS">جاري العمل</option>
+                  <option value="COMPLETED">تم الإنجاز</option>
+                </select>
+              </div>
 
-            <div className="flex items-center gap-1.5">
-              <span className="text-slate-500 dark:text-slate-400 font-bold whitespace-nowrap text-[11px]">الأولوية:</span>
-              <select
-                value={filterPriority}
-                onChange={(e) => setFilterPriority(e.target.value)}
-                className="flex-1 min-w-0 px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 rounded-lg font-bold text-xs outline-none cursor-pointer"
-              >
-                <option value="ALL">جميع المستويات</option>
-                <option value="LOW">عادية</option>
-                <option value="MEDIUM">متوسطة</option>
-                <option value="HIGH">عاجلة جداً</option>
-              </select>
+              <div className="flex items-center gap-1 min-w-0">
+                <span className="text-slate-500 dark:text-slate-400 font-bold whitespace-nowrap text-[10px] sm:text-[11px]">الأولوية:</span>
+                <select
+                  value={filterPriority}
+                  onChange={(e) => setFilterPriority(e.target.value)}
+                  className="flex-1 min-w-0 px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 rounded-lg font-bold text-[11px] outline-none cursor-pointer"
+                >
+                  <option value="ALL">الكل</option>
+                  <option value="LOW">عادية</option>
+                  <option value="MEDIUM">متوسطة</option>
+                  <option value="HIGH">عاجلة جداً</option>
+                </select>
+              </div>
             </div>
           </div>
 
@@ -1652,21 +1643,6 @@ export const MaintenanceRequests: React.FC<MaintenanceRequestsProps> = ({
                   </div>
                 </div>
 
-                {/* Mobile Dual WhatsApp Smart Hint */}
-                <div className="bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/40 dark:to-teal-950/30 border border-emerald-200 dark:border-emerald-800/80 rounded-2xl p-3.5 flex items-start gap-2.5">
-                  <div className="w-7 h-7 bg-emerald-600 text-white rounded-lg flex items-center justify-center shrink-0 mt-0.5 shadow-2xs">
-                    <Smartphone className="w-4 h-4" />
-                  </div>
-                  <div className="text-xs text-emerald-950 dark:text-emerald-200">
-                    <p className="font-black text-emerald-900 dark:text-emerald-100 mb-0.5 flex items-center gap-1.5">
-                      <span>اختيار أي من تطبيقي الواتساب (WhatsApp 1 / WhatsApp 2) على الموبايل</span>
-                    </p>
-                    <p className="text-[11px] text-emerald-800/90 dark:text-emerald-300/90 leading-relaxed font-semibold">
-                      إذا كان لديك أكثر من رقم أو تطبيقي واتساب على الهاتف (مثل واتساب الأساسي وواتساب للأعمال / Dual Messenger)، اضغط على الزر الرئيسي الأخضر أدناه ليفتح لك الهاتف قائمة المشاركة وتختار منها الواتساب المطلوب مباشرة!
-                    </p>
-                  </div>
-                </div>
-
                 {/* Toast message if active */}
                 {shareToast && (
                   <div className="bg-emerald-100 dark:bg-emerald-900/60 border border-emerald-300 dark:border-emerald-700 text-emerald-900 dark:text-emerald-100 px-3.5 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 animate-fade-in shadow-xs">
@@ -1677,37 +1653,16 @@ export const MaintenanceRequests: React.FC<MaintenanceRequestsProps> = ({
 
                 {/* Main Action Buttons */}
                 <div className="space-y-2">
-                  {/* Native Share Button (Primary for Dual WhatsApp) */}
+                  {/* Share Button */}
                   <button
                     type="button"
                     onClick={() => handleNativeMobileShare(sharingCraftsman)}
                     className="w-full py-3 px-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-black text-xs sm:text-sm rounded-2xl shadow-md shadow-emerald-700/20 transition flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99]"
                   >
                     <Smartphone className="w-4 h-4 shrink-0" />
-                    <span>مشاركة عبر تطبيقات الهاتف (لاختيار واتساب 1 أو 2 أو الأعمال)</span>
+                    <span>مشاركة كارت الفني عبر الواتساب والتطبيقات</span>
                     <Share2 className="w-4 h-4 shrink-0 mr-auto opacity-80" />
                   </button>
-
-                  {/* Direct WhatsApp Buttons Grid */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleDirectWhatsApp1(fullShareText)}
-                      className="py-2.5 px-3 bg-slate-100 dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-slate-800 dark:text-slate-200 hover:text-emerald-700 dark:hover:text-emerald-300 border border-slate-200 dark:border-slate-700 hover:border-emerald-300 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer"
-                    >
-                      <MessageCircle className="w-4 h-4 text-emerald-600 shrink-0" />
-                      <span>فتح واتساب 1 (الأساسي)</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleDirectWhatsApp2(fullShareText)}
-                      className="py-2.5 px-3 bg-slate-100 dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-slate-800 dark:text-slate-200 hover:text-emerald-700 dark:hover:text-emerald-300 border border-slate-200 dark:border-slate-700 hover:border-emerald-300 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer"
-                    >
-                      <Send className="w-4 h-4 text-blue-600 shrink-0" />
-                      <span>فتح واتساب 2 / الأعمال</span>
-                    </button>
-                  </div>
 
                   {/* Copy Button */}
                   <button

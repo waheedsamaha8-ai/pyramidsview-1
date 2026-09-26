@@ -824,8 +824,8 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                 <tr className="bg-slate-50 text-slate-400 font-extrabold text-[11px] border-b border-slate-100">
                   <th className="px-4 py-3 sticky right-0 bg-slate-50 shadow-xs z-10 border-l border-slate-100">الوحدة</th>
                   <th className="px-4 py-3">الساكن</th>
-                  <th className="px-4 py-3">الفئة / الشهر</th>
                   <th className="px-4 py-3">المبلغ المستلم</th>
+                  <th className="px-4 py-3">الفئة / الشهر</th>
                   <th 
                     onClick={toggleReceiptSort}
                     className="px-4 py-3 cursor-pointer hover:bg-slate-100 transition select-none"
@@ -912,18 +912,6 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                           </div>
                         </td>
 
-                        {/* Type & Month combined */}
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          <div className="flex flex-col gap-1 justify-center">
-                            <span className="px-2 py-0.5 border border-slate-100 bg-slate-50 text-slate-700 rounded text-[10px] font-extrabold w-fit">
-                              {p.paymentType}
-                            </span>
-                            <span className="text-[11px] text-slate-500 font-bold">
-                              {monthNamesArabic[parseInt(p.month, 10) - 1]} {p.year}
-                            </span>
-                          </div>
-                        </td>
-
                         {/* Amount */}
                         <td className="px-4 py-3 whitespace-nowrap">
                           <div className="flex flex-col">
@@ -942,6 +930,18 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                                 🚫 لاغي
                               </span>
                             )}
+                          </div>
+                        </td>
+
+                        {/* Type & Month combined */}
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <div className="flex flex-col gap-1 justify-center">
+                            <span className="px-2 py-0.5 border border-slate-100 bg-slate-50 text-slate-700 rounded text-[10px] font-extrabold w-fit">
+                              {p.paymentType}
+                            </span>
+                            <span className="text-[11px] text-slate-500 font-bold">
+                              {monthNamesArabic[parseInt(p.month, 10) - 1]} {p.year}
+                            </span>
                           </div>
                         </td>
 
@@ -1081,18 +1081,6 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                               </div>
                             </td>
 
-                            {/* Type & Month combined */}
-                            <td className="px-4 py-3 whitespace-nowrap">
-                              <div className="flex flex-col gap-1 justify-center">
-                                <span className="px-2 py-0.5 border border-slate-100 bg-slate-50 text-slate-700 rounded text-[10px] font-extrabold w-fit">
-                                  {p.paymentType}
-                                </span>
-                                <span className="text-[11px] text-slate-500 font-bold">
-                                  {monthNamesArabic[parseInt(p.month, 10) - 1]} {p.year}
-                                </span>
-                              </div>
-                            </td>
-
                             {/* Amount */}
                             <td className="px-4 py-3 whitespace-nowrap">
                               <div className="flex flex-col">
@@ -1111,6 +1099,18 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                                     🚫 لاغي
                                   </span>
                                 )}
+                              </div>
+                            </td>
+
+                            {/* Type & Month combined */}
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <div className="flex flex-col gap-1 justify-center">
+                                <span className="px-2 py-0.5 border border-slate-100 bg-slate-50 text-slate-700 rounded text-[10px] font-extrabold w-fit">
+                                  {p.paymentType}
+                                </span>
+                                <span className="text-[11px] text-slate-500 font-bold">
+                                  {monthNamesArabic[parseInt(p.month, 10) - 1]} {p.year}
+                                </span>
                               </div>
                             </td>
 
@@ -1175,14 +1175,23 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                   ))
                 )}
                 {filteredPayments.length > 0 && (
-                  <tr className="bg-emerald-50/90 border-t-2 border-emerald-200 font-extrabold text-slate-900">
-                    <td colSpan={3} className="px-4 py-3.5 text-right font-black text-emerald-950 text-xs sm:text-sm sticky right-0 z-5 bg-emerald-50/95 shadow-xs border-l border-slate-100">
-                      إجمالي التحصيلات الكلي:
+                  <tr className="bg-emerald-50/90 border-t-2 border-emerald-300 font-extrabold text-slate-900">
+                    <td className="px-3 py-3 text-right font-black text-emerald-950 text-xs sticky right-0 z-5 bg-emerald-50 shadow-xs border-l border-slate-100 whitespace-nowrap">
+                      الإجمالي
                     </td>
-                    <td className="px-4 py-3.5 text-emerald-700 text-sm font-black whitespace-nowrap">
-                      {Math.round(totalAmount)} ج.م
+                    <td className="px-3 py-3 text-slate-700 font-black text-xs whitespace-nowrap">
+                      ({filteredPayments.length} عملية)
                     </td>
-                    <td colSpan={!isReadOnly && role !== 'ASSISTANT' ? 4 : 3} className="px-4 py-3.5"></td>
+                    <td className="px-3 py-3 text-emerald-700 text-sm font-black whitespace-nowrap bg-emerald-100/70 border-x border-emerald-200" dir="ltr">
+                      {Math.round(totalAmount).toLocaleString()} ج.م
+                    </td>
+                    <td className="px-3 py-3 text-center text-slate-400 font-bold whitespace-nowrap">—</td>
+                    <td className="px-3 py-3 text-center text-slate-400 font-bold whitespace-nowrap">—</td>
+                    <td className="px-3 py-3 text-center text-slate-400 font-bold whitespace-nowrap">—</td>
+                    {!isReadOnly && role !== 'ASSISTANT' && (
+                      <td className="px-3 py-3 text-center text-slate-400 font-bold whitespace-nowrap">—</td>
+                    )}
+                    <td className="px-3 py-3 text-center text-slate-400 font-bold whitespace-nowrap">—</td>
                   </tr>
                 )}
               </tbody>

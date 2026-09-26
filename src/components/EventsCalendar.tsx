@@ -185,10 +185,10 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
             <button
               type="button"
               onClick={() => setShowAddForm(!showAddForm)}
-              className="px-3 py-1.5 bg-blue-900 hover:bg-blue-950 text-white rounded-lg text-xs font-bold transition shadow-2xs flex items-center gap-1 cursor-pointer"
+              className="px-2.5 py-1 sm:px-3 sm:py-1.5 bg-blue-900 hover:bg-blue-950 text-white rounded-lg text-[11px] sm:text-xs font-black transition shadow-2xs flex items-center gap-1 cursor-pointer whitespace-nowrap"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>{showAddForm ? 'إلغاء النموذج' : 'إضافة حدث'}</span>
+              <span>{showAddForm ? 'إلغاء' : 'إضافة حدث'}</span>
             </button>
           ) : undefined
         }

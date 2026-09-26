@@ -254,6 +254,13 @@ const ReceiptClaimModalContent: React.FC<{
     generateImage();
   }, [data, residents]);
 
+  const isCurrentMonthPaid = useMemo(() => {
+    if (data.currentMonthStatus) {
+      return data.currentMonthStatus.includes('مسدد') && !data.currentMonthStatus.includes('غير');
+    }
+    return isReceipt;
+  }, [data.currentMonthStatus, isReceipt]);
+
   // Construct formatted RTL text for WhatsApp
   const shareText = useMemo(() => {
     if (isReceipt) {
@@ -308,13 +315,27 @@ const ReceiptClaimModalContent: React.FC<{
       } else {
         t += `• ${occupantInfo.singleLine}\n\n`;
       }
-      t += `⚠️ *حالة سداد الشهر الحالي:* اشتراك شهر ${monthName} ${data.year} (${Math.round(displayMonthlyFee).toLocaleString()} ج.م) غير مسدد حتى تاريخه.\n\n`;
+      if (isCurrentMonthPaid) {
+        t += `✓ *حالة سداد الشهر الحالي:* اشتراك شهر ${monthName} ${data.year} (${Math.round(displayMonthlyFee).toLocaleString()} ج.م) مسدد بالكامل ✓\n\n`;
+      } else {
+        t += `⚠️ *حالة سداد الشهر الحالي:* اشتراك شهر ${monthName} ${data.year} (${Math.round(displayMonthlyFee).toLocaleString()} ج.م) غير مسدد حتى تاريخه.\n\n`;
+      }
       t += `📋 *بيان وتفصيل المبالغ المستحقة على الوحدة:*\n`;
       const delayedMonthsText = unpaidMonthsCount === 1 ? 'تأخير شهر واحد' : unpaidMonthsCount === 2 ? 'تأخير شهرين' : unpaidMonthsCount <= 10 ? `تأخير ${unpaidMonthsCount} أشهر` : `تأخير ${unpaidMonthsCount} شهراً`;
-      t += `• متأخرات ${paymentCategory}: ${delayedMonthsText} بقيمة ${Math.round(unpaidMonthsDues).toLocaleString()} ج.م (الاشتراك الشهري: ${Math.round(displayMonthlyFee).toLocaleString()} ج.م)\n`;
-      if (oldCarriedDebts > 0) {
+      if (unpaidMonthsCount > 0) {
+        t += `• متأخرات ${paymentCategory}: ${delayedMonthsText} بقيمة ${Math.round(unpaidMonthsDues).toLocaleString()} ج.م (الاشتراك الشهري: ${Math.round(displayMonthlyFee).toLocaleString()} ج.م)\n`;
+      }
+
+      if (data.breakdown && data.breakdown.length > 0) {
+        data.breakdown.forEach(b => {
+          if (b.label.includes('تحصيلات أخرى') || b.label.includes('مديونية سابقة')) {
+            t += `• ${b.label}: ${b.value}\n`;
+          }
+        });
+      } else if (oldCarriedDebts > 0) {
         t += `• مديونية قديمة ومرحلة على الوحدة: ${Math.round(oldCarriedDebts).toLocaleString()} ج.م\n`;
       }
+
       t += `💰 *إجمالي المبلغ المطلوب سداده:* *${Math.round(data.amount).toLocaleString()} جنيه مصري* (مجموع المتأخرات الحالية + مجموع المديونيات القديمة)\n`;
       t += `🔢 *رقم المطالبة:* ${docNumber}\n`;
       t += `📅 *تاريخ الإصدار:* ${data.date || new Date().toISOString().split('T')[0]}\n`;
@@ -327,7 +348,7 @@ const ReceiptClaimModalContent: React.FC<{
       t += `إدارة اتحاد ملاك بيراميدز فيو ١`;
       return t;
     }
-  }, [data, isReceipt, monthName, docNumber, hasTenant, occupantInfo, carriedDebt, activityType, displayMonthlyFee, unpaidMonthsCount, unpaidMonthsDues, paymentCategory, paymentDescription, totalUnitDebt, oldCarriedDebts]);
+  }, [data, isReceipt, isCurrentMonthPaid, monthName, docNumber, hasTenant, occupantInfo, carriedDebt, activityType, displayMonthlyFee, unpaidMonthsCount, unpaidMonthsDues, paymentCategory, paymentDescription, totalUnitDebt, oldCarriedDebts]);
 
   const handleDownloadImage = () => {
     if (!imageBlob && !imageDataUrl) return;
@@ -637,17 +658,21 @@ const ReceiptClaimModalContent: React.FC<{
                 <div className={`p-2.5 rounded-lg border flex items-center justify-between text-[11px] font-extrabold mb-4 gap-2 ${
                   isReceipt 
                     ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
+                    : isCurrentMonthPaid
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
                     : 'bg-amber-50 border-amber-200 text-amber-800'
                 }`}>
                   <span>
                     {isReceipt 
                       ? `✓ تم استلام ${paymentDescription} بنجاح وتوثيقه في السجل المالي` 
+                      : isCurrentMonthPaid
+                      ? `✓ حالة سداد الشهر الحالي: اشتراك شهر ${monthName} ${data.year} (${Math.round(displayMonthlyFee).toLocaleString()} ج.م) مسدد بالكامل`
                       : `⚠️ تنويه هام: اشتراك شهر ${monthName} ${data.year} (${Math.round(displayMonthlyFee).toLocaleString()} ج.م) غير مسدد حتى تاريخه`}
                   </span>
                   <span className={`px-2 py-0.5 rounded-full text-[10px] shrink-0 ${
-                    isReceipt ? 'bg-emerald-200 text-emerald-950' : 'bg-amber-200 text-amber-950'
+                    isReceipt || isCurrentMonthPaid ? 'bg-emerald-200 text-emerald-950' : 'bg-amber-200 text-amber-950'
                   }`}>
-                    {isReceipt ? 'تم السداد ✓' : '⏳ غير مسدد'}
+                    {isReceipt || isCurrentMonthPaid ? 'مسدد بالكامل ✓' : '⏳ غير مسدد'}
                   </span>
                 </div>
 
@@ -679,11 +704,13 @@ const ReceiptClaimModalContent: React.FC<{
                     <>
                       <div className="flex justify-between items-center p-2.5 font-bold">
                         <span className="text-slate-500">عن شهر:</span>
-                        <span className="text-slate-900">اشتراك {monthName} {data.year} ({Math.round(displayMonthlyFee).toLocaleString()} ج.م)</span>
+                        <span className="text-slate-900">اشتراك {monthName} ${data.year} (${Math.round(displayMonthlyFee).toLocaleString()} ج.م)</span>
                       </div>
                       <div className="flex justify-between items-center p-2.5 font-bold">
                         <span className="text-slate-500">حالة الشهر الحالي:</span>
-                        <span className="text-rose-700 font-black">غير مسدد ⚠️</span>
+                        <span className={`font-black ${isCurrentMonthPaid ? 'text-emerald-700' : 'text-rose-700'}`}>
+                          {isCurrentMonthPaid ? 'مسدد بالكامل ✓' : 'غير مسدد ⚠️'}
+                        </span>
                       </div>
                     </>
                   )}
@@ -740,11 +767,33 @@ const ReceiptClaimModalContent: React.FC<{
                       <span>⚠️ بيان وتفصيل المبالغ المستحقة على الوحدة:</span>
                     </div>
                     <div className="text-[11.5px] leading-relaxed space-y-1">
-                      <div>• حالة الشهر الحالي: اشتراك شهر {monthName} {data.year} وقدره <span className="underline font-black">{Math.round(displayMonthlyFee).toLocaleString()} ج.م</span> غير مسدد حتى تاريخه.</div>
-                      <div className="font-bold text-slate-800">
-                        • متأخرات {paymentCategory}: تأخير {unpaidMonthsCount} شهور ({Math.round(unpaidMonthsDues).toLocaleString()} ج.م){oldCarriedDebts > 0 ? ` + مديونية قديمة مرحلة (${Math.round(oldCarriedDebts).toLocaleString()} ج.م)` : ''}
+                      <div>
+                        • حالة الشهر الحالي: اشتراك شهر {monthName} {data.year} وقدره <span className="underline font-black">{Math.round(displayMonthlyFee).toLocaleString()} ج.م</span>{' '}
+                        <span className={`font-black ${isCurrentMonthPaid ? 'text-emerald-700' : 'text-rose-700'}`}>
+                          {isCurrentMonthPaid ? 'مسدد بالكامل ✓' : 'غير مسدد حتى تاريخه ⚠️'}
+                        </span>
                       </div>
-                      <div className="font-black text-rose-800">
+                      {unpaidMonthsCount > 0 && (
+                        <div className="font-bold text-slate-800">
+                          • متأخرات {paymentCategory}: تأخير {unpaidMonthsCount} شهور ({Math.round(unpaidMonthsDues).toLocaleString()} ج.م)
+                        </div>
+                      )}
+                      {data.breakdown && data.breakdown.length > 0 ? (
+                        data.breakdown.map((b, idx) => (
+                          (b.label.includes('تحصيلات أخرى') || b.label.includes('مديونية سابقة')) ? (
+                            <div key={idx} className="font-bold text-rose-900">
+                              • {b.label}: <span className="font-black">{b.value}</span>
+                            </div>
+                          ) : null
+                        ))
+                      ) : (
+                        oldCarriedDebts > 0 && (
+                          <div className="font-bold text-rose-900">
+                            • مديونية قديمة مرحلة: <span className="font-black">{Math.round(oldCarriedDebts).toLocaleString()} ج.م</span>
+                          </div>
+                        )
+                      )}
+                      <div className="font-black text-rose-800 pt-1 border-t border-rose-200">
                         • إجمالي المبالغ المستحقة للسداد: <span className="underline">{Math.round(data.amount).toLocaleString()} ج.م</span> (مجموع المتأخرات الحالية + مجموع المديونيات القديمة)
                       </div>
                     </div>

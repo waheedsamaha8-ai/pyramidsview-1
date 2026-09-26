@@ -231,34 +231,40 @@ export function generateReceiptClaimCanvas(
 
   currentY += bannerHeight + 14;
 
+  const isCurrentMonthPaid = data.currentMonthStatus 
+    ? (data.currentMonthStatus.includes('مسدد') && !data.currentMonthStatus.includes('غير'))
+    : isReceipt;
+
   // 3. Status Alert Bar
   const alertHeight = 40;
-  const alertBg = isReceipt ? '#ecfdf5' : '#fffbeb';
-  const alertBorder = isReceipt ? '#a7f3d0' : '#fde68a';
-  const alertColor = isReceipt ? '#047857' : '#92400e';
+  const alertBg = isReceipt || isCurrentMonthPaid ? '#ecfdf5' : '#fffbeb';
+  const alertBorder = isReceipt || isCurrentMonthPaid ? '#a7f3d0' : '#fde68a';
+  const alertColor = isReceipt || isCurrentMonthPaid ? '#047857' : '#92400e';
   drawRoundRect(padding, currentY, contentWidth, alertHeight, 14, alertBg, alertBorder, 1);
 
   // Status message
   ctx.textAlign = 'right';
-  ctx.fillStyle = isReceipt ? '#047857' : '#92400e';
+  ctx.fillStyle = alertColor;
   ctx.font = `bold 12px ${fontFamily}`;
   const alertMsg = isReceipt
     ? `✓ تم استلام ${meta.paymentDescription} بنجاح وتوثيقه في السجل المالي`
+    : isCurrentMonthPaid
+    ? `✓ حالة سداد الشهر الحالي: اشتراك شهر ${monthName} ${data.year} (${Math.round(displayMonthlyFee).toLocaleString()} ج.م) مسدد بالكامل`
     : `⚠️ تنويه هام: اشتراك شهر ${monthName} ${data.year} (${Math.round(displayMonthlyFee).toLocaleString()} ج.م) غير مسدد حتى تاريخه`;
   ctx.fillText(alertMsg, width - padding - 16, currentY + 25);
 
   // Status Badge Pill on left
-  const badgeW = isReceipt ? 86 : 98;
+  const badgeW = isReceipt || isCurrentMonthPaid ? 96 : 98;
   const badgeH = 26;
   const badgeX = padding + 14;
   const badgeY = currentY + 7;
-  const badgeBg = isReceipt ? '#d1fae5' : '#fef3c7';
+  const badgeBg = isReceipt || isCurrentMonthPaid ? '#d1fae5' : '#fef3c7';
   drawRoundRect(badgeX, badgeY, badgeW, badgeH, 13, badgeBg);
 
   ctx.textAlign = 'center';
-  ctx.fillStyle = isReceipt ? '#047857' : '#92400e';
+  ctx.fillStyle = isReceipt || isCurrentMonthPaid ? '#047857' : '#92400e';
   ctx.font = `bold 11.5px ${fontFamily}`;
-  ctx.fillText(isReceipt ? 'تم السداد ✓' : '⏳ غير مسدد', badgeX + badgeW / 2, badgeY + 17);
+  ctx.fillText(isReceipt || isCurrentMonthPaid ? 'مسدد بالكامل ✓' : '⏳ غير مسدد', badgeX + badgeW / 2, badgeY + 17);
 
   currentY += alertHeight + 14;
 
@@ -359,7 +365,14 @@ export function generateReceiptClaimCanvas(
     drawTableRow(3, 'تاريخ السداد:', payDate, 'طريقة السداد:', payMethod, '#047857');
   } else {
     const monthStr = `اشتراك ${monthName} ${data.year} (${Math.round(displayMonthlyFee).toLocaleString()} ج.م)`;
-    drawTableRow(2, 'عن شهر:', monthStr, 'حالة السداد:', 'غير مسدد ⚠️', '#be123c');
+    drawTableRow(
+      2, 
+      'عن شهر:', 
+      monthStr, 
+      'حالة السداد:', 
+      isCurrentMonthPaid ? 'مسدد بالكامل ✓' : 'غير مسدد ⚠️', 
+      isCurrentMonthPaid ? '#047857' : '#be123c'
+    );
   }
 
   currentY += tableHeight + 14;
@@ -410,7 +423,8 @@ export function generateReceiptClaimCanvas(
     }
   } else {
     // Detailed Claim Breakdown
-    const debtBoxHeight = 76;
+    const hasOtherBreakdown = data.breakdown && data.breakdown.some(b => b.label.includes('تحصيلات أخرى'));
+    const debtBoxHeight = hasOtherBreakdown ? 90 : 76;
     drawRoundRect(padding, currentY, contentWidth, debtBoxHeight, 14, '#fef2f2', '#fecaca', 1);
 
     ctx.textAlign = 'right';
@@ -419,11 +433,10 @@ export function generateReceiptClaimCanvas(
     ctx.fillText('⚠️ بيان وتفصيل المبالغ المستحقة على الوحدة:', width - padding - 16, currentY + 20);
 
     ctx.font = `bold 11px ${fontFamily}`;
-    ctx.fillText(
-      `• حالة الشهر الحالي: اشتراك شهر ${monthName} ${data.year} (${Math.round(displayMonthlyFee).toLocaleString()} ج.م) غير مسدد ⚠️`,
-      width - padding - 16,
-      currentY + 37
-    );
+    const curMonthLine = isCurrentMonthPaid
+      ? `• حالة الشهر الحالي: اشتراك شهر ${monthName} ${data.year} (${Math.round(displayMonthlyFee).toLocaleString()} ج.م) مسدد بالكامل ✓`
+      : `• حالة الشهر الحالي: اشتراك شهر ${monthName} ${data.year} (${Math.round(displayMonthlyFee).toLocaleString()} ج.م) غير مسدد ⚠️`;
+    ctx.fillText(curMonthLine, width - padding - 16, currentY + 37);
 
     let detailLine = `• متأخرات ${meta.paymentCategory}: تأخير ${meta.unpaidMonthsCount} شهور (${Math.round(meta.currentArrears).toLocaleString()} ج.م)`;
     if (meta.oldCarriedDebts > 0) {
@@ -431,10 +444,19 @@ export function generateReceiptClaimCanvas(
     }
     ctx.fillText(detailLine, width - padding - 16, currentY + 53);
 
+    let offsetAfter = 69;
+    if (hasOtherBreakdown) {
+      const otherItem = data.breakdown?.find(b => b.label.includes('تحصيلات أخرى'));
+      if (otherItem) {
+        ctx.fillText(`• ${otherItem.label}: ${otherItem.value}`, width - padding - 16, currentY + 67);
+        offsetAfter = 81;
+      }
+    }
+
     ctx.fillText(
       `• إجمالي المبالغ المستحقة للسداد: ${Math.round(data.amount).toLocaleString()} ج.م (مجموع المتأخرات الحالية + المديونيات القديمة)`,
       width - padding - 16,
-      currentY + 69
+      currentY + offsetAfter
     );
 
     currentY += debtBoxHeight + 12;
@@ -545,11 +567,15 @@ export function getReceiptClaimPrintHtml(data: ReceiptClaimData, residents: Resi
     showCarriedDebt
   } = meta;
 
+  const isCurrentMonthPaid = data.currentMonthStatus 
+    ? (data.currentMonthStatus.includes('مسدد') && !data.currentMonthStatus.includes('غير'))
+    : isReceipt;
+
   const headerBg = isReceipt ? '#047857' : '#1d4ed8';
-  const alertBg = isReceipt ? '#ecfdf5' : '#fffbeb';
-  const alertBorder = isReceipt ? '#a7f3d0' : '#fde68a';
-  const alertColor = isReceipt ? '#047857' : '#92400e';
-  const badgeBg = isReceipt ? '#d1fae5' : '#fef3c7';
+  const alertBg = isReceipt || isCurrentMonthPaid ? '#ecfdf5' : '#fffbeb';
+  const alertBorder = isReceipt || isCurrentMonthPaid ? '#a7f3d0' : '#fde68a';
+  const alertColor = isReceipt || isCurrentMonthPaid ? '#047857' : '#92400e';
+  const badgeBg = isReceipt || isCurrentMonthPaid ? '#d1fae5' : '#fef3c7';
 
   return `
 <!DOCTYPE html>
@@ -744,8 +770,13 @@ export function getReceiptClaimPrintHtml(data: ReceiptClaimData, residents: Resi
     </div>
 
     <div class="status-bar">
-      <div>${isReceipt ? `✓ تم استلام ${meta.paymentDescription} بنجاح وتوثيقه في السجل المالي` : `⚠️ تنويه هام: اشتراك شهر ${monthName} ${data.year} (${Math.round(displayMonthlyFee).toLocaleString()} ج.م) غير مسدد حتى تاريخه`}</div>
-      <div class="status-badge">${isReceipt ? 'تم السداد ✓' : '⏳ غير مسدد'}</div>
+      <div>${isReceipt 
+        ? `✓ تم استلام ${meta.paymentDescription} بنجاح وتوثيقه في السجل المالي` 
+        : isCurrentMonthPaid
+        ? `✓ حالة سداد الشهر الحالي: اشتراك شهر ${monthName} ${data.year} (${Math.round(displayMonthlyFee).toLocaleString()} ج.م) مسدد بالكامل`
+        : `⚠️ تنويه هام: اشتراك شهر ${monthName} ${data.year} (${Math.round(displayMonthlyFee).toLocaleString()} ج.م) غير مسدد حتى تاريخه`
+      }</div>
+      <div class="status-badge">${isReceipt || isCurrentMonthPaid ? 'مسدد بالكامل ✓' : '⏳ غير مسدد'}</div>
     </div>
 
     <div class="info-table">
@@ -803,7 +834,7 @@ export function getReceiptClaimPrintHtml(data: ReceiptClaimData, residents: Resi
         </div>
         <div class="info-col">
           <span class="label">حالة الشهر الحالي:</span>
-          <span class="value" style="color: #be123c;">غير مسدد ⚠️</span>
+          <span class="value" style="color: ${isCurrentMonthPaid ? '#047857' : '#be123c'};">${isCurrentMonthPaid ? 'مسدد بالكامل ✓' : 'غير مسدد ⚠️'}</span>
         </div>
       </div>
       `}
@@ -824,8 +855,9 @@ export function getReceiptClaimPrintHtml(data: ReceiptClaimData, residents: Resi
     ) : `
       <div class="debt-box">
         <div style="font-weight: 900; margin-bottom: 4px;">⚠️ بيان وتفصيل المبالغ المستحقة على الوحدة:</div>
-        <div>• حالة الشهر الحالي: اشتراك شهر ${monthName} ${data.year} (${Math.round(displayMonthlyFee).toLocaleString()} ج.م) غير مسدد ⚠️</div>
+        <div>• حالة الشهر الحالي: اشتراك شهر ${monthName} ${data.year} (${Math.round(displayMonthlyFee).toLocaleString()} ج.م) ${isCurrentMonthPaid ? 'مسدد بالكامل ✓' : 'غير مسدد ⚠️'}</div>
         <div>• متأخرات ${meta.paymentCategory}: تأخير ${meta.unpaidMonthsCount} شهور (${Math.round(meta.currentArrears).toLocaleString()} ج.م)${meta.oldCarriedDebts > 0 ? ` + مديونية قديمة مرحلة (${Math.round(meta.oldCarriedDebts).toLocaleString()} ج.م)` : ''}</div>
+        ${data.breakdown ? data.breakdown.filter(b => b.label.includes('تحصيلات أخرى')).map(b => `<div>• ${b.label}: ${b.value}</div>`).join('') : ''}
         <div style="font-weight: 900; margin-top: 4px; color: #7f1d1d;">• إجمالي المبالغ المستحقة للسداد: <u>${Math.round(data.amount).toLocaleString()} ج.م</u> (مجموع المتأخرات الحالية + مجموع المديونيات القديمة)</div>
       </div>
     `}

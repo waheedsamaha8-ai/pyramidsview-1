@@ -8,9 +8,11 @@ import {
   calculateResidentFinancials, 
   getCarriedPreviousBalance, 
   exportCarriedBalancesForYear,
-  buildPaymentLookupIndex 
+  buildPaymentLookupIndex,
+  isMonthlySubscriptionType
 } from '../utils/financialCalculations';
 import { formatMobileNumber, formatPhoneForDisplay, formatPhoneForText, toWhatsAppNumber } from '../utils/phoneUtils';
+import { monthNamesArabic } from '../utils/receiptClaimGenerator';
 import { 
   TrendingDown, 
   Search, 
@@ -33,7 +35,8 @@ import {
   RefreshCw,
   Clock,
   Sparkles,
-  Download
+  Download,
+  Filter
 } from 'lucide-react';
 
 interface DebtsReportProps {
@@ -90,6 +93,15 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
   // Image generation loading state
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [claimModalData, setClaimModalData] = useState<ReceiptClaimData | null>(null);
+
+  // Dynamic activity types connected to config.activityTypes and residents
+  const availableActivityTypes = useMemo(() => {
+    const configured = (config?.activityTypes && config.activityTypes.length > 0)
+      ? config.activityTypes
+      : ['سكني', 'سكني مغلق', 'مفروش', 'إداري', 'تجاري', 'تحت التشطيب'];
+    const fromResidents = residents.map(r => r.activityType).filter(Boolean) as string[];
+    return Array.from(new Set([...configured, ...fromResidents])).filter(Boolean);
+  }, [config?.activityTypes, residents]);
 
   // Ultra-fast client-side image generation for Debts Report
   const handleGenerateImage = async () => {
@@ -379,12 +391,12 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
   ) => {
     const oldDebt = carriedBalance < 0 ? Math.abs(carriedBalance) : 0;
     let defaultText = `مساء الخير أستاذ/ ${recipientName}،\nتحية طيبة من إدارة اتحاد ملاك عمارة بيراميدز فيو ١ 🏢\n\n`;
-    defaultText += `نحيط سيادتكم علماً ببيان وتفصيل المبالغ المستحقة على الوحدة رقم (${flatNumber}):\n`;
-    defaultText += `• متأخرات تحصيلات شهرية: تأخير ${unpaidMonthsCount} شهور (${Math.round(unpaidMonthsDues).toLocaleString()} ج.م - الاشتراك الشهري: ${monthlyFee} ج.م)\n`;
+    defaultText += `نحيط سيادتكم علماً ببيان وتفصيل المبالغ المتأخرة على الوحدة رقم (${flatNumber}):\n`;
+    defaultText += `• متأخرات تحصيلات شهرية: تأخير ${unpaidMonthsCount} شهور (المبلغ المتأخر: ${Math.round(unpaidMonthsDues).toLocaleString()} ج.م - الاشتراك الشهري: ${monthlyFee} ج.م)\n`;
     if (oldDebt > 0) {
       defaultText += `• مديونيات قديمة ومرحلة: ${oldDebt.toLocaleString()} ج.م\n`;
     }
-    defaultText += `💰 *إجمالي المبالغ المستحقة للسداد:* *${debtAmount.toLocaleString()} جنيه مصري* (مجموع المتأخرات الحالية + مجموع المديونيات القديمة)\n\n`;
+    defaultText += `💰 *إجمالي المبالغ المتأخرة المستحقة للسداد:* *${debtAmount.toLocaleString()} جنيه مصري* (مجموع المتأخرات الحالية + مجموع المديونيات القديمة)\n\n`;
     defaultText += `نرجو من سيادتكم التكرم بالمبادرة بسرعة سداد المستحقات لتغطية التزامات العمارة والصيانة الدورية ومستحقات الخدمات المشتركة.\nشاكرين ومقدرين حسن تعاونكم دائماً.`;
 
     const encodedText = encodeURIComponent(defaultText);
@@ -402,7 +414,57 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
     const { resident, financials, carriedBalance } = item;
     const debtAmount = Math.round(Math.abs(financials.netBalance));
     const currentMonthNum = new Date().getMonth() + 1;
+    const currentYearNum = currentYear || new Date().getFullYear();
     const oldDebt = carriedBalance < 0 ? Math.abs(carriedBalance) : 0;
+
+    // Determine whether current month subscription has been paid
+    const isCurrentMonthSubscriptionPaid = payments.some(p => 
+      (isSameFlatNumber(p.flatNumber, resident.flatNumber) || p.residentId === resident.id) &&
+      Number(p.year) === currentYearNum &&
+      (Number(p.month) === currentMonthNum || String(p.month) === String(currentMonthNum) || String(p.month) === monthNamesArabic[currentMonthNum - 1]) &&
+      (p.status === 'PAID' || p.status === 'COMPLETED' || p.status === 'مكتمل' || p.status === 'محصل' || !p.status || p.status === 'منصرف') &&
+      p.status !== 'VOID' && p.status !== 'CANCELLED' && p.status !== 'لاغي' && p.status !== 'لم يتم التحصيل' && p.status !== 'pending' &&
+      isMonthlySubscriptionType(p.paymentType)
+    ) || (financials.paidMonthsCount >= financials.monthsElapsed && financials.unpaidMonthsCount === 0);
+
+    const currentMonthStatusText = isCurrentMonthSubscriptionPaid ? 'مسدد بالكامل ✓' : 'غير مسدد ⚠️';
+
+    // Check unpaid other collections
+    const unitOtherPayments = payments.filter(p => 
+      (isSameFlatNumber(p.flatNumber, resident.flatNumber) || p.residentId === resident.id) &&
+      !isMonthlySubscriptionType(p.paymentType)
+    );
+
+    const unpaidOtherPayments = unitOtherPayments.filter(p => 
+      p.status === 'pending' || p.status === 'لم يتم التحصيل' || p.status === 'uncollected'
+    );
+
+    const otherDebtTotal = Math.round(financials.otherCollectionsDebt || unpaidOtherPayments.reduce((s, p) => s + (p.amount || 0), 0));
+
+    const breakdownList = [
+      { label: 'الاشتراك الشهري للوحدة', value: `${Math.round(financials.monthlyFee).toLocaleString()} ج.م` },
+      { 
+        label: `اشتراك الشهر الحالي (${monthNamesArabic[currentMonthNum - 1]} ${currentYearNum})`, 
+        value: currentMonthStatusText,
+        color: isCurrentMonthSubscriptionPaid ? '#047857' : '#b91c1c'
+      },
+      { 
+        label: 'الشهور المتأخرة للاشتراك الشهري', 
+        value: `${financials.unpaidMonthsCount} شهور (المبلغ المتأخر: ${Math.round(financials.unpaidMonthsDues).toLocaleString()} ج.م)` 
+      },
+      ...(otherDebtTotal > 0 ? [{
+        label: `مديونية تحصيلات أخرى (غير مسددة)${unpaidOtherPayments.length > 0 ? ` [${Array.from(new Set(unpaidOtherPayments.map(p => p.paymentType || 'بند مخصص'))).join('، ')}]` : ''}`,
+        value: `${otherDebtTotal.toLocaleString()} ج.م`,
+        color: '#b91c1c'
+      }] : []),
+      ...(oldDebt > 0 ? [{
+        label: 'مديونية سابقة مرحلة',
+        value: `${Math.round(oldDebt).toLocaleString()} ج.م`,
+        color: '#b91c1c'
+      }] : []),
+      { label: 'إجمالي المسدد بالسنة', value: `${Math.round(financials.totalPaid).toLocaleString()} ج.م`, color: '#047857' },
+      { label: 'إجمالي المبلغ المتأخر المطلوب', value: `${Math.round(debtAmount).toLocaleString()} ج.م`, isHighlight: true, color: '#b91c1c' }
+    ];
 
     setClaimModalData({
       type: 'claim',
@@ -415,7 +477,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
       occupancyType: resident.ownershipType || 'تمليك',
       amount: debtAmount,
       month: currentMonthNum,
-      year: currentYear || new Date().getFullYear(),
+      year: currentYearNum,
       carriedBalance: carriedBalance,
       oldDebtAmount: oldDebt,
       monthlyFee: financials.monthlyFee,
@@ -423,19 +485,9 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
       totalPaid: financials.totalPaid,
       unpaidMonthsCount: financials.unpaidMonthsCount,
       unpaidMonthsDues: financials.unpaidMonthsDues,
-      currentMonthStatus: 'غير مسدد ⚠️',
+      currentMonthStatus: currentMonthStatusText,
       remainingBalance: debtAmount,
-      breakdown: [
-        { label: 'الاشتراك الشهري للوحدة', value: `${Math.round(financials.monthlyFee).toLocaleString()} ج.م` },
-        { label: 'عدد الشهور المستحقة', value: `${financials.unpaidMonthsCount} شهور (${Math.round(financials.unpaidMonthsDues).toLocaleString()} ج.م)` },
-        ...(oldDebt > 0 ? [{
-          label: 'مديونية سابقة مرحلة',
-          value: `${Math.round(oldDebt).toLocaleString()} ج.م`,
-          color: '#b91c1c'
-        }] : []),
-        { label: 'إجمالي المسدد بالسنة', value: `${Math.round(financials.totalPaid).toLocaleString()} ج.م` },
-        { label: 'إجمالي المستحق المطلوب', value: `${Math.round(debtAmount).toLocaleString()} ج.م`, isHighlight: true, color: '#b91c1c' }
-      ]
+      breakdown: breakdownList
     });
 
     markReminded(`${resident.id}_${target}`);
@@ -469,76 +521,85 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
 
   return (
     <div className="space-y-5 sm:space-y-6 text-right" dir="rtl">
-      {/* Top Banner Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 sm:gap-4">
+      {/* Top Banner Stats - 3 Compact Cards in 1 Single Row */}
+      <div className="grid grid-cols-3 gap-1.5 sm:gap-4">
         {/* Card 1: Total Debt */}
-        <div className="bg-red-50/90 border border-red-100 rounded-2xl p-4 sm:p-5 flex items-center justify-between shadow-xs">
-          <div className="space-y-1 text-right">
-            <span className="text-[10px] font-black text-red-950 uppercase tracking-wider block">إجمالي المديونيات القائمة</span>
-            <span className="text-xl sm:text-2xl font-black text-red-700 block" dir="ltr">
-              {Math.round(stats.totalDebt).toLocaleString()} <span className="text-xs font-bold text-red-900">ج.م</span>
-            </span>
-            <span className="text-[9px] text-red-900/90 font-bold block">
-              {selectedYearFilter === 'all' 
-                ? `مستحقة تراكمياً منذ بدء المحاسبة ${accountingStartDate}`
-                : `مستحقة عن السنة المالية ${selectedYearFilter} متضمنة الرصيد السابق`}
-            </span>
+        <div className="bg-red-50/90 border border-red-100 rounded-2xl p-2.5 sm:p-4 flex flex-col justify-between shadow-xs">
+          <div className="flex items-center justify-between gap-1 mb-1">
+            <span className="text-[9px] sm:text-xs font-black text-red-950 truncate">إجمالي المديونيات</span>
+            <div className="w-5 h-5 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl bg-red-100 text-red-600 flex items-center justify-center shrink-0">
+              <TrendingDown className="w-3 h-3 sm:w-5 sm:h-5 stroke-[2.5]" />
+            </div>
           </div>
-          <div className="w-12 h-12 rounded-2xl bg-red-100 text-red-600 flex items-center justify-center shadow-2xs shrink-0">
-            <TrendingDown className="w-6 h-6 stroke-[2]" />
+          <div>
+            <span className="text-[11px] sm:text-2xl font-black text-red-700 block truncate" dir="ltr">
+              {Math.round(stats.totalDebt).toLocaleString()} <span className="text-[8px] sm:text-xs font-bold text-red-900">ج.م</span>
+            </span>
+            <span className="text-[8px] sm:text-[10px] text-red-900/90 font-bold block truncate mt-0.5">
+              {selectedYearFilter === 'all' ? 'مستحقة قائمة' : `سنة ${selectedYearFilter}`}
+            </span>
           </div>
         </div>
 
         {/* Card 2: Debtors Count */}
-        <div className="bg-amber-50/90 border border-amber-100 rounded-2xl p-4 sm:p-5 flex items-center justify-between shadow-xs">
-          <div className="space-y-1 text-right">
-            <span className="text-[10px] font-black text-amber-950 uppercase tracking-wider block">عدد الوحدات المدينة</span>
-            <span className="text-xl sm:text-2xl font-black text-amber-800 block">
-              {stats.totalDebtorsCount} <span className="text-xs font-bold text-amber-950">وحدة متأخرة</span>
-            </span>
-            <span className="text-[9px] text-amber-900/90 font-bold block">من إجمالي {residents.length} وحدة مسجلة بالعمارة</span>
+        <div className="bg-amber-50/90 border border-amber-100 rounded-2xl p-2.5 sm:p-4 flex flex-col justify-between shadow-xs">
+          <div className="flex items-center justify-between gap-1 mb-1">
+            <span className="text-[9px] sm:text-xs font-black text-amber-950 truncate">الوحدات المدينة</span>
+            <div className="w-5 h-5 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center shrink-0">
+              <AlertTriangle className="w-3 h-3 sm:w-5 sm:h-5 stroke-[2.5]" />
+            </div>
           </div>
-          <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center shadow-2xs shrink-0">
-            <AlertTriangle className="w-6 h-6 stroke-[2]" />
+          <div>
+            <span className="text-[11px] sm:text-2xl font-black text-amber-800 block truncate">
+              {stats.totalDebtorsCount} <span className="text-[8px] sm:text-xs font-bold text-amber-950">وحدة</span>
+            </span>
+            <span className="text-[8px] sm:text-[10px] text-amber-900/90 font-bold block truncate mt-0.5">
+              من {residents.length} وحدة
+            </span>
           </div>
         </div>
 
         {/* Card 3: Highest Debtor */}
-        <div className="bg-blue-50/90 border border-blue-100 rounded-2xl p-4 sm:p-5 flex items-center justify-between shadow-xs">
-          <div className="space-y-1 text-right">
-            <span className="text-[10px] font-black text-blue-950 uppercase tracking-wider block">أعلى مديونية مسجلة</span>
+        <div className="bg-blue-50/90 border border-blue-100 rounded-2xl p-2.5 sm:p-4 flex flex-col justify-between shadow-xs">
+          <div className="flex items-center justify-between gap-1 mb-1">
+            <span className="text-[9px] sm:text-xs font-black text-blue-950 truncate">أعلى مديونية</span>
+            <div className="w-5 h-5 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl bg-blue-100 text-blue-800 flex items-center justify-center shrink-0">
+              <Building className="w-3 h-3 sm:w-5 sm:h-5 stroke-[2.5]" />
+            </div>
+          </div>
+          <div>
             {stats.maxDebtItem ? (
               <>
-                <span className="text-sm sm:text-base font-black text-blue-900 block truncate max-w-[200px]">
-                  وحدة {stats.maxDebtItem.resident.flatNumber} - {stats.maxDebtItem.resident.name}
+                <span className="text-[11px] sm:text-xl font-black text-blue-900 block truncate" dir="ltr">
+                  {Math.round(Math.abs(stats.maxDebtItem.financials.netBalance)).toLocaleString()} <span className="text-[8px] sm:text-xs font-bold text-blue-800">ج.م</span>
                 </span>
-                <span className="text-xs font-bold text-blue-800 block" dir="ltr">
-                  المبلغ: {Math.round(Math.abs(stats.maxDebtItem.financials.netBalance)).toLocaleString()} ج.م
+                <span className="text-[8px] sm:text-[10px] text-blue-900/90 font-black block truncate mt-0.5">
+                  وحدة {stats.maxDebtItem.resident.flatNumber}
                 </span>
               </>
             ) : (
-              <span className="text-xs font-bold text-slate-400 block">لا توجد أي مديونيات مسجلة ✨</span>
+              <>
+                <span className="text-[11px] sm:text-base font-black text-emerald-700 block">0 ج.م</span>
+                <span className="text-[8px] sm:text-[10px] text-slate-400 font-bold block">لا توجد</span>
+              </>
             )}
-          </div>
-          <div className="w-12 h-12 rounded-2xl bg-blue-100 text-blue-800 flex items-center justify-center shadow-2xs shrink-0">
-            <Building className="w-6 h-6 stroke-[2]" />
           </div>
         </div>
       </div>
 
-      {/* Automatic Carried Balance Notice Bar */}
-      <div className="bg-gradient-to-l from-blue-900 via-indigo-900 to-blue-950 text-white p-3.5 sm:p-4 rounded-2xl shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 bg-white/10 rounded-xl flex items-center justify-center shrink-0">
-            <Sparkles className="w-4.5 h-4.5 text-amber-300" />
+      {/* Automatic Carried Balance Notice Bar - Sleek & Compact */}
+      <div className="bg-gradient-to-l from-blue-900 via-indigo-900 to-blue-950 text-white px-3 py-2 sm:px-4 sm:py-2.5 rounded-2xl shadow-xs flex flex-row items-center justify-between gap-2.5">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="w-6 h-6 sm:w-7 sm:h-7 bg-white/10 rounded-lg flex items-center justify-center shrink-0">
+            <Sparkles className="w-3.5 h-3.5 text-amber-300" />
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className="text-xs sm:text-sm font-black">ترحيل وتصدير الأرصدة السابقة تلقائياً للسنوات المالية</h3>
-              <span className="bg-emerald-500 text-white text-[9px] font-extrabold px-2 py-0.5 rounded-full">نظام آلي مفعل</span>
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-xs sm:text-sm font-black truncate">ترحيل الأرصدة السابقة</span>
+              <span className="bg-emerald-500 text-white text-[8px] sm:text-[9px] font-black px-1.5 py-0.2 rounded-md">آلي مفعل</span>
             </div>
-            <p className="text-[10px] sm:text-[11px] text-blue-200/90 font-semibold mt-0.5">
-              يقوم النظام تلقائياً بتصدير الأرصدة السابقة (عجز سداد أو فائض دائن) لكل وحدة من سنة إلى أخرى دون أي تدخل يدوي، وضمان عدم سقوط أي مستحقات.
+            <p className="text-[9px] sm:text-[11px] text-blue-200/90 font-medium truncate sm:whitespace-normal">
+              يتم ترحيل عجز وفائض الأرصدة بين السنوات المالية تلقائياً دون تدخل يدوي.
             </p>
           </div>
         </div>
@@ -546,21 +607,22 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
         {role === 'ADMIN' && onSetAllResidents && (
           <button
             onClick={() => setShowExportModal(true)}
-            className="self-end md:self-auto px-3.5 py-2 bg-white/15 hover:bg-white/25 active:scale-95 text-white border border-white/20 rounded-xl text-xs font-black transition flex items-center gap-1.5 cursor-pointer shrink-0 shadow-2xs"
+            className="px-2.5 py-1.5 bg-white/15 hover:bg-white/25 active:scale-95 text-white border border-white/20 rounded-xl text-[10px] sm:text-xs font-black transition flex items-center gap-1 cursor-pointer shrink-0 shadow-2xs whitespace-nowrap"
+            title="تثبيت تصدير الأرصدة لسنة مالية قادمة"
           >
-            <RefreshCw className="w-3.5 h-3.5 text-amber-300" />
-            <span>تثبيت تصدير الأرصدة لسنة تالية</span>
+            <RefreshCw className="w-3 h-3 text-amber-300" />
+            <span>تثبيت التصدير</span>
           </button>
         )}
       </div>
 
-      {/* Search, View Modes & Filters Bar */}
-      <div className="bg-white rounded-2xl border border-slate-100 p-3.5 sm:p-4 shadow-xs space-y-3.5">
-        <div className="flex flex-col md:flex-row justify-between items-stretch md:items-center gap-3">
+      {/* Search, View Modes, Activity Dropdown & Year Filters Bar */}
+      <div className="bg-white rounded-2xl border border-slate-100 p-3 sm:p-4 shadow-xs space-y-3">
+        <div className="flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-2.5">
           
           {/* Right: Search Input + View Mode Toggle */}
-          <div className="flex items-center gap-2 w-full md:w-auto">
-            <div className="relative flex-1 md:w-72">
+          <div className="flex items-center gap-2 flex-1">
+            <div className="relative flex-1">
               <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
               <input
                 type="text"
@@ -576,7 +638,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
               <button
                 onClick={() => setViewMode('table')}
                 className={`p-1.5 rounded-lg transition-all cursor-pointer ${viewMode === 'table' ? 'bg-white text-blue-900 shadow-2xs' : 'text-slate-400 hover:text-slate-600'}`}
-                title="عرض جدول مفصل (مطابق لكشف الوحدات)"
+                title="عرض جدول مفصل"
               >
                 <List className="w-4 h-4" />
               </button>
@@ -590,113 +652,118 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
             </div>
           </div>
 
-          {/* Middle: Fiscal Year Selector for Continuous Multi-Year Accounting */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0">
-            <span className="text-[10px] font-black text-slate-400 shrink-0 flex items-center gap-1">
-              <Calendar className="w-3.5 h-3.5 text-blue-900" />
-              <span>السنة المالية:</span>
-            </span>
-
-            <button
-              onClick={() => setSelectedYearFilter('all')}
-              className={`px-2.5 py-1.5 rounded-xl text-[11px] font-black transition cursor-pointer shrink-0 ${
-                selectedYearFilter === 'all'
-                  ? 'bg-blue-900 text-white shadow-2xs'
-                  : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200/60'
-              }`}
-            >
-              الكل (تراكمي شامل)
-            </button>
-
-            {availableYears.map(yr => (
-              <button
-                key={yr}
-                onClick={() => setSelectedYearFilter(yr)}
-                className={`px-2.5 py-1.5 rounded-xl text-[11px] font-black transition cursor-pointer shrink-0 ${
-                  selectedYearFilter === yr
-                    ? 'bg-blue-900 text-white shadow-2xs'
-                    : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200/60'
-                }`}
+          {/* Activity Dropdown Filter & Fiscal Year Selector (Always in 1 Row) */}
+          <div className="grid grid-cols-2 gap-1.5 sm:gap-2 w-full lg:w-auto items-center">
+            {/* Activity Dropdown Filter */}
+            <div className="flex items-center justify-between gap-1 bg-slate-50 border border-slate-200/80 rounded-xl px-2 py-1.5 text-xs min-w-0">
+              <div className="flex items-center gap-1 text-slate-500 shrink-0">
+                <Filter className="w-3 h-3 text-blue-900 shrink-0" />
+                <span className="text-[9px] sm:text-[10px] font-black shrink-0">النشاط:</span>
+              </div>
+              <select
+                value={selectedActivity}
+                onChange={(e) => setSelectedActivity(e.target.value)}
+                className="bg-transparent text-slate-800 text-[10.5px] sm:text-xs font-black outline-none cursor-pointer truncate w-full pr-0.5 text-left"
               >
-                سنة {yr}
-              </button>
-            ))}
-          </div>
+                <option value="all">الكل ({allDebtorsList.length})</option>
+                {availableActivityTypes.map((act) => {
+                  const count = allDebtorsList.filter(d => d.resident.activityType === act).length;
+                  return (
+                    <option key={act} value={act}>
+                      {act} ({count})
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
 
-          {/* Left: Quick Actions - 3 Equal Width Buttons in 1 Row */}
-          <div className="grid grid-cols-3 gap-2 w-full pt-2 border-t border-slate-100">
-            {/* WhatsApp Group Report */}
-            <button
-              onClick={handleCopyConsolidatedReport}
-              disabled={residentsWithDebt.length === 0}
-              className={`w-full py-2.5 px-1 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs ${copied ? 'bg-emerald-600 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}
-            >
-              {copied ? (
-                <>
-                  <CheckCircle className="w-3.5 h-3.5 shrink-0" />
-                  <span className="truncate">تم النسخ!</span>
-                </>
-              ) : (
-                <>
-                  <Copy className="w-3.5 h-3.5 shrink-0" />
-                  <span className="truncate">نسخ الكشف (واتساب)</span>
-                </>
-              )}
-            </button>
+            {/* Fiscal Year Selector */}
+            <div className="flex items-center justify-between gap-1 bg-slate-50 border border-slate-200/80 rounded-xl p-1 text-xs min-w-0 overflow-x-auto">
+              <span className="text-[9px] sm:text-[10px] font-black text-slate-400 px-1 flex items-center gap-0.5 shrink-0">
+                <Calendar className="w-3 h-3 text-blue-900 shrink-0" />
+                <span>السنة:</span>
+              </span>
 
-            {/* Generate Image Button */}
-            <button
-              onClick={handleGenerateImage}
-              disabled={residentsWithDebt.length === 0 || isGeneratingImage}
-              className="w-full py-2.5 px-1 bg-emerald-700 hover:bg-emerald-800 active:scale-95 text-white rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs disabled:opacity-50"
-              title="توليد صورة عالية الدقة لكشف المديونيات وحفظها بسرعة"
-            >
-              {isGeneratingImage ? (
-                <>
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-200 shrink-0" />
-                  <span className="truncate">جاري التوليد...</span>
-                </>
-              ) : (
-                <>
-                  <Download className="w-3.5 h-3.5 text-amber-300 shrink-0" />
-                  <span className="truncate">توليد صورة الكشف</span>
-                </>
-              )}
-            </button>
+              <div className="flex items-center gap-0.5 shrink-0">
+                <button
+                  onClick={() => setSelectedYearFilter('all')}
+                  className={`px-1.5 py-1 rounded-lg text-[9.5px] sm:text-[10px] font-black transition cursor-pointer shrink-0 ${
+                    selectedYearFilter === 'all'
+                      ? 'bg-blue-900 text-white shadow-2xs'
+                      : 'text-slate-600 hover:bg-slate-200/60'
+                  }`}
+                >
+                  الكل
+                </button>
 
-            {/* Print button */}
-            <button
-              onClick={handlePrint}
-              disabled={residentsWithDebt.length === 0}
-              className="w-full py-2.5 px-1 bg-blue-900 hover:bg-blue-950 text-white rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
-            >
-              <Printer className="w-3.5 h-3.5 shrink-0" />
-              <span className="truncate">طباعة الكشف</span>
-            </button>
+                {availableYears.map(yr => (
+                  <button
+                    key={yr}
+                    onClick={() => setSelectedYearFilter(yr)}
+                    className={`px-1.5 py-1 rounded-lg text-[9.5px] sm:text-[10px] font-black transition cursor-pointer shrink-0 ${
+                      selectedYearFilter === yr
+                        ? 'bg-blue-900 text-white shadow-2xs'
+                        : 'text-slate-600 hover:bg-slate-200/60'
+                    }`}
+                  >
+                    {yr}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* Activity Category Filters */}
-        <div className="flex flex-wrap gap-1.5 pt-2 border-t border-slate-100">
+        {/* Quick Actions - 3 Equal Width Buttons in 1 Row */}
+        <div className="grid grid-cols-3 gap-2 w-full pt-2 border-t border-slate-100">
+          {/* WhatsApp Group Report */}
           <button
-            onClick={() => setSelectedActivity('all')}
-            className={`px-3 py-1 rounded-lg text-[10px] font-extrabold transition cursor-pointer ${selectedActivity === 'all' ? 'bg-blue-900 text-white shadow-2xs' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'}`}
+            onClick={handleCopyConsolidatedReport}
+            disabled={residentsWithDebt.length === 0}
+            className={`w-full py-2 px-1 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs ${copied ? 'bg-emerald-600 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}
           >
-            كل الأنشطة ({allDebtorsList.length})
+            {copied ? (
+              <>
+                <CheckCircle className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">تم النسخ!</span>
+              </>
+            ) : (
+              <>
+                <Copy className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">نسخ الكشف</span>
+              </>
+            )}
           </button>
-          {(config?.activityTypes || ['سكني', 'سكني مغلق', 'مفروش', 'إداري', 'تجاري']).map((act) => {
-            const count = allDebtorsList.filter(d => d.resident.activityType === act).length;
-            if (count === 0) return null;
-            return (
-              <button
-                key={act}
-                onClick={() => setSelectedActivity(act)}
-                className={`px-3 py-1 rounded-lg text-[10px] font-extrabold transition cursor-pointer ${selectedActivity === act ? 'bg-blue-900 text-white shadow-2xs' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'}`}
-              >
-                {act} ({count})
-              </button>
-            );
-          })}
+
+          {/* Generate Image Button */}
+          <button
+            onClick={handleGenerateImage}
+            disabled={residentsWithDebt.length === 0 || isGeneratingImage}
+            className="w-full py-2 px-1 bg-emerald-700 hover:bg-emerald-800 active:scale-95 text-white rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs disabled:opacity-50"
+            title="توليد صورة عالية الدقة لكشف المديونيات وحفظها بسرعة"
+          >
+            {isGeneratingImage ? (
+              <>
+                <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-200 shrink-0" />
+                <span className="truncate">جاري التوليد...</span>
+              </>
+            ) : (
+              <>
+                <Download className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+                <span className="truncate">توليد صورة الكشف</span>
+              </>
+            )}
+          </button>
+
+          {/* Print button */}
+          <button
+            onClick={handlePrint}
+            disabled={residentsWithDebt.length === 0}
+            className="w-full py-2 px-1 bg-blue-900 hover:bg-blue-950 text-white rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+          >
+            <Printer className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">طباعة الكشف</span>
+          </button>
         </div>
       </div>
 
@@ -718,19 +785,16 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                     </div>
                   </th>
                   
-                  {/* Owner Name */}
+                  {/* Owner & Tenant Combined */}
                   <th 
                     onClick={() => toggleSort('name')}
                     className="px-3 py-3 cursor-pointer hover:bg-slate-100 transition whitespace-nowrap"
                   >
                     <div className="flex items-center gap-1">
-                      <span>اسم المالك / الساكن</span>
+                      <span>المالك / المستأجر</span>
                       <ArrowUpDown className="w-3 h-3 text-slate-400" />
                     </div>
                   </th>
-
-                  {/* Tenant Name */}
-                  <th className="px-3 py-3 whitespace-nowrap">اسم المستأجر</th>
 
                   {/* Activity Type */}
                   <th className="px-3 py-3 whitespace-nowrap">نوع النشاط</th>
@@ -745,11 +809,11 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                       : 'رصيد سابق مرحل'}
                   </th>
 
-                  {/* Months Elapsed & Due */}
-                  <th className="px-3 py-3 text-center whitespace-nowrap">الشهور المستحقة</th>
+                  {/* Months Elapsed & Late */}
+                  <th className="px-3 py-3 text-center whitespace-nowrap">الشهور المتأخرة</th>
 
-                  {/* Due Amount for Unpaid Months */}
-                  <th className="px-3 py-3 text-center whitespace-nowrap">المبلغ المستحق</th>
+                  {/* Late Amount for Unpaid Months */}
+                  <th className="px-3 py-3 text-center whitespace-nowrap">المبلغ المتأخر</th>
 
                   {/* Total Paid */}
                   <th className="px-3 py-3 text-center whitespace-nowrap">المبلغ المدفوع</th>
@@ -778,7 +842,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
               <tbody className="divide-y divide-slate-100 text-xs font-bold text-slate-800">
                 {residentsWithDebt.length === 0 ? (
                   <tr>
-                    <td colSpan={role !== 'RESIDENT' ? 12 : 11} className="px-4 py-12 text-center text-slate-400 font-bold">
+                    <td colSpan={role !== 'RESIDENT' ? 11 : 10} className="px-4 py-12 text-center text-slate-400 font-bold">
                       <div className="flex flex-col items-center justify-center gap-2">
                         <CheckCircle className="w-10 h-10 text-emerald-500" />
                         <p className="text-sm font-black text-slate-800">لا توجد أي مديونيات متأخرة على هذه الوحدات!</p>
@@ -791,7 +855,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                     <React.Fragment key={group.floor.id}>
                       {/* Floor Separator Row (Matching ResidentsList) */}
                       <tr className="bg-slate-200/90 dark:bg-[#16223b] border-y-2 border-slate-300 dark:border-slate-700">
-                        <td colSpan={role !== 'RESIDENT' ? 12 : 11} className="py-2.5 px-4 text-right border-r-4 border-r-blue-700 dark:border-r-blue-400 sticky right-0 z-5 bg-slate-200/95 dark:bg-[#16223b]/95">
+                        <td colSpan={role !== 'RESIDENT' ? 11 : 10} className="py-2.5 px-4 text-right border-r-4 border-r-blue-700 dark:border-r-blue-400 sticky right-0 z-5 bg-slate-200/95 dark:bg-[#16223b]/95">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2.5">
                               <div className="w-6 h-6 rounded-lg bg-blue-900 dark:bg-blue-600 text-white flex items-center justify-center shadow-2xs">
@@ -815,6 +879,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                       {group.debtors.map(({ resident, financials, carriedBalance }) => {
                         const debtAmount = Math.round(Math.abs(financials.netBalance));
                         const displayNotes = (resident.notes || '').includes('توليد تلقائي') ? '' : (resident.notes || '');
+                        const hasTenant = resident.ownershipType === 'إيجار' && Boolean(resident.tenantName && resident.tenantName.trim());
 
                         return (
                           <tr key={resident.id} className="group hover:bg-red-50/20 transition">
@@ -823,18 +888,19 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                               وحدة {resident.flatNumber}
                             </td>
 
-                            {/* Owner Name */}
-                            <td className="px-3 py-3 text-slate-900 font-black whitespace-nowrap">
-                              {resident.name}
-                            </td>
-
-                            {/* Tenant Name */}
-                            <td className="px-3 py-3 text-slate-700 whitespace-nowrap">
-                              {resident.ownershipType === 'إيجار' && resident.tenantName ? (
-                                <span className="text-amber-950 font-black">{resident.tenantName}</span>
-                              ) : (
-                                <span className="text-slate-300 font-normal">—</span>
-                              )}
+                            {/* Owner & Tenant Combined (No phone numbers) */}
+                            <td className="px-3 py-3 whitespace-nowrap">
+                              <div className="flex flex-col gap-1 justify-center">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-bold text-slate-900">{resident.name}</span>
+                                </div>
+                                {hasTenant && (
+                                  <div className="flex items-center gap-1.5 text-amber-950 font-bold text-[10.5px] pt-0.5 border-t border-slate-100">
+                                    <span className="text-[8.5px] font-black bg-amber-100 text-amber-900 px-1.5 py-0.2 rounded border border-amber-200/80">مستأجر</span>
+                                    <span>{resident.tenantName}</span>
+                                  </div>
+                                )}
+                              </div>
                             </td>
 
                             {/* Activity Type */}
@@ -866,7 +932,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                               )}
                             </td>
 
-                            {/* Unpaid Months Due */}
+                            {/* Late Months Due */}
                             <td className="px-3 py-3 text-center font-black text-rose-700 whitespace-nowrap">
                               <span>{financials.unpaidMonthsCount} شهر</span>
                               {financials.paidMonthsCount > 0 && (
@@ -876,19 +942,33 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                               )}
                             </td>
 
-                            {/* Due Amount for Unpaid Months */}
+                            {/* Late Amount for Unpaid Months */}
                             <td className="px-3 py-3 text-center text-slate-900 font-black whitespace-nowrap">
                               {Math.round(financials.unpaidMonthsDues).toLocaleString()} ج.م
                             </td>
 
                             {/* Total Paid */}
-                            <td className="px-3 py-3 text-center text-emerald-700 font-black whitespace-nowrap">
-                              {Math.round(financials.totalPaid).toLocaleString()} ج.م
+                            <td className="px-3 py-3 text-center whitespace-nowrap">
+                              <div className="flex flex-col items-center">
+                                <span className="text-emerald-700 font-black">
+                                  {Math.round(financials.totalPaid).toLocaleString()} ج.م
+                                </span>
+                                {financials.otherCollectionsPaid > 0 && (
+                                  <span className="text-[9px] text-blue-700 font-bold">
+                                    (منها {Math.round(financials.otherCollectionsPaid)} تحصيلات أخرى)
+                                  </span>
+                                )}
+                              </div>
                             </td>
 
                             {/* Net Remaining Debt in Red */}
                             <td className="px-3 py-3 text-center font-black text-rose-700 bg-rose-50/70 group-hover:bg-rose-100/80 transition-all text-xs sm:text-sm whitespace-nowrap border-x border-rose-100">
                               <span dir="ltr">-{debtAmount.toLocaleString()} ج.م</span>
+                              {financials.otherCollectionsDebt > 0 && (
+                                <span className="block text-[9px] text-rose-800 font-bold">
+                                  (يتضمن {Math.round(financials.otherCollectionsDebt)} ج.م بنود أخرى)
+                                </span>
+                              )}
                             </td>
 
                             {/* Notes */}
@@ -900,7 +980,6 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                             {role !== 'RESIDENT' && (
                               <td className="px-3 py-3 text-center whitespace-nowrap">
                                 {(() => {
-                                  const hasTenant = resident.ownershipType === 'إيجار' && Boolean(resident.tenantName || resident.tenantPhone);
                                   const isOwnerReminded = Boolean(remindedTargets[`${resident.id}_owner`]);
                                   const isTenantReminded = Boolean(remindedTargets[`${resident.id}_tenant`]);
                                   const isBothReminded = Boolean(remindedTargets[`${resident.id}_both`]) || (isOwnerReminded && isTenantReminded);
@@ -989,17 +1068,41 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
 
                 {/* Total Row */}
                 {residentsWithDebt.length > 0 && (
-                  <tr className="bg-red-50/80 border-t-2 border-red-200 font-extrabold text-slate-900">
-                    <td colSpan={2} className="px-3 py-3.5 text-right font-black text-red-950 sticky right-0 z-5 bg-red-50 shadow-xs border-l border-slate-100">
-                      إجمالي مديونيات الكشف:
+                  <tr className="bg-red-50/90 border-t-2 border-red-300 font-extrabold text-slate-900">
+                    <td className="px-3 py-3.5 text-blue-900 font-black whitespace-nowrap sticky right-0 z-5 bg-red-50 shadow-xs border-l border-slate-100">
+                      الإجمالي
                     </td>
-                    <td colSpan={7} className="px-3 py-3.5 text-left text-slate-500 font-bold text-[11px]">
+                    <td className="px-3 py-3.5 font-black text-slate-800 whitespace-nowrap">
                       ({residentsWithDebt.length} وحدة متأخرة)
                     </td>
-                    <td className="px-3 py-3.5 text-center text-red-700 text-sm sm:text-base font-black whitespace-nowrap bg-red-100/70 shadow-2xs" dir="ltr">
+                    <td className="px-3 py-3.5 text-center text-slate-400 font-bold whitespace-nowrap">—</td>
+                    <td className="px-3 py-3.5 text-center text-slate-700 font-black whitespace-nowrap">
+                      {Math.round(residentsWithDebt.reduce((s, r) => s + (r.financials.monthlyFee || 0), 0)).toLocaleString()} ج.م
+                    </td>
+                    <td className="px-3 py-3.5 text-center font-black whitespace-nowrap">
+                      {(() => {
+                        const totalCarried = residentsWithDebt.reduce((s, r) => s + (r.carriedBalance || 0), 0);
+                        if (totalCarried < 0) return <span className="text-rose-700" dir="ltr">-{Math.abs(Math.round(totalCarried)).toLocaleString()} ج.م</span>;
+                        if (totalCarried > 0) return <span className="text-emerald-700" dir="ltr">+{Math.round(totalCarried).toLocaleString()} ج.م</span>;
+                        return <span className="text-slate-300">—</span>;
+                      })()}
+                    </td>
+                    <td className="px-3 py-3.5 text-center text-rose-800 font-black whitespace-nowrap">
+                      {residentsWithDebt.reduce((s, r) => s + (r.financials.unpaidMonthsCount || 0), 0)} شهر
+                    </td>
+                    <td className="px-3 py-3.5 text-center text-slate-900 font-black whitespace-nowrap">
+                      {Math.round(residentsWithDebt.reduce((s, r) => s + (r.financials.unpaidMonthsDues || 0), 0)).toLocaleString()} ج.م
+                    </td>
+                    <td className="px-3 py-3.5 text-center text-emerald-700 font-black whitespace-nowrap">
+                      {Math.round(residentsWithDebt.reduce((s, r) => s + (r.financials.totalPaid || 0), 0)).toLocaleString()} ج.م
+                    </td>
+                    <td className="px-3 py-3.5 text-center text-rose-700 font-black text-xs sm:text-sm whitespace-nowrap bg-rose-100/90 shadow-2xs border-x border-rose-200" dir="ltr">
                       -{Math.round(residentsWithDebt.reduce((sum, item) => sum + Math.abs(item.financials.netBalance), 0)).toLocaleString()} ج.م
                     </td>
-                    <td colSpan={role !== 'RESIDENT' ? 2 : 1} className="px-3 py-3.5"></td>
+                    <td className="px-3 py-3.5 text-center text-slate-400 whitespace-nowrap">—</td>
+                    {role !== 'RESIDENT' && (
+                      <td className="px-3 py-3.5 text-center text-slate-400 whitespace-nowrap">—</td>
+                    )}
                   </tr>
                 )}
               </tbody>
@@ -1065,19 +1168,6 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                               <span className="text-slate-500 font-bold">المالك:</span>
                               <span className="font-black text-slate-900">{resident.name}</span>
                             </div>
-                            {resident.phone && (
-                              <div className="flex items-center justify-between text-xs phone-number-display" dir="ltr">
-                                <span className="text-slate-400 text-[10px] font-bold">الهاتف:</span>
-                                <a
-                                  href={`tel:${formatMobileNumber(resident.phone)}`}
-                                  className="inline-flex items-center gap-1 text-blue-900 hover:text-blue-700 font-bold text-[11px] font-mono tracking-wider phone-number-display"
-                                  dir="ltr"
-                                >
-                                  <Phone className="w-3 h-3 text-blue-900" />
-                                  <span dir="ltr">{formatPhoneForDisplay(resident.phone)}</span>
-                                </a>
-                              </div>
-                            )}
                           </div>
 
                           {/* Tenant Details (if rental) */}
@@ -1087,19 +1177,6 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                                 <span className="text-amber-900 font-bold text-[11px]">المستأجر:</span>
                                 <span className="font-black text-amber-950">{resident.tenantName}</span>
                               </div>
-                              {resident.tenantPhone && (
-                                <div className="flex items-center justify-between phone-number-display" dir="ltr">
-                                  <span className="text-amber-800 text-[10px] font-bold">هاتف المستأجر:</span>
-                                  <a
-                                    href={`tel:${formatMobileNumber(resident.tenantPhone)}`}
-                                    className="inline-flex items-center gap-1 text-amber-900 hover:text-amber-950 font-bold text-[11px] font-mono tracking-wider phone-number-display"
-                                    dir="ltr"
-                                  >
-                                    <Phone className="w-3 h-3 text-amber-800" />
-                                    <span dir="ltr">{formatPhoneForDisplay(resident.tenantPhone)}</span>
-                                  </a>
-                                </div>
-                              )}
                             </div>
                           )}
 
@@ -1122,7 +1199,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                             </div>
 
                             <div className="flex items-center justify-between">
-                              <span className="text-slate-500 font-bold">الشهور المستحقة / المطلوب:</span>
+                              <span className="text-slate-500 font-bold">الشهور المتأخرة / المطلوب:</span>
                               <span className="font-black text-rose-700">
                                 {financials.unpaidMonthsCount} شهر ({Math.round(financials.unpaidMonthsDues).toLocaleString()} ج.م)
                               </span>
@@ -1134,6 +1211,13 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                                 {Math.round(financials.totalPaid).toLocaleString()} ج.م {financials.paidMonthsCount > 0 ? `(${financials.paidMonthsCount} شهر)` : ''}
                               </span>
                             </div>
+
+                            {financials.otherCollectionsDebt > 0 && (
+                              <div className="flex items-center justify-between text-amber-900 bg-amber-50/80 px-2 py-1 rounded-lg border border-amber-200/70">
+                                <span className="font-bold">مديونية تحصيلات أخرى:</span>
+                                <span className="font-black">{Math.round(financials.otherCollectionsDebt).toLocaleString()} ج.م</span>
+                              </div>
+                            )}
 
                             {/* Net Debt Highlight */}
                             <div className="flex items-center justify-between pt-1.5 border-t border-slate-200/80">
@@ -1231,16 +1315,29 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
         </div>
       )}
 
-      {/* Explanatory Note */}
-      <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 flex items-start gap-3">
+      {/* Explanatory Note on Calculations and Collection Types */}
+      <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 sm:p-5 flex items-start gap-3.5 shadow-2xs">
         <HelpCircle className="w-5 h-5 text-blue-900 shrink-0 mt-0.5" />
-        <div className="text-[11px] text-slate-600 font-semibold leading-relaxed text-right space-y-1.5">
-          <p className="font-extrabold text-slate-900 text-xs">ℹ️ قواعد احتساب المديونيات وتصدير الأرصدة السابقة بين السنوات المالية:</p>
-          <p>
-            • <span className="text-blue-950 font-black">الترحيل والتصدير التلقائي:</span> في حالة استمرار الحسابات لسنة أو سنوات مالية تالية، يتم تصدير الرصيد الختامي لكل وحدة (عجز سداد أو رصيد دائن) تلقائياً ليصبح هو <span className="text-blue-900 font-black">الرصيد السابق المرحل</span> في السنة المالية الجديدة، بحيث تضاف المديونية السابقة فوراً إلى مطالبات السنة الجديدة دون الحاجة لإعادة الإدخال.
+        <div className="text-[11px] text-slate-700 font-semibold leading-relaxed text-right space-y-2 flex-1">
+          <p className="font-black text-slate-900 text-xs sm:text-sm">
+            📌 توضيح أنواع التحصيل وقواعد احتساب المديونيات والأرصدة:
           </p>
-          <p>
-            • <span className="text-slate-800 font-black">تاريخ بدء المحاسبة:</span> تاريخ الانطلاق المعتمد في النظام هو <span className="text-blue-900 font-black">({accountingStartDate})</span>، ويتم احتساب الشهور ومطالبات الاشتراكات بناءً عليه وعلى النشاط المسجل للوحدة.
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+            <div className="bg-white p-3 rounded-xl border border-blue-100 space-y-1">
+              <span className="text-blue-950 font-black block text-xs">١. الاشتراك الشهري (دوري مستمر):</span>
+              <p className="text-slate-600 leading-normal">
+                هو الاشتراك الذي يُسدد بصورة شهرية منتظمة؛ وبناءً عليه يتم احتساب <span className="text-blue-900 font-black">الشهور المتأخرة</span> و<span className="text-blue-900 font-black">المبلغ المتأخر</span> طبقاً للشهور المنقضية من تاريخ بدء المحاسبة ({accountingStartDate}).
+              </p>
+            </div>
+            <div className="bg-white p-3 rounded-xl border border-amber-100 space-y-1">
+              <span className="text-amber-950 font-black block text-xs">٢. تحصيلات أخرى (بنود مستقلة حسب الحاجة):</span>
+              <p className="text-slate-600 leading-normal">
+                تشمل صيانة المصعد، طوارئ، تجديدات، إلخ؛ <span className="text-amber-900 font-black">تحسب كبند منفصل تماماً</span>، وإذا سُددت لا تخصم من قيمة تأخيرات الاشتراك الشهري، وإذا كانت غير مسددة تُحسب كمديونية تحصيلات أخرى مستقلة.
+              </p>
+            </div>
+          </div>
+          <p className="text-[10.5px] text-slate-500 pt-1">
+            • <span className="font-bold text-slate-700">الترحيل والتصدير التلقائي:</span> يتم ترحيل صافي الرصيد الختامي لكل وحدة تلقائياً كرصيد سابق مرحل في السنوات المالية التالية لضمان دقة واستمرارية السجلات.
           </p>
         </div>
       </div>
@@ -1346,13 +1443,12 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
           <thead>
             <tr className="bg-slate-100 text-slate-800 font-black border-b border-slate-400">
               <th className="border border-slate-400 p-2 text-center">الوحدة</th>
-              <th className="border border-slate-400 p-2">اسم المالك / الساكن</th>
-              <th className="border border-slate-400 p-2">اسم المستأجر</th>
+              <th className="border border-slate-400 p-2">المالك / المستأجر</th>
               <th className="border border-slate-400 p-2 text-center">النشاط</th>
               <th className="border border-slate-400 p-2 text-center">الاشتراك</th>
               <th className="border border-slate-400 p-2 text-center">رصيد سابق مرحل</th>
-              <th className="border border-slate-400 p-2 text-center">الشهور المستحقة</th>
-              <th className="border border-slate-400 p-2 text-center">المبلغ المستحق</th>
+              <th className="border border-slate-400 p-2 text-center">الشهور المتأخرة</th>
+              <th className="border border-slate-400 p-2 text-center">المبلغ المتأخر</th>
               <th className="border border-slate-400 p-2 text-center">المبلغ المدفوع</th>
               <th className="border border-slate-400 p-2 text-center bg-red-50 text-red-900 font-extrabold">صافي المديونية</th>
             </tr>
@@ -1361,17 +1457,26 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
             {allPrintFloorDebtorGroups.map((group) => (
               <React.Fragment key={group.floor.id}>
                 <tr className="bg-slate-200 border-y border-slate-400">
-                  <td colSpan={10} className="p-2 border border-slate-400 bg-slate-100 font-extrabold text-slate-900">
+                  <td colSpan={9} className="p-2 border border-slate-400 bg-slate-100 font-extrabold text-slate-900">
                     🏢 {group.floor.floorLabel} ({group.debtors.length} {group.debtors.length === 1 ? 'وحدة متأخرة' : 'وحدات متأخرة'})
                   </td>
                 </tr>
                 {group.debtors.map(({ resident, financials, carriedBalance }) => {
                   const debtAmount = Math.round(Math.abs(financials.netBalance));
+                  const hasTenant = resident.ownershipType === 'إيجار' && Boolean(resident.tenantName && resident.tenantName.trim());
                   return (
                     <tr key={resident.id} className="border-b border-slate-300">
                       <td className="border border-slate-300 p-2 text-center font-bold text-blue-900">وحدة {resident.flatNumber}</td>
-                      <td className="border border-slate-300 p-2 font-bold text-slate-800">{resident.name}</td>
-                      <td className="border border-slate-300 p-2 text-slate-700">{resident.tenantName || '—'}</td>
+                      <td className="border border-slate-300 p-2 font-bold text-slate-800">
+                        <div>
+                          <span>{resident.name}</span>
+                          {hasTenant && (
+                            <div className="text-[10px] text-amber-900 font-normal">
+                              مستأجر: {resident.tenantName}
+                            </div>
+                          )}
+                        </div>
+                      </td>
                       <td className="border border-slate-300 p-2 text-center">{resident.activityType}</td>
                       <td className="border border-slate-300 p-2 text-center font-semibold">{financials.monthlyFee} ج.م</td>
                       <td className="border border-slate-300 p-2 text-center font-semibold">
@@ -1392,7 +1497,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
             ))}
             <tr className="bg-slate-100 font-black border-t-2 border-slate-500">
               <td colSpan={2} className="border border-slate-400 p-3 text-right text-slate-900">إجمالي المديونيات المتأخرة:</td>
-              <td colSpan={7} className="border border-slate-400 p-3"></td>
+              <td colSpan={6} className="border border-slate-400 p-3"></td>
               <td className="border border-slate-400 p-3 text-center text-red-700 text-sm font-black bg-red-100" dir="ltr">
                 -{Math.round(allDebtorsList.reduce((sum, item) => sum + Math.abs(item.financials.netBalance), 0)).toLocaleString()} ج.م
               </td>
