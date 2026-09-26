@@ -2041,27 +2041,32 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
         </div>
 
         {/* Stats Summary Bar */}
-        <div className="grid grid-cols-3 gap-4 border border-slate-300 rounded-xl p-4 bg-slate-50 mb-6 text-xs">
-          <div className="text-center space-y-1">
-            <span className="font-extrabold text-slate-500">إجمالي المبلغ المحصل</span>
-            <div className="text-base font-black text-emerald-700">
-              {sortedFilteredPayments.reduce((sum, p) => sum + p.amount, 0).toLocaleString()} ج.م
+        {(() => {
+          const totalAmt = sortedFilteredPayments.reduce((sum, p) => sum + p.amount, 0);
+          const recordedMonths = Math.max(1, new Set(sortedFilteredPayments.map(p => `${p.year || currentYear}-${p.month}`)).size);
+          const monthlyAverage = Math.round(totalAmt / recordedMonths);
+
+          return (
+            <div className="grid grid-cols-3 gap-4 border border-slate-300 rounded-xl p-4 bg-slate-50 mb-6 text-xs">
+              <div className="text-center space-y-1">
+                <span className="font-extrabold text-slate-500">إجمالي المبلغ المحصل</span>
+                <div className="text-base font-black text-emerald-700">
+                  {totalAmt.toLocaleString()} ج.م
+                </div>
+              </div>
+              <div className="text-center space-y-1 border-x border-slate-300">
+                <span className="font-extrabold text-slate-500">عدد عمليات التحصيل</span>
+                <div className="text-base font-black text-slate-800">{sortedFilteredPayments.length} إيصال</div>
+              </div>
+              <div className="text-center space-y-1">
+                <span className="font-extrabold text-slate-500">متوسط التحصيل الشهري</span>
+                <div className="text-base font-black text-blue-900">
+                  {monthlyAverage.toLocaleString()} ج.م
+                </div>
+              </div>
             </div>
-          </div>
-          <div className="text-center space-y-1 border-x border-slate-300">
-            <span className="font-extrabold text-slate-500">عدد عمليات التحصيل</span>
-            <div className="text-base font-black text-slate-800">{sortedFilteredPayments.length} إيصال</div>
-          </div>
-          <div className="text-center space-y-1">
-            <span className="font-extrabold text-slate-500">متوسط قيمة التحصيل</span>
-            <div className="text-base font-black text-blue-900">
-              {sortedFilteredPayments.length > 0
-                ? Math.round(sortedFilteredPayments.reduce((sum, p) => sum + p.amount, 0) / sortedFilteredPayments.length).toLocaleString()
-                : 0}{' '}
-              ج.م
-            </div>
-          </div>
-        </div>
+          );
+        })()}
 
         {/* Payments Table */}
         <table className="w-full text-right border-collapse text-xs border border-slate-300">
@@ -2069,7 +2074,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
             <tr className="bg-slate-100 text-slate-800 font-extrabold border-b border-slate-300">
               <th className="border border-slate-300 p-2 text-center w-12">#</th>
               <th className="border border-slate-300 p-2 text-center">الوحدة</th>
-              <th className="border border-slate-300 p-2">اسم الساكن</th>
+              <th className="border border-slate-300 p-2">المالك / المستأجر</th>
               <th className="border border-slate-300 p-2 text-center">فئة الاشتراك</th>
               <th className="border border-slate-300 p-2 text-center">شهر الاشتراك</th>
               <th className="border border-slate-300 p-2 text-center">تاريخ التحصيل</th>
@@ -2085,24 +2090,39 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                 </td>
               </tr>
             ) : (
-              sortedFilteredPayments.map((p, idx) => (
-                <tr key={p.id} className="border-b border-slate-200">
-                  <td className="border border-slate-300 p-2 text-center font-bold text-slate-500">{idx + 1}</td>
-                  <td className="border border-slate-300 p-2 text-center font-black">وحدة {p.flatNumber}</td>
-                  <td className="border border-slate-300 p-2 font-bold text-slate-900">{p.residentName}</td>
-                  <td className="border border-slate-300 p-2 text-center text-slate-700">{p.paymentType}</td>
-                  <td className="border border-slate-300 p-2 text-center text-slate-600 font-semibold">
-                    {monthNamesArabic[parseInt(p.month, 10) - 1] || p.month} {p.year}
-                  </td>
-                  <td className="border border-slate-300 p-2 text-center text-slate-600">{p.date || p.month}</td>
-                  <td className="border border-slate-300 p-2 text-center font-black text-emerald-700">
-                    {Math.round(p.amount).toLocaleString()} ج.م
-                  </td>
-                  <td className="border border-slate-300 p-2 text-center font-mono text-slate-700 font-bold">
-                    {p.receiptNumber ? `#${p.receiptNumber}` : 'مسدد'}
-                  </td>
-                </tr>
-              ))
+              sortedFilteredPayments.map((p, idx) => {
+                const res = residents.find((r) => r.id === p.residentId) || residents.find((r) => isSameFlatNumber(r.flatNumber, p.flatNumber));
+                const ownerName = res?.name || p.residentName;
+                const tenantName = res?.tenantName && res.tenantName.trim();
+
+                return (
+                  <tr key={p.id} className="border-b border-slate-200">
+                    <td className="border border-slate-300 p-2 text-center font-bold text-slate-500">{idx + 1}</td>
+                    <td className="border border-slate-300 p-2 text-center font-black">وحدة {p.flatNumber}</td>
+                    <td className="border border-slate-300 p-2 font-bold text-slate-900">
+                      <div>
+                        <div>{ownerName}</div>
+                        {tenantName && (
+                          <div className="text-[10px] text-amber-900 font-normal">
+                            مستأجر: {tenantName}
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                    <td className="border border-slate-300 p-2 text-center text-slate-700">{p.paymentType}</td>
+                    <td className="border border-slate-300 p-2 text-center text-slate-600 font-semibold">
+                      {monthNamesArabic[parseInt(p.month, 10) - 1] || p.month} {p.year}
+                    </td>
+                    <td className="border border-slate-300 p-2 text-center text-slate-600">{p.date || p.month}</td>
+                    <td className="border border-slate-300 p-2 text-center font-black text-emerald-700">
+                      {Math.round(p.amount).toLocaleString()} ج.م
+                    </td>
+                    <td className="border border-slate-300 p-2 text-center font-mono text-slate-700 font-bold">
+                      {p.receiptNumber ? `#${p.receiptNumber}` : 'مسدد'}
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
           {sortedFilteredPayments.length > 0 && (

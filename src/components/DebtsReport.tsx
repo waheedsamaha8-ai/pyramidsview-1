@@ -233,6 +233,43 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
     maxDebtItem,
   }), [totalDebt, totalDebtorsCount, maxDebtItem]);
 
+  const recordedDebtMonthsCount = useMemo(() => {
+    if (selectedYearFilter === 'all') {
+      try {
+        const start = new Date(accountingStartDate || '2026-01-01');
+        const now = new Date();
+        const startY = isNaN(start.getFullYear()) ? 2026 : start.getFullYear();
+        const startM = isNaN(start.getMonth()) ? 0 : start.getMonth();
+        const currY = now.getFullYear();
+        const currM = now.getMonth();
+        return Math.max(1, (currY - startY) * 12 + (currM - startM) + 1);
+      } catch {
+        return 1;
+      }
+    } else {
+      const targetYear = Number(selectedYearFilter);
+      const now = new Date();
+      const currentCalendarYear = now.getFullYear();
+      const currentCalendarMonth = now.getMonth();
+      const start = new Date(accountingStartDate || '2026-01-01');
+      const startYear = isNaN(start.getFullYear()) ? 2026 : start.getFullYear();
+      const startMonth = isNaN(start.getMonth()) ? 0 : start.getMonth();
+
+      if (targetYear < startYear) return 12;
+      if (targetYear === startYear) {
+        if (targetYear === currentCalendarYear) {
+          return Math.max(1, currentCalendarMonth - startMonth + 1);
+        } else {
+          return Math.max(1, 12 - startMonth);
+        }
+      }
+      if (targetYear === currentCalendarYear) {
+        return Math.max(1, currentCalendarMonth + 1);
+      }
+      return 12;
+    }
+  }, [selectedYearFilter, accountingStartDate]);
+
   // Screen filtered residents with debt (based on search term, activity filter, sort order)
   const residentsWithDebt = useMemo(() => {
     return allDebtorsList
@@ -1431,9 +1468,9 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
             <div className="text-base font-black text-slate-800">{stats.totalDebtorsCount} وحدة</div>
           </div>
           <div className="text-center space-y-1">
-            <span className="font-extrabold text-slate-500">متوسط مديونية الوحدة</span>
+            <span className="font-extrabold text-slate-500">متوسط المديونية الشهري</span>
             <div className="text-base font-black text-blue-950">
-              {stats.totalDebtorsCount > 0 ? Math.round(stats.totalDebt / stats.totalDebtorsCount).toLocaleString() : 0} ج.م
+              {recordedDebtMonthsCount > 0 ? Math.round(stats.totalDebt / recordedDebtMonthsCount).toLocaleString() : 0} ج.م
             </div>
           </div>
         </div>
@@ -1463,13 +1500,13 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                 </tr>
                 {group.debtors.map(({ resident, financials, carriedBalance }) => {
                   const debtAmount = Math.round(Math.abs(financials.netBalance));
-                  const hasTenant = resident.ownershipType === 'إيجار' && Boolean(resident.tenantName && resident.tenantName.trim());
+                  const hasTenant = Boolean(resident.tenantName && resident.tenantName.trim());
                   return (
                     <tr key={resident.id} className="border-b border-slate-300">
                       <td className="border border-slate-300 p-2 text-center font-bold text-blue-900">وحدة {resident.flatNumber}</td>
                       <td className="border border-slate-300 p-2 font-bold text-slate-800">
                         <div>
-                          <span>{resident.name}</span>
+                          <div>{resident.name}</div>
                           {hasTenant && (
                             <div className="text-[10px] text-amber-900 font-normal">
                               مستأجر: {resident.tenantName}

@@ -961,27 +961,32 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({
         </div>
 
         {/* Stats Summary Bar */}
-        <div className="grid grid-cols-3 gap-4 border border-slate-300 rounded-xl p-4 bg-slate-50 mb-6 text-xs">
-          <div className="text-center space-y-1">
-            <span className="font-extrabold text-slate-500">إجمالي المبلغ المنصرف</span>
-            <div className="text-base font-black text-red-700">
-              {filteredExpenses.reduce((sum, e) => sum + e.amount, 0).toLocaleString()} ج.م
+        {(() => {
+          const totalAmt = filteredExpenses.reduce((sum, e) => sum + e.amount, 0);
+          const recordedMonths = Math.max(1, new Set(filteredExpenses.map(e => `${e.year || currentYear}-${e.month}`)).size);
+          const monthlyAverage = Math.round(totalAmt / recordedMonths);
+
+          return (
+            <div className="grid grid-cols-3 gap-4 border border-slate-300 rounded-xl p-4 bg-slate-50 mb-6 text-xs">
+              <div className="text-center space-y-1">
+                <span className="font-extrabold text-slate-500">إجمالي المبلغ المنصرف</span>
+                <div className="text-base font-black text-red-700">
+                  {totalAmt.toLocaleString()} ج.م
+                </div>
+              </div>
+              <div className="text-center space-y-1 border-x border-slate-300">
+                <span className="font-extrabold text-slate-500">عدد المعاملات/الفواتير</span>
+                <div className="text-base font-black text-slate-800">{filteredExpenses.length} فاتورة</div>
+              </div>
+              <div className="text-center space-y-1">
+                <span className="font-extrabold text-slate-500">متوسط المصروفات الشهري</span>
+                <div className="text-base font-black text-blue-900">
+                  {monthlyAverage.toLocaleString()} ج.م
+                </div>
+              </div>
             </div>
-          </div>
-          <div className="text-center space-y-1 border-x border-slate-300">
-            <span className="font-extrabold text-slate-500">عدد المعاملات/الفواتير</span>
-            <div className="text-base font-black text-slate-800">{filteredExpenses.length} فاتورة</div>
-          </div>
-          <div className="text-center space-y-1">
-            <span className="font-extrabold text-slate-500">متوسط قيمة المصروف</span>
-            <div className="text-base font-black text-blue-900">
-              {filteredExpenses.length > 0
-                ? Math.round(filteredExpenses.reduce((sum, e) => sum + e.amount, 0) / filteredExpenses.length).toLocaleString()
-                : 0}{' '}
-              ج.م
-            </div>
-          </div>
-        </div>
+          );
+        })()}
 
         {/* Expenses Table */}
         <table className="w-full text-right border-collapse text-xs border border-slate-300">
