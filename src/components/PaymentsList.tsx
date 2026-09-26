@@ -457,13 +457,20 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
     .reduce((sum, p) => sum + p.amount, 0);
 
   const effectiveFloorConfigs = useMemo(() => {
+    let base: FloorConfig[] = [];
     if (floorConfigs && floorConfigs.length > 0) {
-      return floorConfigs;
+      base = floorConfigs;
+    } else if (residents && residents.length > 0) {
+      base = deriveFloorConfigsFromResidents(residents);
     }
-    if (residents && residents.length > 0) {
-      return deriveFloorConfigsFromResidents(residents);
-    }
-    return [];
+    // Strictly sort floors ascendingly by unit numbers (Ground -> 1st -> 2nd -> 3rd -> ...)
+    return [...base].sort((a, b) => {
+      const unitsA = getUnitNumbersForFloor(a, residents);
+      const unitsB = getUnitNumbersForFloor(b, residents);
+      const minA = unitsA.length > 0 ? unitsA[0] : a.startUnitNumber;
+      const minB = unitsB.length > 0 ? unitsB[0] : b.startUnitNumber;
+      return compareFlatNumbers(minA, minB);
+    });
   }, [floorConfigs, residents]);
 
   const floorPaymentGroups = useMemo(() => {
@@ -482,14 +489,24 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
 
     effectiveFloorConfigs.forEach((floor) => {
       const unitNumbers = getUnitNumbersForFloor(floor, residents);
-      const floorPayments = sortedFiltered.filter(p => unitNumbers.some(u => isSameFlatNumber(u, p.flatNumber)));
+      const floorPayments = sortedFiltered
+        .filter(p => unitNumbers.some(u => isSameFlatNumber(u, p.flatNumber)))
+        .sort((a, b) => {
+          const flatCompare = compareFlatNumbers(a.flatNumber, b.flatNumber);
+          if (flatCompare !== 0) return flatCompare;
+          const monthA = parseInt(a.month, 10) || 0;
+          const monthB = parseInt(b.month, 10) || 0;
+          return monthA - monthB;
+        });
       floorPayments.forEach(p => assignedPaymentIds.add(p.id));
       if (floorPayments.length > 0) {
         groups.push({ floor, payments: floorPayments });
       }
     });
 
-    const unassigned = sortedFiltered.filter(p => !assignedPaymentIds.has(p.id));
+    const unassigned = sortedFiltered
+      .filter(p => !assignedPaymentIds.has(p.id))
+      .sort((a, b) => compareFlatNumbers(a.flatNumber, b.flatNumber));
     if (unassigned.length > 0) {
       groups.push({
         floor: {
@@ -2090,46 +2107,59 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
             </tr>
           </thead>
           <tbody>
-            {sortedFilteredPayments.length === 0 ? (
+            {filteredPayments.length === 0 || floorPaymentGroups.every(g => g.payments.length === 0) ? (
               <tr>
-                <td colSpan={8} className="text-center p-6 text-slate-400 font-bold">
+                <td colSpan={8} className="text-center p-6 text-slate-400 font-bold border border-slate-300">
                   لا توجد عمليات تحصيل مسجلة تطابق هذه الشروط المحددة.
                 </td>
               </tr>
             ) : (
-              sortedFilteredPayments.map((p, idx) => {
-                const res = residents.find((r) => r.id === p.residentId) || residents.find((r) => isSameFlatNumber(r.flatNumber, p.flatNumber));
-                const ownerName = res?.name || p.residentName;
-                const tenantName = res?.tenantName && res.tenantName.trim();
+              (() => {
+                let rowCounter = 0;
+                return floorPaymentGroups.map((group) => (
+                  <React.Fragment key={group.floor.id}>
+                    <tr className="bg-slate-200 border-y border-slate-400">
+                      <td colSpan={8} className="p-2 border border-slate-400 bg-slate-100 font-extrabold text-slate-900">
+                        🏢 {group.floor.floorLabel} ({group.payments.length} {group.payments.length === 1 ? 'عملية تحصيل' : 'عمليات تحصيل'})
+                      </td>
+                    </tr>
+                    {group.payments.map((p) => {
+                      rowCounter++;
+                      const res = residents.find((r) => r.id === p.residentId) || residents.find((r) => isSameFlatNumber(r.flatNumber, p.flatNumber));
+                      const ownerName = res?.name || p.residentName;
+                      const tenantName = res?.tenantName && res.tenantName.trim();
 
-                return (
-                  <tr key={p.id} className="border-b border-slate-200">
-                    <td className="border border-slate-300 p-2 text-center font-bold text-slate-500">{idx + 1}</td>
-                    <td className="border border-slate-300 p-2 text-center font-black">وحدة {p.flatNumber}</td>
-                    <td className="border border-slate-300 p-2 font-bold text-slate-900">
-                      <div>
-                        <div>{ownerName}</div>
-                        {tenantName && (
-                          <div className="text-[10px] text-amber-900 font-normal">
-                            مستأجر: {tenantName}
-                          </div>
-                        )}
-                      </div>
-                    </td>
-                    <td className="border border-slate-300 p-2 text-center text-slate-700">{p.paymentType}</td>
-                    <td className="border border-slate-300 p-2 text-center text-slate-600 font-semibold">
-                      {monthNamesArabic[parseInt(p.month, 10) - 1] || p.month} {p.year}
-                    </td>
-                    <td className="border border-slate-300 p-2 text-center text-slate-600">{p.date || p.month}</td>
-                    <td className="border border-slate-300 p-2 text-center font-black text-emerald-700">
-                      {Math.round(p.amount).toLocaleString()} ج.م
-                    </td>
-                    <td className="border border-slate-300 p-2 text-center font-mono text-slate-700 font-bold">
-                      {p.receiptNumber ? `#${p.receiptNumber}` : 'مسدد'}
-                    </td>
-                  </tr>
-                );
-              })
+                      return (
+                        <tr key={p.id} className="border-b border-slate-200">
+                          <td className="border border-slate-300 p-2 text-center font-bold text-slate-500">{rowCounter}</td>
+                          <td className="border border-slate-300 p-2 text-center font-black text-blue-900">وحدة {p.flatNumber}</td>
+                          <td className="border border-slate-300 p-2 font-bold text-slate-900">
+                            <div>
+                              <div>{ownerName}</div>
+                              {tenantName && (
+                                <div className="text-[10px] text-amber-900 font-normal">
+                                  مستأجر: {tenantName}
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                          <td className="border border-slate-300 p-2 text-center text-slate-700">{p.paymentType}</td>
+                          <td className="border border-slate-300 p-2 text-center text-slate-600 font-semibold">
+                            {monthNamesArabic[parseInt(p.month, 10) - 1] || p.month} {p.year}
+                          </td>
+                          <td className="border border-slate-300 p-2 text-center text-slate-600">{p.date || p.month}</td>
+                          <td className="border border-slate-300 p-2 text-center font-black text-emerald-700">
+                            {Math.round(p.amount).toLocaleString()} ج.م
+                          </td>
+                          <td className="border border-slate-300 p-2 text-center font-mono text-slate-700 font-bold">
+                            {p.receiptNumber ? `#${p.receiptNumber}` : 'مسدد'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </React.Fragment>
+                ));
+              })()
             )}
           </tbody>
           {sortedFilteredPayments.length > 0 && (

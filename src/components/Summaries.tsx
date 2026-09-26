@@ -137,13 +137,20 @@ export const Summaries: React.FC<SummariesProps> = ({
 
   // 2. Derive Floor Configs and group residents by Floor for Table 3
   const effectiveFloorConfigs = useMemo(() => {
+    let base: FloorConfig[] = [];
     if (floorConfigs && floorConfigs.length > 0) {
-      return floorConfigs;
+      base = floorConfigs;
+    } else if (residents && residents.length > 0) {
+      base = deriveFloorConfigsFromResidents(residents);
     }
-    if (residents && residents.length > 0) {
-      return deriveFloorConfigsFromResidents(residents);
-    }
-    return [];
+    // Strictly sort floors ascendingly by unit numbers (Ground -> 1st -> 2nd -> 3rd -> ...)
+    return [...base].sort((a, b) => {
+      const unitsA = getUnitNumbersForFloor(a, residents);
+      const unitsB = getUnitNumbersForFloor(b, residents);
+      const minA = unitsA.length > 0 ? unitsA[0] : a.startUnitNumber;
+      const minB = unitsB.length > 0 ? unitsB[0] : b.startUnitNumber;
+      return compareFlatNumbers(minA, minB);
+    });
   }, [floorConfigs, residents]);
 
   const floorResidentGroups = useMemo(() => {
@@ -152,14 +159,18 @@ export const Summaries: React.FC<SummariesProps> = ({
 
     effectiveFloorConfigs.forEach((floor) => {
       const unitNumbers = getUnitNumbersForFloor(floor, residents);
-      const floorResidents = sortedResidents.filter(r => unitNumbers.some(u => isSameFlatNumber(u, r.flatNumber)));
+      const floorResidents = sortedResidents
+        .filter(r => unitNumbers.some(u => isSameFlatNumber(u, r.flatNumber)))
+        .sort((a, b) => compareFlatNumbers(a.flatNumber, b.flatNumber));
       floorResidents.forEach(r => assignedResidentIds.add(r.id));
       if (floorResidents.length > 0) {
         groups.push({ floor, residents: floorResidents });
       }
     });
 
-    const unassigned = sortedResidents.filter(r => !assignedResidentIds.has(r.id));
+    const unassigned = sortedResidents
+      .filter(r => !assignedResidentIds.has(r.id))
+      .sort((a, b) => compareFlatNumbers(a.flatNumber, b.flatNumber));
     if (unassigned.length > 0) {
       groups.push({
         floor: {

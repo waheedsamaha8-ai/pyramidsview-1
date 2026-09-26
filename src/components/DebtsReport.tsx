@@ -308,30 +308,55 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
   }, [allDebtorsList, searchTerm, selectedActivity, sortBy, sortOrder]);
 
   const effectiveFloorConfigs = useMemo(() => {
+    let base: FloorConfig[] = [];
     if (floorConfigs && floorConfigs.length > 0) {
-      return floorConfigs;
+      base = floorConfigs;
+    } else if (residents && residents.length > 0) {
+      base = deriveFloorConfigsFromResidents(residents);
     }
-    if (residents && residents.length > 0) {
-      return deriveFloorConfigsFromResidents(residents);
-    }
-    return [];
+    // Strictly sort floors ascendingly by unit numbers (Ground -> 1st -> 2nd -> 3rd -> ...)
+    return [...base].sort((a, b) => {
+      const unitsA = getUnitNumbersForFloor(a, residents);
+      const unitsB = getUnitNumbersForFloor(b, residents);
+      const minA = unitsA.length > 0 ? unitsA[0] : a.startUnitNumber;
+      const minB = unitsB.length > 0 ? unitsB[0] : b.startUnitNumber;
+      return compareFlatNumbers(minA, minB);
+    });
   }, [floorConfigs, residents]);
 
-  // Screen floor groups (respects filters)
+  // Screen floor groups (respects filters and strictly sorts units ascendingly)
   const floorDebtorGroups = useMemo(() => {
     const assignedResidentIds = new Set<string>();
     const groups: { floor: FloorConfig; debtors: typeof residentsWithDebt }[] = [];
 
     effectiveFloorConfigs.forEach((floor) => {
       const unitNumbers = getUnitNumbersForFloor(floor, residents);
-      const floorDebtors = residentsWithDebt.filter(item => unitNumbers.some(u => isSameFlatNumber(u, item.resident.flatNumber)));
+      const floorDebtors = residentsWithDebt
+        .filter(item => unitNumbers.some(u => isSameFlatNumber(u, item.resident.flatNumber)))
+        .sort((a, b) => {
+          if (sortBy === 'flat') {
+            return sortOrder === 'asc'
+              ? compareFlatNumbers(a.resident.flatNumber, b.resident.flatNumber)
+              : compareFlatNumbers(b.resident.flatNumber, a.resident.flatNumber);
+          }
+          return 0; // maintain chosen sort if sorting by amount or name
+        });
       floorDebtors.forEach(item => assignedResidentIds.add(item.resident.id));
       if (floorDebtors.length > 0) {
         groups.push({ floor, debtors: floorDebtors });
       }
     });
 
-    const unassigned = residentsWithDebt.filter(item => !assignedResidentIds.has(item.resident.id));
+    const unassigned = residentsWithDebt
+      .filter(item => !assignedResidentIds.has(item.resident.id))
+      .sort((a, b) => {
+        if (sortBy === 'flat') {
+          return sortOrder === 'asc'
+            ? compareFlatNumbers(a.resident.flatNumber, b.resident.flatNumber)
+            : compareFlatNumbers(b.resident.flatNumber, a.resident.flatNumber);
+        }
+        return 0;
+      });
     if (unassigned.length > 0) {
       groups.push({
         floor: {
@@ -346,23 +371,28 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
     }
 
     return groups;
-  }, [effectiveFloorConfigs, residents, residentsWithDebt]);
+  }, [effectiveFloorConfigs, residents, residentsWithDebt, sortBy, sortOrder]);
 
-  // Complete floor groups for print (contains ALL building debtors)
+  // Complete floor groups for print (contains debtors for report, grouped by floor and strictly sorted ascending by unit)
   const allPrintFloorDebtorGroups = useMemo(() => {
     const assignedResidentIds = new Set<string>();
-    const groups: { floor: FloorConfig; debtors: typeof allDebtorsList }[] = [];
+    const sourceDebtors = (selectedActivity !== 'all' || searchTerm.trim()) ? residentsWithDebt : allDebtorsList;
+    const groups: { floor: FloorConfig; debtors: typeof sourceDebtors }[] = [];
 
     effectiveFloorConfigs.forEach((floor) => {
       const unitNumbers = getUnitNumbersForFloor(floor, residents);
-      const floorDebtors = allDebtorsList.filter(item => unitNumbers.some(u => isSameFlatNumber(u, item.resident.flatNumber)));
+      const floorDebtors = sourceDebtors
+        .filter(item => unitNumbers.some(u => isSameFlatNumber(u, item.resident.flatNumber)))
+        .sort((a, b) => compareFlatNumbers(a.resident.flatNumber, b.resident.flatNumber));
       floorDebtors.forEach(item => assignedResidentIds.add(item.resident.id));
       if (floorDebtors.length > 0) {
         groups.push({ floor, debtors: floorDebtors });
       }
     });
 
-    const unassigned = allDebtorsList.filter(item => !assignedResidentIds.has(item.resident.id));
+    const unassigned = sourceDebtors
+      .filter(item => !assignedResidentIds.has(item.resident.id))
+      .sort((a, b) => compareFlatNumbers(a.resident.flatNumber, b.resident.flatNumber));
     if (unassigned.length > 0) {
       groups.push({
         floor: {
@@ -377,7 +407,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
     }
 
     return groups;
-  }, [effectiveFloorConfigs, residents, allDebtorsList]);
+  }, [effectiveFloorConfigs, residents, selectedActivity, searchTerm, residentsWithDebt, allDebtorsList]);
 
   const handleCopyConsolidatedReport = () => {
     if (residentsWithDebt.length === 0) return;
@@ -1458,22 +1488,30 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
         </div>
 
         {/* Aggregate Stats Bar */}
-        <div className="grid grid-cols-3 gap-4 border border-slate-300 rounded-xl p-4 bg-slate-50/50 mb-6 text-xs">
-          <div className="text-center space-y-1">
-            <span className="font-extrabold text-slate-500">إجمالي المديونيات المستحقة</span>
-            <div className="text-base font-black text-red-700">{Math.round(stats.totalDebt).toLocaleString()} ج.م</div>
-          </div>
-          <div className="text-center space-y-1 border-x border-slate-300">
-            <span className="font-extrabold text-slate-500">عدد الشقق والوحدات المتأخرة</span>
-            <div className="text-base font-black text-slate-800">{stats.totalDebtorsCount} وحدة</div>
-          </div>
-          <div className="text-center space-y-1">
-            <span className="font-extrabold text-slate-500">متوسط المديونية الشهري</span>
-            <div className="text-base font-black text-blue-950">
-              {recordedDebtMonthsCount > 0 ? Math.round(stats.totalDebt / recordedDebtMonthsCount).toLocaleString() : 0} ج.م
+        {(() => {
+          const printSourceDebtors = (selectedActivity !== 'all' || searchTerm.trim()) ? residentsWithDebt : allDebtorsList;
+          const printReportDebtTotal = printSourceDebtors.reduce((sum, item) => sum + Math.abs(item.financials.netBalance), 0);
+          const printReportDebtorsCount = printSourceDebtors.length;
+
+          return (
+            <div className="grid grid-cols-3 gap-4 border border-slate-300 rounded-xl p-4 bg-slate-50/50 mb-6 text-xs">
+              <div className="text-center space-y-1">
+                <span className="font-extrabold text-slate-500">إجمالي المديونيات المستحقة</span>
+                <div className="text-base font-black text-red-700">{Math.round(printReportDebtTotal).toLocaleString()} ج.م</div>
+              </div>
+              <div className="text-center space-y-1 border-x border-slate-300">
+                <span className="font-extrabold text-slate-500">عدد الشقق والوحدات المتأخرة</span>
+                <div className="text-base font-black text-slate-800">{printReportDebtorsCount} وحدة</div>
+              </div>
+              <div className="text-center space-y-1">
+                <span className="font-extrabold text-slate-500">متوسط المديونية الشهري</span>
+                <div className="text-base font-black text-blue-950">
+                  {recordedDebtMonthsCount > 0 ? Math.round(printReportDebtTotal / recordedDebtMonthsCount).toLocaleString() : 0} ج.م
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
+          );
+        })()}
 
         {/* Detailed Table for Print */}
         <table className="w-full text-right border-collapse border border-slate-400 text-xs mb-8">
@@ -1491,52 +1529,60 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
             </tr>
           </thead>
           <tbody>
-            {allPrintFloorDebtorGroups.map((group) => (
-              <React.Fragment key={group.floor.id}>
-                <tr className="bg-slate-200 border-y border-slate-400">
-                  <td colSpan={9} className="p-2 border border-slate-400 bg-slate-100 font-extrabold text-slate-900">
-                    🏢 {group.floor.floorLabel} ({group.debtors.length} {group.debtors.length === 1 ? 'وحدة متأخرة' : 'وحدات متأخرة'})
-                  </td>
-                </tr>
-                {group.debtors.map(({ resident, financials, carriedBalance }) => {
-                  const debtAmount = Math.round(Math.abs(financials.netBalance));
-                  const hasTenant = Boolean(resident.tenantName && resident.tenantName.trim());
-                  return (
-                    <tr key={resident.id} className="border-b border-slate-300">
-                      <td className="border border-slate-300 p-2 text-center font-bold text-blue-900">وحدة {resident.flatNumber}</td>
-                      <td className="border border-slate-300 p-2 font-bold text-slate-800">
-                        <div>
-                          <div>{resident.name}</div>
-                          {hasTenant && (
-                            <div className="text-[10px] text-amber-900 font-normal">
-                              مستأجر: {resident.tenantName}
-                            </div>
-                          )}
-                        </div>
-                      </td>
-                      <td className="border border-slate-300 p-2 text-center">{resident.activityType}</td>
-                      <td className="border border-slate-300 p-2 text-center font-semibold">{financials.monthlyFee} ج.م</td>
-                      <td className="border border-slate-300 p-2 text-center font-semibold">
-                        {carriedBalance < 0 
-                          ? `-${Math.abs(carriedBalance).toLocaleString()} ج.م` 
-                          : carriedBalance > 0 
-                          ? `+${carriedBalance.toLocaleString()} ج.م` 
-                          : '—'}
-                      </td>
-                      <td className="border border-slate-300 p-2 text-center font-bold text-rose-700">{financials.unpaidMonthsCount} شهر</td>
-                      <td className="border border-slate-300 p-2 text-center font-semibold">{Math.round(financials.unpaidMonthsDues).toLocaleString()} ج.م</td>
-                      <td className="border border-slate-300 p-2 text-center text-emerald-700 font-semibold">{Math.round(financials.totalPaid).toLocaleString()} ج.م</td>
-                      <td className="border border-slate-300 p-2 text-center bg-red-50 text-red-700 font-black">-{debtAmount.toLocaleString()} ج.م</td>
-                    </tr>
-                  );
-                })}
-              </React.Fragment>
-            ))}
+            {allPrintFloorDebtorGroups.length === 0 ? (
+              <tr>
+                <td colSpan={9} className="border border-slate-400 p-6 text-center text-slate-400 font-bold">
+                  لا توجد أي مديونيات متأخرة على الوحدات.
+                </td>
+              </tr>
+            ) : (
+              allPrintFloorDebtorGroups.map((group) => (
+                <React.Fragment key={group.floor.id}>
+                  <tr className="bg-slate-200 border-y border-slate-400">
+                    <td colSpan={9} className="p-2 border border-slate-400 bg-slate-100 font-extrabold text-slate-900">
+                      🏢 {group.floor.floorLabel} ({group.debtors.length} {group.debtors.length === 1 ? 'وحدة متأخرة' : 'وحدات متأخرة'})
+                    </td>
+                  </tr>
+                  {group.debtors.map(({ resident, financials, carriedBalance }) => {
+                    const debtAmount = Math.round(Math.abs(financials.netBalance));
+                    const hasTenant = Boolean(resident.tenantName && resident.tenantName.trim());
+                    return (
+                      <tr key={resident.id} className="border-b border-slate-300">
+                        <td className="border border-slate-300 p-2 text-center font-bold text-blue-900">وحدة {resident.flatNumber}</td>
+                        <td className="border border-slate-300 p-2 font-bold text-slate-800">
+                          <div>
+                            <div>{resident.name}</div>
+                            {hasTenant && (
+                              <div className="text-[10px] text-amber-900 font-normal">
+                                مستأجر: {resident.tenantName}
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                        <td className="border border-slate-300 p-2 text-center">{resident.activityType}</td>
+                        <td className="border border-slate-300 p-2 text-center font-semibold">{financials.monthlyFee} ج.م</td>
+                        <td className="border border-slate-300 p-2 text-center font-semibold">
+                          {carriedBalance < 0 
+                            ? `-${Math.abs(carriedBalance).toLocaleString()} ج.م` 
+                            : carriedBalance > 0 
+                            ? `+${carriedBalance.toLocaleString()} ج.م` 
+                            : '—'}
+                        </td>
+                        <td className="border border-slate-300 p-2 text-center font-bold text-rose-700">{financials.unpaidMonthsCount} شهر</td>
+                        <td className="border border-slate-300 p-2 text-center font-semibold">{Math.round(financials.unpaidMonthsDues).toLocaleString()} ج.م</td>
+                        <td className="border border-slate-300 p-2 text-center text-emerald-700 font-semibold">{Math.round(financials.totalPaid).toLocaleString()} ج.م</td>
+                        <td className="border border-slate-300 p-2 text-center bg-red-50 text-red-700 font-black">-{debtAmount.toLocaleString()} ج.م</td>
+                      </tr>
+                    );
+                  })}
+                </React.Fragment>
+              ))
+            )}
             <tr className="bg-slate-100 font-black border-t-2 border-slate-500">
               <td colSpan={2} className="border border-slate-400 p-3 text-right text-slate-900">إجمالي المديونيات المتأخرة:</td>
               <td colSpan={6} className="border border-slate-400 p-3"></td>
               <td className="border border-slate-400 p-3 text-center text-red-700 text-sm font-black bg-red-100" dir="ltr">
-                -{Math.round(allDebtorsList.reduce((sum, item) => sum + Math.abs(item.financials.netBalance), 0)).toLocaleString()} ج.م
+                -{Math.round(((selectedActivity !== 'all' || searchTerm.trim()) ? residentsWithDebt : allDebtorsList).reduce((sum, item) => sum + Math.abs(item.financials.netBalance), 0)).toLocaleString()} ج.م
               </td>
             </tr>
           </tbody>
