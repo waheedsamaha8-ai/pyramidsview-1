@@ -497,6 +497,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             residents={residents}
             payments={payments}
             config={config}
+            floorConfigs={config?.buildingLayout}
             currentYear={currentYear}
             isResidentOnly={true}
             onPreviewImage={onPreviewImage}
@@ -510,6 +511,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             residents={residents}
             payments={payments}
             config={config}
+            floorConfigs={config?.buildingLayout}
             currentYear={currentYear}
             isResidentOnly={false}
             onSelectResidentId={(id) => setReportResidentId(id)}

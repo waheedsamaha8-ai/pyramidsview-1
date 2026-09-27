@@ -1,8 +1,8 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { generateElementImage, generateElementImageBlob, GeneratedImageResult } from '../utils/imageExport';
-import { Resident, Payment, AppConfig } from '../types';
+import { Resident, Payment, AppConfig, FloorConfig } from '../types';
 import { calculateResidentFinancials, getCarriedPreviousBalance } from '../utils/financialCalculations';
-import { compareFlatNumbers, isSameFlatNumber, groupResidentsByFloor, formatResidentOptionLabel } from '../utils/buildingStructure';
+import { compareFlatNumbers, isSameFlatNumber, deriveFloorConfigsFromResidents, getUnitNumbersForFloor } from '../utils/buildingStructure';
 import { formatMobileNumber, formatPhoneForDisplay, toWhatsAppNumber } from '../utils/phoneUtils';
 import { 
   FileText, 
@@ -72,6 +72,7 @@ interface ResidentAccountStatementProps {
   payments: Payment[];
   config: AppConfig;
   currentYear: number;
+  floorConfigs?: FloorConfig[];
   isResidentOnly?: boolean;
   onSelectResidentId?: (residentId: string) => void;
   onSelectFlatNumber?: (flatNumber: number | string) => void;
@@ -90,6 +91,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
   payments,
   config,
   currentYear,
+  floorConfigs,
   isResidentOnly = false,
   onSelectResidentId,
   onSelectFlatNumber,
@@ -165,6 +167,52 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
     if (resident) return resident;
     return null;
   }, [resident, selectedLocalId, isResidentOnly, config, residents]);
+
+  // Group residents floor by floor based on building layout configuration and ascending unit numbers
+  const floorGroups = useMemo(() => {
+    const configs = (floorConfigs && floorConfigs.length > 0)
+      ? floorConfigs
+      : (config?.buildingLayout && config.buildingLayout.length > 0)
+        ? config.buildingLayout
+        : deriveFloorConfigsFromResidents(residents);
+
+    const sortedConfigs = [...configs].sort((a, b) => {
+      const startA = a.startUnitNumber ?? (a.unitNumbers?.[0] ?? 101);
+      const startB = b.startUnitNumber ?? (b.unitNumbers?.[0] ?? 101);
+      return compareFlatNumbers(startA, startB);
+    });
+
+    const assigned = new Set<string>();
+    const groups: { floorLabel: string; residents: Resident[] }[] = [];
+
+    sortedConfigs.forEach(cfg => {
+      const units = getUnitNumbersForFloor(cfg, residents);
+      const floorResidents = residents
+        .filter(r => units.some(u => isSameFlatNumber(u, r.flatNumber)))
+        .sort((a, b) => compareFlatNumbers(a.flatNumber, b.flatNumber));
+
+      floorResidents.forEach(r => assigned.add(r.id));
+      if (floorResidents.length > 0) {
+        groups.push({
+          floorLabel: cfg.floorLabel || 'دور العمارة',
+          residents: floorResidents,
+        });
+      }
+    });
+
+    const remaining = residents
+      .filter(r => !assigned.has(r.id))
+      .sort((a, b) => compareFlatNumbers(a.flatNumber, b.flatNumber));
+
+    if (remaining.length > 0) {
+      groups.push({
+        floorLabel: 'وحدات إضافية',
+        residents: remaining,
+      });
+    }
+
+    return groups;
+  }, [floorConfigs, config?.buildingLayout, residents]);
 
   const accountingStartDate = config?.accountingStartDate || '2026-01-01';
   const defaultMonthlyFee = config?.defaultMonthlyFee || 400;
@@ -641,11 +689,11 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                 className="w-full sm:w-64 min-w-0 px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-black text-blue-950 outline-none cursor-pointer hover:border-blue-500 transition shadow-xs"
               >
                 <option value="">اختار وحدة</option>
-                {groupResidentsByFloor(residents).map((group) => (
-                  <optgroup key={group.floorLabel} label={group.floorLabel}>
-                    {group.residents.map((r) => (
+                {floorGroups.map((group, idx) => (
+                  <optgroup key={idx} label={`📍 ${group.floorLabel}`}>
+                    {group.residents.map(r => (
                       <option key={r.id} value={r.id}>
-                        {formatResidentOptionLabel(r)}
+                        وحدة {r.flatNumber} — {r.name}{r.tenantName ? ` (المستأجر: ${r.tenantName})` : ''}
                       </option>
                     ))}
                   </optgroup>
@@ -705,11 +753,11 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                 className="w-full sm:w-60 min-w-0 px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black text-blue-950 outline-none cursor-pointer hover:border-blue-300 transition shadow-xs"
               >
                 <option value="">اختار وحدة</option>
-                {groupResidentsByFloor(residents).map((group) => (
-                  <optgroup key={group.floorLabel} label={group.floorLabel}>
-                    {group.residents.map((r) => (
+                {floorGroups.map((group, idx) => (
+                  <optgroup key={idx} label={`📍 ${group.floorLabel}`}>
+                    {group.residents.map(r => (
                       <option key={r.id} value={r.id}>
-                        {formatResidentOptionLabel(r)}
+                        وحدة {r.flatNumber} — {r.name}{r.tenantName ? ` (المستأجر: ${r.tenantName})` : ''}
                       </option>
                     ))}
                   </optgroup>

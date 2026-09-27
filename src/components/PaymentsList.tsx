@@ -530,6 +530,46 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
     return groups;
   }, [effectiveFloorConfigs, filteredPayments, residents]);
 
+  const residentFloorGroups = useMemo(() => {
+    const configs = effectiveFloorConfigs;
+    const sortedConfigs = [...configs].sort((a, b) => {
+      const startA = a.startUnitNumber ?? (a.unitNumbers?.[0] ?? 101);
+      const startB = b.startUnitNumber ?? (b.unitNumbers?.[0] ?? 101);
+      return compareFlatNumbers(startA, startB);
+    });
+
+    const assigned = new Set<string>();
+    const groups: { floorLabel: string; residents: Resident[] }[] = [];
+
+    sortedConfigs.forEach(cfg => {
+      const units = getUnitNumbersForFloor(cfg, residents);
+      const floorResidents = residents
+        .filter(r => units.some(u => isSameFlatNumber(u, r.flatNumber)))
+        .sort((a, b) => compareFlatNumbers(a.flatNumber, b.flatNumber));
+
+      floorResidents.forEach(r => assigned.add(r.id));
+      if (floorResidents.length > 0) {
+        groups.push({
+          floorLabel: cfg.floorLabel || 'دور العمارة',
+          residents: floorResidents,
+        });
+      }
+    });
+
+    const remaining = residents
+      .filter(r => !assigned.has(r.id))
+      .sort((a, b) => compareFlatNumbers(a.flatNumber, b.flatNumber));
+
+    if (remaining.length > 0) {
+      groups.push({
+        floorLabel: 'وحدات إضافية',
+        residents: remaining,
+      });
+    }
+
+    return groups;
+  }, [effectiveFloorConfigs, residents]);
+
   const defaultMonthlyFee = config?.defaultMonthlyFee || 400;
   const activityDefaultFees = config?.activityDefaultFees;
 
@@ -849,13 +889,15 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
               className="w-full md:w-44 px-2.5 py-2 bg-white border border-slate-100 rounded-xl text-xs font-bold focus:ring-2 focus:ring-blue-500/10 outline-none rtl:text-right cursor-pointer"
             >
               <option value="">كل السكان</option>
-              {residents
-                .sort((a, b) => compareFlatNumbers(a.flatNumber, b.flatNumber))
-                .map((r) => (
-                  <option key={r.id} value={r.id}>
-                    وحدة {r.flatNumber} - {r.name}{r.tenantName ? ` (المستأجر: ${r.tenantName})` : ''}
-                  </option>
-                ))}
+              {residentFloorGroups.map((group, idx) => (
+                <optgroup key={idx} label={`📍 ${group.floorLabel}`}>
+                  {group.residents.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      وحدة {r.flatNumber} - {r.name}{r.tenantName ? ` (المستأجر: ${r.tenantName})` : ''}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
             </select>
           </div>
 
@@ -1600,13 +1642,15 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 focus:bg-white rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-500/10 outline-none text-right font-bold transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                   required
                 >
-                  {residents
-                    .sort((a, b) => compareFlatNumbers(a.flatNumber, b.flatNumber))
-                    .map((r) => (
-                      <option key={r.id} value={r.id}>
-                        وحدة {r.flatNumber} - {r.name}{r.tenantName ? ` (المستأجر: ${r.tenantName})` : ''}
-                      </option>
-                    ))}
+                  {residentFloorGroups.map((group, idx) => (
+                    <optgroup key={idx} label={`📍 ${group.floorLabel}`}>
+                      {group.residents.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          وحدة {r.flatNumber} - {r.name}{r.tenantName ? ` (المستأجر: ${r.tenantName})` : ''}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
                 </select>
               </div>
 
