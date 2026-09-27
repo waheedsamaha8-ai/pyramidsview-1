@@ -2790,7 +2790,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-200/70 dark:bg-[#0b1329]">
+    <div className="min-h-screen flex flex-col bg-slate-300/80 dark:bg-[#0b1329]">
       
       {/* Top responsive banner / header */}
       <AppHeader

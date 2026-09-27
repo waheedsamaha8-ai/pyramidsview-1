@@ -10,10 +10,10 @@ body,
   -webkit-overflow-scrolling: touch;
 }
 
-/* Light mode background - elegant slightly darker slate gray */
+/* Light mode background - elegant deeper slate gray */
 html:not(.dark),
 body:not(.dark) {
-  background-color: #e2e8f0;
+  background-color: #cbd5e1;
   color: #0f172a;
 }
 
