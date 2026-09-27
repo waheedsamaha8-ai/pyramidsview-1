@@ -161,6 +161,19 @@ function getLocalCache<T>(key: string): T | null {
 
 function setLocalCache<T>(key: string, data: T): void {
   try {
+    // If it's payments or expenses or large objects, avoid bloating localStorage
+    if (typeof data === 'object' && data !== null) {
+      const sanitized = Array.isArray(data)
+        ? data.map((item: any) => {
+            if (item && typeof item === 'object' && item.fileUrl && String(item.fileUrl).startsWith('data:image/')) {
+              return { ...item, fileUrl: '' };
+            }
+            return item;
+          })
+        : data;
+      localStorage.setItem(`cache_${key}`, JSON.stringify(sanitized));
+      return;
+    }
     localStorage.setItem(`cache_${key}`, JSON.stringify(data));
   } catch {
     // ignore

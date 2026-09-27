@@ -279,18 +279,19 @@ export const Summaries: React.FC<SummariesProps> = ({
           onWheel={handleScrollerInteraction}
           className="overflow-x-auto scrollbar-thin scrollbar-thumb-slate-200 overscroll-x-contain"
         >
-          <table className="w-full text-center border-collapse table-fixed min-w-[960px] sm:min-w-[1060px]">
+          <table className="w-full text-center border-collapse table-fixed min-w-[690px] sm:min-w-[1060px]">
             <thead>
-              <tr className="bg-slate-50/50 text-slate-500 font-extrabold text-[11px] sm:text-xs border-b border-slate-100">
-                <th className="w-[76px] min-w-[76px] sm:w-28 px-1 sm:px-2 py-2.5 sticky right-0 bg-white shadow-xs z-10 border-l border-slate-100 text-center sm:text-right">
-                  البيان / البند
+              <tr className="bg-slate-50/50 text-slate-500 font-extrabold text-[10px] sm:text-xs border-b border-slate-100">
+                <th className="w-[58px] min-w-[58px] sm:w-28 sm:min-w-28 px-0.5 sm:px-2 py-2 sm:py-2.5 sticky right-0 bg-white shadow-xs z-10 border-l border-slate-100 text-center sm:text-right">
+                  <span className="block sm:hidden text-[10px]">البيان</span>
+                  <span className="hidden sm:block">البيان / البند</span>
                 </th>
                 {monthNamesArabic.map((name, idx) => {
                   const isQuarterEnd = idx === 2 || idx === 5 || idx === 8;
                   return (
                     <th 
                       key={idx} 
-                      className={`w-[68px] min-w-[68px] sm:w-20 px-1 py-2.5 ${
+                      className={`w-[48px] min-w-[48px] sm:w-20 sm:min-w-20 px-0.5 py-2 sm:py-2.5 ${
                         isQuarterEnd ? 'border-l-2 border-l-slate-200 font-extrabold text-slate-800' : ''
                       }`}
                     >
@@ -298,102 +299,102 @@ export const Summaries: React.FC<SummariesProps> = ({
                     </th>
                   );
                 })}
-                <th className="w-[68px] min-w-[68px] sm:w-24 px-1 py-2.5 bg-slate-100/60 border-r border-slate-100 text-slate-800 font-black">
+                <th className="w-[56px] min-w-[56px] sm:w-24 sm:min-w-24 px-0.5 py-2 sm:py-2.5 bg-slate-100/60 border-r border-slate-100 text-slate-800 font-black">
                   المجموع
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 text-[11px] sm:text-xs font-bold text-slate-800">
+            <tbody className="divide-y divide-slate-100 text-[10px] sm:text-xs font-bold text-slate-800">
               {/* Row 1: Total Collections */}
               <tr className="hover:bg-slate-50/20 transition">
-                <td className="px-1 sm:px-2 py-2 sticky right-0 bg-white shadow-xs z-10 text-center sm:text-right border-l border-slate-100 font-black text-emerald-800">
-                  <span className="text-[11.5px] sm:text-[12.5px] block">التحصيل</span>
+                <td className="px-0.5 sm:px-2 py-1.5 sm:py-2 sticky right-0 bg-white shadow-xs z-10 text-center sm:text-right border-l border-slate-100 font-black text-emerald-800">
+                  <span className="text-[10px] sm:text-[12.5px] block">التحصيل</span>
                 </td>
                 {monthlyData.map((d, idx) => {
                   const isQuarterEnd = idx === 2 || idx === 5 || idx === 8;
                   return (
                     <td 
                       key={d.month} 
-                      className={`px-1 py-2 border-x border-slate-50 text-emerald-700 font-black ${
+                      className={`px-0.5 py-1.5 sm:py-2 border-x border-slate-50 text-emerald-700 font-black ${
                         isQuarterEnd ? 'border-l-2 border-l-slate-200' : ''
                       }`}
                     >
-                      <span className="text-[10.5px] sm:text-xs block leading-tight">
+                      <span className="text-[9.5px] sm:text-xs block leading-tight font-black">
                         {Math.round(d.payments).toLocaleString()}
                       </span>
-                      <span className="text-[8px] sm:text-[9px] text-emerald-600/80 font-bold block">ج.م</span>
+                      <span className="text-[7px] sm:text-[9px] text-emerald-600/80 font-bold block leading-none">ج.م</span>
                     </td>
                   );
                 })}
-                <td className="px-1 py-2 bg-emerald-50/40 border-r border-slate-100 text-emerald-900 font-black">
-                  <span className="text-[11px] sm:text-[12.5px] block leading-tight">
+                <td className="px-0.5 sm:px-1 py-1.5 sm:py-2 bg-emerald-50/40 border-r border-slate-100 text-emerald-900 font-black">
+                  <span className="text-[10px] sm:text-[12.5px] block leading-tight font-black">
                     {Math.round(grandPaymentsTotal).toLocaleString()}
                   </span>
-                  <span className="text-[8px] sm:text-[9px] text-emerald-700 font-bold block">ج.م</span>
+                  <span className="text-[7px] sm:text-[9px] text-emerald-700 font-bold block leading-none">ج.م</span>
                 </td>
               </tr>
 
               {/* Row 2: Total Expenses */}
               <tr className="hover:bg-slate-50/20 transition">
-                <td className="px-1 sm:px-2 py-2 sticky right-0 bg-white shadow-xs z-10 text-center sm:text-right border-l border-slate-100 font-black text-red-800">
-                  <span className="text-[11.5px] sm:text-[12.5px] block">المصروفات</span>
+                <td className="px-0.5 sm:px-2 py-1.5 sm:py-2 sticky right-0 bg-white shadow-xs z-10 text-center sm:text-right border-l border-slate-100 font-black text-red-800">
+                  <span className="text-[10px] sm:text-[12.5px] block">المصروفات</span>
                 </td>
                 {monthlyData.map((d, idx) => {
                   const isQuarterEnd = idx === 2 || idx === 5 || idx === 8;
                   return (
                     <td 
                       key={d.month} 
-                      className={`px-1 py-2 border-x border-slate-50 text-red-600 font-black ${
+                      className={`px-0.5 py-1.5 sm:py-2 border-x border-slate-50 text-red-600 font-black ${
                         isQuarterEnd ? 'border-l-2 border-l-slate-200' : ''
                       }`}
                     >
-                      <span className="text-[10.5px] sm:text-xs block leading-tight">
+                      <span className="text-[9.5px] sm:text-xs block leading-tight font-black">
                         {Math.round(d.expenses).toLocaleString()}
                       </span>
-                      <span className="text-[8px] sm:text-[9px] text-red-500/80 font-bold block">ج.م</span>
+                      <span className="text-[7px] sm:text-[9px] text-red-500/80 font-bold block leading-none">ج.م</span>
                     </td>
                   );
                 })}
-                <td className="px-1 py-2 bg-red-50/40 border-r border-slate-100 text-red-900 font-black">
-                  <span className="text-[11px] sm:text-[12.5px] block leading-tight">
+                <td className="px-0.5 sm:px-1 py-1.5 sm:py-2 bg-red-50/40 border-r border-slate-100 text-red-900 font-black">
+                  <span className="text-[10px] sm:text-[12.5px] block leading-tight font-black">
                     {Math.round(grandExpensesTotal).toLocaleString()}
                   </span>
-                  <span className="text-[8px] sm:text-[9px] text-red-700 font-bold block">ج.م</span>
+                  <span className="text-[7px] sm:text-[9px] text-red-800 font-bold block leading-none">ج.م</span>
                 </td>
               </tr>
 
               {/* Row 3: Net Balance / Cashflow */}
               <tr className="hover:bg-slate-50/30 transition bg-slate-50/40 font-black">
-                <td className="px-1 sm:px-2 py-2 sticky right-0 bg-slate-50 shadow-xs z-10 text-center sm:text-right border-l border-slate-100 text-blue-950 font-black">
-                  <span className="text-[11.5px] sm:text-[12.5px] block">الرصيد</span>
+                <td className="px-0.5 sm:px-2 py-1.5 sm:py-2 sticky right-0 bg-slate-50 shadow-xs z-10 text-center sm:text-right border-l border-slate-100 text-blue-950 font-black">
+                  <span className="text-[10px] sm:text-[12.5px] block">الرصيد</span>
                 </td>
                 {monthlyData.map((d, idx) => {
                   const isQuarterEnd = idx === 2 || idx === 5 || idx === 8;
                   return (
                     <td
                       key={d.month}
-                      className={`px-1 py-2 border-x border-slate-100 font-black ${
+                      className={`px-0.5 py-1.5 sm:py-2 border-x border-slate-100 font-black ${
                         isQuarterEnd ? 'border-l-2 border-l-slate-200' : ''
                       } ${
                         d.balance >= 0 ? 'text-blue-900' : 'text-amber-700'
                       }`}
                     >
-                      <span className="text-[10.5px] sm:text-xs block leading-tight">
+                      <span className="text-[9.5px] sm:text-xs block leading-tight font-black">
                         {Math.round(d.balance).toLocaleString()}
                       </span>
-                      <span className="text-[8px] sm:text-[9px] text-slate-400 font-bold block">ج.م</span>
+                      <span className="text-[7px] sm:text-[9px] text-slate-400 font-bold block leading-none">ج.م</span>
                     </td>
                   );
                 })}
                 <td
-                  className={`px-1 py-2 border-r border-slate-100 font-black ${
+                  className={`px-0.5 sm:px-1 py-1.5 sm:py-2 border-r border-slate-100 font-black ${
                     grandBalanceTotal >= 0 ? 'bg-blue-50/60 text-blue-950' : 'bg-amber-50/60 text-amber-900'
                   }`}
                 >
-                  <span className="text-[11px] sm:text-[12.5px] block leading-tight">
+                  <span className="text-[10px] sm:text-[12.5px] block leading-tight font-black">
                     {Math.round(grandBalanceTotal).toLocaleString()}
                   </span>
-                  <span className="text-[8px] sm:text-[9px] text-slate-500 font-bold block">ج.م</span>
+                  <span className="text-[7px] sm:text-[9px] text-slate-500 font-bold block leading-none">ج.م</span>
                 </td>
               </tr>
             </tbody>
@@ -419,18 +420,19 @@ export const Summaries: React.FC<SummariesProps> = ({
           onWheel={handleScrollerInteraction}
           className="overflow-x-auto scrollbar-thin scrollbar-thumb-slate-200 overscroll-x-contain"
         >
-          <table className="w-full text-center border-collapse table-fixed min-w-[960px] sm:min-w-[1060px]">
+          <table className="w-full text-center border-collapse table-fixed min-w-[690px] sm:min-w-[1060px]">
             <thead>
-              <tr className="bg-slate-50/50 text-slate-500 font-extrabold text-[11px] sm:text-xs border-b border-slate-100">
-                <th className="w-[76px] min-w-[76px] sm:w-28 px-1 sm:px-2 py-2.5 sticky right-0 bg-white shadow-xs z-10 border-l border-slate-100 text-center sm:text-right">
-                  فئة المصروف
+              <tr className="bg-slate-50/50 text-slate-500 font-extrabold text-[10px] sm:text-xs border-b border-slate-100">
+                <th className="w-[58px] min-w-[58px] sm:w-28 sm:min-w-28 px-0.5 sm:px-2 py-2 sm:py-2.5 sticky right-0 bg-white shadow-xs z-10 border-l border-slate-100 text-center sm:text-right">
+                  <span className="block sm:hidden text-[10px]">البند</span>
+                  <span className="hidden sm:block">فئة المصروف</span>
                 </th>
                 {monthNamesArabic.map((name, idx) => {
                   const isQuarterEnd = idx === 2 || idx === 5 || idx === 8;
                   return (
                     <th 
                       key={idx} 
-                      className={`w-[68px] min-w-[68px] sm:w-20 px-1 py-2.5 ${
+                      className={`w-[48px] min-w-[48px] sm:w-20 sm:min-w-20 px-0.5 py-2 sm:py-2.5 ${
                         isQuarterEnd ? 'border-l-2 border-l-slate-200 font-extrabold text-slate-800' : ''
                       }`}
                     >
@@ -438,16 +440,16 @@ export const Summaries: React.FC<SummariesProps> = ({
                     </th>
                   );
                 })}
-                <th className="w-[68px] min-w-[68px] sm:w-24 px-1 py-2.5 bg-slate-100/60 border-r border-slate-100 text-slate-800 font-black">
+                <th className="w-[56px] min-w-[56px] sm:w-24 sm:min-w-24 px-0.5 py-2 sm:py-2.5 bg-slate-100/60 border-r border-slate-100 text-slate-800 font-black">
                   المجموع
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 text-[11px] sm:text-xs font-bold text-slate-800">
+            <tbody className="divide-y divide-slate-100 text-[10px] sm:text-xs font-bold text-slate-800">
               {categoryMonthlyData.map((catData) => (
                 <tr key={catData.category} className="hover:bg-slate-50/30 transition">
-                  <td className="px-1 sm:px-2 py-2 sticky right-0 bg-white shadow-xs z-10 text-center sm:text-right border-l border-slate-100 font-black text-slate-800">
-                    <span className="text-[11px] sm:text-[12px] block truncate max-w-[74px] sm:max-w-none">
+                  <td className="px-0.5 sm:px-2 py-1.5 sm:py-2 sticky right-0 bg-white shadow-xs z-10 text-center sm:text-right border-l border-slate-100 font-black text-slate-800">
+                    <span className="text-[9.5px] sm:text-[12px] block truncate max-w-[54px] sm:max-w-none" title={catData.category}>
                       {catData.category}
                     </span>
                   </td>
@@ -456,58 +458,59 @@ export const Summaries: React.FC<SummariesProps> = ({
                     return (
                       <td 
                         key={idx} 
-                        className={`px-1 py-2 border-x border-slate-50 text-center font-bold ${
+                        className={`px-0.5 py-1.5 sm:py-2 border-x border-slate-50 text-center font-bold ${
                           isQuarterEnd ? 'border-l-2 border-l-slate-200' : ''
                         }`}
                       >
                         {amount > 0 ? (
                           <div>
-                            <span className="text-[10px] sm:text-[11.5px] font-black text-red-600 block leading-tight">
+                            <span className="text-[9px] sm:text-[11.5px] font-black text-red-600 block leading-tight">
                               {Math.round(amount).toLocaleString()}
                             </span>
-                            <span className="text-[7.5px] sm:text-[8.5px] text-red-400 font-bold block">ج.م</span>
+                            <span className="text-[6.5px] sm:text-[8.5px] text-red-400 font-bold block leading-none">ج.م</span>
                           </div>
                         ) : (
-                          <span className="text-xs text-slate-300 font-bold">-</span>
+                          <span className="text-[10px] sm:text-xs text-slate-300 font-bold">-</span>
                         )}
                       </td>
                     );
                   })}
-                  <td className="px-1 py-2 bg-red-50/30 border-r border-slate-100 text-red-900 font-black">
-                    <span className="text-[10.5px] sm:text-xs block leading-tight">
+                  <td className="px-0.5 sm:px-1 py-1.5 sm:py-2 bg-red-50/30 border-r border-slate-100 text-red-900 font-black">
+                    <span className="text-[9.5px] sm:text-xs block leading-tight font-black">
                       {Math.round(catData.totalYear).toLocaleString()}
                     </span>
-                    <span className="text-[7.5px] sm:text-[8.5px] text-red-700 font-bold block">ج.م</span>
+                    <span className="text-[6.5px] sm:text-[8.5px] text-red-700 font-bold block leading-none">ج.م</span>
                   </td>
                 </tr>
               ))}
 
               {/* Total Expenses Row */}
-              <tr className="bg-slate-100/80 font-black text-[11px] sm:text-xs border-t-2 border-slate-200">
-                <td className="px-1 sm:px-2 py-2.5 sticky right-0 bg-slate-100 shadow-xs z-10 text-center sm:text-right border-l border-slate-200 text-slate-900 font-black">
-                  إجمالي المصروفات
+              <tr className="bg-slate-100/80 font-black text-[10px] sm:text-xs border-t-2 border-slate-200">
+                <td className="px-0.5 sm:px-2 py-2 sm:py-2.5 sticky right-0 bg-slate-100 shadow-xs z-10 text-center sm:text-right border-l border-slate-200 text-slate-900 font-black">
+                  <span className="block sm:hidden text-[9.5px]">الإجمالي</span>
+                  <span className="hidden sm:block">إجمالي المصروفات</span>
                 </td>
                 {monthlyData.map((d, idx) => {
                   const isQuarterEnd = idx === 2 || idx === 5 || idx === 8;
                   return (
                     <td 
                       key={d.month} 
-                      className={`px-1 py-2.5 border-x border-slate-200/60 text-red-700 font-black ${
+                      className={`px-0.5 py-2 sm:py-2.5 border-x border-slate-200/60 text-red-700 font-black ${
                         isQuarterEnd ? 'border-l-2 border-l-slate-200' : ''
                       }`}
                     >
-                      <span className="text-[10.5px] sm:text-xs block leading-tight">
+                      <span className="text-[9.5px] sm:text-xs block leading-tight font-black">
                         {Math.round(d.expenses).toLocaleString()}
                       </span>
-                      <span className="text-[7.5px] sm:text-[8.5px] text-red-500 font-bold block">ج.م</span>
+                      <span className="text-[6.5px] sm:text-[8.5px] text-red-500 font-bold block leading-none">ج.م</span>
                     </td>
                   );
                 })}
-                <td className="px-1 py-2.5 bg-red-100/60 border-r border-slate-200 text-red-950 font-black">
-                  <span className="text-[11px] sm:text-[12.5px] block leading-tight">
+                <td className="px-0.5 sm:px-1 py-2 sm:py-2.5 bg-red-100/60 border-r border-slate-200 text-red-950 font-black">
+                  <span className="text-[10px] sm:text-[12.5px] block leading-tight font-black">
                     {Math.round(grandExpensesTotal).toLocaleString()}
                   </span>
-                  <span className="text-[7.5px] sm:text-[8.5px] text-red-800 font-bold block">ج.م</span>
+                  <span className="text-[6.5px] sm:text-[8.5px] text-red-800 font-bold block leading-none">ج.م</span>
                 </td>
               </tr>
             </tbody>
@@ -532,21 +535,21 @@ export const Summaries: React.FC<SummariesProps> = ({
           </div>
         </div>
 
-        {/* Status Legend Bar - Single Row */}
-        <div className="px-2 sm:px-3 py-1.5 bg-slate-100/80 border-b border-slate-200 overflow-x-auto scrollbar-none flex items-center justify-between sm:justify-start gap-1 sm:gap-2 text-[9.5px] sm:text-[11px] font-black whitespace-nowrap">
+        {/* Status Legend Bar - Compact to stay strictly within screen boundaries */}
+        <div className="px-1 sm:px-3 py-1 bg-slate-100/80 border-b border-slate-200 overflow-x-auto scrollbar-none flex items-center justify-between sm:justify-start gap-1 sm:gap-2 text-[7.5px] min-[360px]:text-[8px] min-[400px]:text-[9px] sm:text-[10.5px] font-black whitespace-nowrap">
           <span className="text-slate-500 font-bold shrink-0 hidden md:inline ml-1">دليل الألوان:</span>
-          <div className="flex items-center gap-1 sm:gap-1.5 w-full sm:w-auto justify-between sm:justify-start">
-            <span className="inline-flex items-center gap-0.5 sm:gap-1 px-1.5 sm:px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-2xs shrink-0">
-              <Check className="w-2.5 h-2.5 sm:w-3 sm:h-3 stroke-[3.5]" /> مسدد (أخضر)
+          <div className="flex items-center justify-between sm:justify-start gap-0.5 sm:gap-1.5 w-full sm:w-auto">
+            <span className="inline-flex items-center gap-0.5 px-1 sm:px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-2xs shrink-0">
+              <Check className="w-2 h-2 sm:w-2.5 sm:h-2.5 stroke-[3.5]" /> مسدد (أخضر)
             </span>
-            <span className="inline-flex items-center gap-0.5 sm:gap-1 px-1.5 sm:px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs shrink-0">
-              <Clock className="w-2.5 h-2.5 sm:w-3 sm:h-3 stroke-[2.5]" /> لم يحصل (برتقالي)
+            <span className="inline-flex items-center gap-0.5 px-1 sm:px-2 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs shrink-0">
+              <Clock className="w-2 h-2 sm:w-2.5 sm:h-2.5 stroke-[2.5]" /> لم يحصل (برتقالي)
             </span>
-            <span className="inline-flex items-center gap-0.5 sm:gap-1 px-1.5 sm:px-2 py-0.5 rounded-md bg-slate-200 text-slate-800 border border-slate-300 shadow-2xs shrink-0">
-              <Minus className="w-2.5 h-2.5 sm:w-3 sm:h-3 stroke-[3]" /> غير مطالبة (رمادي)
+            <span className="inline-flex items-center gap-0.5 px-1 sm:px-2 py-0.5 rounded bg-slate-200 text-slate-800 border border-slate-300 shadow-2xs shrink-0">
+              <Minus className="w-2 h-2 sm:w-2.5 sm:h-2.5 stroke-[3]" /> غير مطالبة (رمادي)
             </span>
-            <span className="inline-flex items-center gap-0.5 sm:gap-1 px-1.5 sm:px-2 py-0.5 rounded-md bg-red-100 text-red-800 border border-red-300 shadow-2xs shrink-0">
-              <AlertCircle className="w-2.5 h-2.5 sm:w-3 sm:h-3 stroke-[2.5]" /> غير مسدد (أحمر)
+            <span className="inline-flex items-center gap-0.5 px-1 sm:px-2 py-0.5 rounded bg-red-100 text-red-800 border border-red-300 shadow-2xs shrink-0">
+              <AlertCircle className="w-2 h-2 sm:w-2.5 sm:h-2.5 stroke-[2.5]" /> غير مسدد (أحمر)
             </span>
           </div>
         </div>
@@ -559,18 +562,19 @@ export const Summaries: React.FC<SummariesProps> = ({
           onWheel={handleScrollerInteraction}
           className="overflow-x-auto scrollbar-thin scrollbar-thumb-slate-200 overscroll-x-contain"
         >
-          <table className="w-full text-center border-collapse table-fixed min-w-[960px] sm:min-w-[1060px]">
+          <table className="w-full text-center border-collapse table-fixed min-w-[690px] sm:min-w-[1060px]">
             <thead>
-              <tr className="bg-slate-50/50 text-slate-500 font-extrabold text-[11px] sm:text-xs border-b border-slate-100">
-                <th className="w-[76px] min-w-[76px] sm:w-28 px-1 sm:px-2 py-2.5 sticky right-0 bg-white shadow-xs z-10 border-l border-slate-100 text-center sm:text-right">
-                  الوحدة / الساكن
+              <tr className="bg-slate-50/50 text-slate-500 font-extrabold text-[10px] sm:text-xs border-b border-slate-100">
+                <th className="w-[58px] min-w-[58px] sm:w-28 sm:min-w-28 px-0.5 sm:px-2 py-2 sm:py-2.5 sticky right-0 bg-white shadow-xs z-10 border-l border-slate-100 text-center sm:text-right">
+                  <span className="block sm:hidden text-[10px]">الوحدة</span>
+                  <span className="hidden sm:block">الوحدة / الساكن</span>
                 </th>
                 {monthNamesArabic.map((name, idx) => {
                   const isQuarterEnd = idx === 2 || idx === 5 || idx === 8;
                   return (
                     <th 
                       key={idx} 
-                      className={`w-[68px] min-w-[68px] sm:w-20 px-1 py-2.5 ${
+                      className={`w-[48px] min-w-[48px] sm:w-20 sm:min-w-20 px-0.5 py-2 sm:py-2.5 ${
                         isQuarterEnd ? 'border-l-2 border-l-slate-200 font-extrabold text-slate-800' : ''
                       }`}
                     >
@@ -578,26 +582,26 @@ export const Summaries: React.FC<SummariesProps> = ({
                     </th>
                   );
                 })}
-                <th className="w-[68px] min-w-[68px] sm:w-24 px-1 py-2.5 bg-slate-100/60 border-r border-slate-100 text-slate-800 font-black">
+                <th className="w-[56px] min-w-[56px] sm:w-24 sm:min-w-24 px-0.5 py-2 sm:py-2.5 bg-slate-100/60 border-r border-slate-100 text-slate-800 font-black">
                   المجموع
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 text-[11px] sm:text-xs font-bold text-slate-800">
+            <tbody className="divide-y divide-slate-100 text-[10px] sm:text-xs font-bold text-slate-800">
               {floorResidentGroups.map((group) => (
                 <React.Fragment key={group.floor.id}>
                   {/* Floor Divider / Separator Header */}
                   <tr className="bg-slate-100/90 border-y-2 border-slate-200/80">
-                    <td colSpan={14} className="py-2 px-3 text-right sticky right-0 bg-slate-100/95 z-5 shadow-2xs">
+                    <td colSpan={14} className="py-1.5 sm:py-2 px-2 sm:px-3 text-right sticky right-0 bg-slate-100/95 z-5 shadow-2xs">
                       <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className="w-2.5 h-2.5 rounded-full bg-blue-900 inline-block shadow-xs"></span>
-                          <span className="text-[11.5px] sm:text-xs font-black text-blue-950">{group.floor.floorLabel}</span>
-                          <span className="text-[9.5px] sm:text-[10.5px] font-bold text-slate-500">
+                        <div className="flex items-center gap-1.5 sm:gap-2">
+                          <span className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-blue-900 inline-block shadow-xs"></span>
+                          <span className="text-[11px] sm:text-xs font-black text-blue-950">{group.floor.floorLabel}</span>
+                          <span className="text-[9px] sm:text-[10.5px] font-bold text-slate-500">
                             ({group.residents.length} {group.residents.length === 1 ? 'وحدة' : 'وحدات'})
                           </span>
                         </div>
-                        <span className="text-[9px] sm:text-[10px] font-extrabold text-slate-600 bg-white/90 px-2 py-0.5 rounded-md border border-slate-200/70">
+                        <span className="text-[8.5px] sm:text-[10px] font-extrabold text-slate-600 bg-white/90 px-1.5 sm:px-2 py-0.5 rounded-md border border-slate-200/70">
                           {group.floor.activityType || 'سكني'}
                         </span>
                       </div>
@@ -612,10 +616,10 @@ export const Summaries: React.FC<SummariesProps> = ({
 
                     return (
                       <tr key={res.id} className="hover:bg-slate-50/30 transition">
-                        <td className="px-1 sm:px-2 py-2 sticky right-0 bg-white shadow-xs z-10 text-center sm:text-right border-l border-slate-100">
-                          <div className="flex flex-col leading-tight items-center sm:items-start">
-                            <span className="font-black text-blue-900 text-[11.5px] sm:text-xs">وحدة {res.flatNumber}</span>
-                            <span className="text-slate-500 truncate max-w-[70px] sm:max-w-[95px] text-[9.5px] sm:text-[10.5px]">
+                        <td className="px-0.5 sm:px-2 py-1.5 sm:py-2 sticky right-0 bg-white shadow-xs z-10 text-center sm:text-right border-l border-slate-100">
+                          <div className="flex flex-col leading-tight items-center sm:items-start justify-center">
+                            <span className="font-black text-blue-900 text-[10px] sm:text-xs">وحدة {res.flatNumber}</span>
+                            <span className="text-slate-500 truncate max-w-[54px] sm:max-w-[95px] text-[8.5px] sm:text-[10.5px]" title={res.name}>
                               {res.name.split(' ')[0]}
                             </span>
                           </div>
@@ -648,7 +652,6 @@ export const Summaries: React.FC<SummariesProps> = ({
                                 const monthName = monthNamesArabic[idx];
                                 const defaultAmt = getDefaultFeeForResident(res);
                                 setNewAmount(String(defaultAmt));
-                                setNewPaymentType('اشتراك شهري');
                                 setNewPaymentType(isNoFeeActivity ? 'تحصيلات اخرى' : 'اشتراك شهري');
                                 setEditingPaymentId(null);
                                 setDeleteConfirmId(null);
@@ -659,57 +662,61 @@ export const Summaries: React.FC<SummariesProps> = ({
                                   payments: status.paymentsList,
                                 });
                               }}
-                              className={`px-1 py-1 text-center border-x border-slate-50 ${
+                              className={`px-0.5 py-1 text-center border-x border-slate-50 ${
                                 isQuarterEnd ? 'border-l-2 border-l-slate-300' : ''
                               } cursor-pointer ${cellBgClass} transition font-bold`}
                             >
-                              <div className="flex flex-col items-center justify-center gap-0.5 min-h-[30px]">
+                              <div className="flex flex-col items-center justify-center gap-0.5 min-h-[30px] sm:min-h-[32px]">
                                 {status.paid ? (
                                   <>
                                     <div className="flex items-center gap-0.5">
                                       <Check className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-700 stroke-[3.5]" />
                                       {isMulti && (
-                                        <span className="text-[7.5px] sm:text-[8.5px] font-black px-0.5 py-0.2 bg-blue-200 text-blue-900 rounded-xs">
+                                        <span className="text-[7.5px] sm:text-[9px] font-black px-0.5 py-0.2 bg-blue-200 text-blue-900 rounded-xs">
                                           {status.paymentsList.length}
                                         </span>
                                       )}
                                     </div>
                                     {status.amount > 0 && (
-                                      <span className="text-[9px] sm:text-[10px] font-black text-emerald-900 leading-none">
-                                        {status.amount}
+                                      <span className="text-[9.5px] sm:text-[11.5px] font-black text-emerald-950 leading-none">
+                                        {Math.round(status.amount).toLocaleString()}
                                       </span>
                                     )}
                                   </>
                                 ) : status.pending ? (
                                   <>
                                     <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-700 stroke-[2.5]" />
-                                    <span className="text-[8px] sm:text-[9px] font-black text-amber-900 whitespace-nowrap">لم يحصل</span>
+                                    <span className="text-[8.5px] sm:text-[10px] font-black text-amber-950 whitespace-nowrap leading-none">لم يحصل</span>
                                     {status.pendingAmount > 0 && (
-                                      <span className="text-[8.5px] sm:text-[9.5px] font-black text-amber-950 leading-none">
-                                        {status.pendingAmount}
+                                      <span className="text-[9px] sm:text-[11px] font-black text-amber-950 leading-none">
+                                        {Math.round(status.pendingAmount).toLocaleString()}
                                       </span>
                                     )}
                                   </>
                                 ) : isNoFeeActivity ? (
                                   <>
                                     <Minus className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-slate-600 stroke-[3]" />
-                                    <span className="text-[7.5px] sm:text-[8.5px] font-bold text-slate-700 whitespace-nowrap">غير مطالبة</span>
+                                    <span className="text-[9px] sm:text-[11px] font-black text-slate-800 whitespace-nowrap leading-none">
+                                      معفي
+                                    </span>
                                   </>
                                 ) : (
                                   <>
                                     <AlertCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-red-600 stroke-[2.5]" />
-                                    <span className="text-[8px] sm:text-[9px] font-bold text-red-700">غير مسدد</span>
+                                    <span className="text-[9px] sm:text-[11px] font-black text-red-700 leading-none whitespace-nowrap">
+                                      غير مسدد
+                                    </span>
                                   </>
                                 )}
                               </div>
                             </td>
                           );
                         })}
-                        <td className="px-1 py-2 bg-slate-50/70 border-r border-slate-100 text-center font-black">
-                          <span className="text-[10.5px] sm:text-xs text-blue-950 block leading-tight">
+                        <td className="px-0.5 sm:px-1 py-1.5 sm:py-2 bg-slate-50/70 border-r border-slate-100 text-center font-black">
+                          <span className="text-[10px] sm:text-xs text-blue-950 block leading-tight font-black">
                             {Math.round(residentYearTotal).toLocaleString()}
                           </span>
-                          <span className="text-[8px] sm:text-[9px] text-slate-400 font-bold block">ج.م</span>
+                          <span className="text-[7.5px] sm:text-[9.5px] text-slate-400 font-bold block leading-none">ج.م</span>
                         </td>
                       </tr>
                     );

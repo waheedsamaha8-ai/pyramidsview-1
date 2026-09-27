@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import * as firestoreService from '../services/firestoreService';
 import * as offlineSync from '../services/offlineSync';
+import { restoreEntityImagesFromIndexedDB } from '../services/imageStorage';
 import { 
   ChatMessage, 
   PublicComplaint, 
@@ -130,18 +131,22 @@ export function useAppSync({
       offlineSync.saveCachedData('residents', uniqueResidents);
     });
 
-    const unsubPayments = firestoreService.subscribeToPayments((items) => {
+    const unsubPayments = firestoreService.subscribeToPayments(async (items) => {
       if (!isMounted || !Array.isArray(items)) return;
       const validItems = items.filter(p => p && p.id);
-      setPayments(validItems);
-      offlineSync.saveCachedData('payments', validItems);
+      const hydrated = await restoreEntityImagesFromIndexedDB(validItems);
+      if (!isMounted) return;
+      setPayments(hydrated);
+      offlineSync.saveCachedData('payments', hydrated);
     });
 
-    const unsubExpenses = firestoreService.subscribeToExpenses((items) => {
+    const unsubExpenses = firestoreService.subscribeToExpenses(async (items) => {
       if (!isMounted || !Array.isArray(items)) return;
       const validItems = items.filter(e => e && e.id);
-      setExpenses(validItems);
-      offlineSync.saveCachedData('expenses', validItems);
+      const hydrated = await restoreEntityImagesFromIndexedDB(validItems);
+      if (!isMounted) return;
+      setExpenses(hydrated);
+      offlineSync.saveCachedData('expenses', hydrated);
     });
 
     const unsubConfig = firestoreService.subscribeToConfig((conf) => {

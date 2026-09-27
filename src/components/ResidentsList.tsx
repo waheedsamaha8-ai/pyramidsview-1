@@ -588,35 +588,35 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                 return true;
               }).length;
               return (
-                <table className="w-full text-right border-collapse min-w-[700px]">
+                <table className="w-full text-right border-collapse min-w-[620px]">
                   <thead>
                     <tr className="bg-slate-50/90 text-slate-500 font-extrabold text-[10px] border-b border-slate-200">
                       {visibleColumns.flatNumber && (
-                        <th className="px-3 py-3 sticky right-0 bg-slate-50 shadow-xs z-10 border-l border-slate-200">رقم الوحدة</th>
+                        <th className="w-12 sm:w-14 px-1 py-1.5 sticky right-0 bg-slate-50 shadow-xs z-10 border-l border-slate-200 text-center whitespace-nowrap">الوحدة</th>
                       )}
                       {visibleColumns.ownerName && (
-                        <th className="px-3 py-3">المالك / المستأجر</th>
+                        <th className="min-w-[95px] max-w-[130px] px-1.5 py-1.5 whitespace-nowrap">المالك / المستأجر</th>
                       )}
                       {visibleColumns.ownerPhone && (
-                        <th className="px-3 py-3">أرقام التليفون</th>
+                        <th className="min-w-[90px] max-w-[125px] px-1.5 py-1.5 whitespace-nowrap">التليفون</th>
                       )}
                       {visibleColumns.monthlyFee && (
-                        <th className="px-3 py-3 text-center">الرسوم الشهرية</th>
+                        <th className="w-16 sm:w-20 px-1 py-1.5 text-center whitespace-nowrap">الرسوم</th>
                       )}
                       {visibleColumns.balance && (
-                        <th className="px-3 py-3 text-center">الرصيد / المديونية</th>
+                        <th className="w-20 sm:w-24 px-1 py-1.5 text-center whitespace-nowrap">الرصيد / المديونية</th>
                       )}
                       {visibleColumns.activityType && (
-                        <th className="px-3 py-3">نوع النشاط</th>
+                        <th className="w-16 sm:w-18 px-1 py-1.5 text-center whitespace-nowrap">النشاط</th>
                       )}
                       {visibleColumns.notes && (
-                        <th className="px-3 py-3">ملاحظات</th>
+                        <th className="min-w-[70px] max-w-[100px] px-1.5 py-1.5 whitespace-nowrap">ملاحظات</th>
                       )}
                       {!isReadOnly && role !== 'ASSISTANT' && visibleColumns.actions && (
-                        <th className="px-3 py-3 text-center">الإجراءات</th>
+                        <th className="w-12 sm:w-14 px-0.5 py-1 text-center whitespace-nowrap">الإجراءات</th>
                       )}
                       {role === 'ADMIN' && visibleColumns.membership && (
-                        <th className="px-3 py-3 text-center">دعوات الواتس</th>
+                        <th className="w-14 sm:w-16 px-0.5 py-1 text-center whitespace-nowrap">دعوات الواتس</th>
                       )}
                     </tr>
                   </thead>
@@ -703,32 +703,32 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                           >
                             {/* Unit Number */}
                             {visibleColumns.flatNumber && (
-                              <td className={`px-3 py-3 font-black whitespace-nowrap sticky right-0 z-5 border-l border-slate-100 shadow-xs transition ${
+                              <td className={`w-12 sm:w-14 px-1 py-1.5 font-black whitespace-nowrap sticky right-0 z-5 border-l border-slate-100 shadow-xs transition text-center ${
                                 isSelected 
                                   ? 'bg-yellow-50 text-amber-950 font-black' 
                                   : 'bg-white text-blue-900 group-hover:bg-slate-50'
                               }`}>
-                                وحدة {res.flatNumber}
+                                <span className="text-[10px] sm:text-xs">وحدة {res.flatNumber}</span>
                               </td>
                             )}
 
                             {/* Resident / Owner & Tenant Name */}
                             {visibleColumns.ownerName && (
-                              <td className="px-3 py-3 whitespace-nowrap">
-                                <div className="flex flex-col gap-1.5 justify-center">
+                              <td className="min-w-[95px] max-w-[130px] px-1.5 py-1.5 whitespace-nowrap">
+                                <div className="flex flex-col gap-0.5 justify-center">
                                   {/* Owner Name */}
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="font-bold text-slate-900">{res.name}</span>
+                                  <div className="flex items-center gap-1">
+                                    <span className="font-bold text-slate-900 text-xs truncate max-w-[110px]">{res.name}</span>
                                     {hasTenant && (
-                                      <span className="text-[9px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">مالك</span>
+                                      <span className="text-[8px] font-bold text-slate-500 bg-slate-100 px-1 py-0.2 rounded">مالك</span>
                                     )}
                                   </div>
 
                                   {/* Tenant Name if exists */}
                                   {hasTenant && (
-                                    <div className="flex items-center gap-1.5 text-amber-950 font-black text-[11px] pt-0.5 border-t border-slate-100">
-                                      <span className="text-[9px] font-extrabold bg-amber-100 text-amber-900 px-1.5 py-0.5 rounded border border-amber-200/80">مستأجر</span>
-                                      <span>{res.tenantName}</span>
+                                    <div className="flex items-center gap-1 text-amber-950 font-black text-[9.5px] pt-0.5 border-t border-slate-100">
+                                      <span className="text-[7.5px] font-extrabold bg-amber-100 text-amber-900 px-1 py-0.2 rounded border border-amber-200/80">مستأجر</span>
+                                      <span className="truncate max-w-[95px]">{res.tenantName}</span>
                                     </div>
                                   )}
                                 </div>
@@ -737,11 +737,11 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
 
                             {/* Owner Phone & Tenant Phone with calling links */}
                             {visibleColumns.ownerPhone && (
-                              <td className="px-3 py-3 text-slate-600 whitespace-nowrap" dir="ltr">
-                                <div className="flex flex-col gap-1.5 items-start justify-center">
+                              <td className="min-w-[90px] max-w-[125px] px-1.5 py-1.5 text-slate-600 whitespace-nowrap" dir="ltr">
+                                <div className="flex flex-col gap-0.5 items-start justify-center">
                                   {/* Owner Phone */}
                                   {res.phone ? (
-                                    <div className="flex flex-wrap items-center gap-1">
+                                    <div className="flex flex-wrap items-center gap-0.5">
                                       {res.phone.split(/[,/;|\n]+/).map((part, pIdx) => {
                                         const cleanPhone = formatMobileNumber(part);
                                         if (!cleanPhone) return null;
@@ -750,11 +750,11 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                                             key={pIdx}
                                             href={`tel:${cleanPhone}`}
                                             onClick={(e) => e.stopPropagation()}
-                                            className="inline-flex items-center gap-1 text-blue-900 hover:text-blue-700 hover:underline font-bold font-mono transition px-1.5 py-0.5 rounded-md hover:bg-blue-50 phone-number-display"
+                                            className="inline-flex items-center gap-0.5 text-blue-900 hover:text-blue-700 hover:underline font-bold font-mono transition px-1 py-0.2 rounded hover:bg-blue-50 phone-number-display text-[10.5px]"
                                             title={`اتصال هاتفياً بالمالك ${res.name}: ${cleanPhone}`}
                                             dir="ltr"
                                           >
-                                            <Phone className="w-3 h-3 text-blue-900 shrink-0" />
+                                            <Phone className="w-2.5 h-2.5 text-blue-900 shrink-0" />
                                             <span dir="ltr">{formatPhoneForDisplay(part)}</span>
                                           </a>
                                         );
@@ -767,7 +767,7 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                                   {/* Tenant Phone if exists */}
                                   {hasTenant && (
                                     res.tenantPhone ? (
-                                      <div className="flex flex-wrap items-center gap-1 pt-0.5 border-t border-slate-100 w-full">
+                                      <div className="flex flex-wrap items-center gap-0.5 pt-0.5 border-t border-slate-100 w-full">
                                         {res.tenantPhone.split(/[,/;|\n]+/).map((part, pIdx) => {
                                           const cleanPhone = formatMobileNumber(part);
                                           if (!cleanPhone) return null;
@@ -776,11 +776,11 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                                               key={pIdx}
                                               href={`tel:${cleanPhone}`}
                                               onClick={(e) => e.stopPropagation()}
-                                              className="inline-flex items-center gap-1 text-amber-800 hover:text-amber-950 hover:underline font-bold font-mono transition px-1.5 py-0.5 rounded-md hover:bg-amber-50 phone-number-display"
+                                              className="inline-flex items-center gap-0.5 text-amber-800 hover:text-amber-950 hover:underline font-bold font-mono transition px-1 py-0.2 rounded hover:bg-amber-50 phone-number-display text-[10px]"
                                               title={`اتصال هاتفياً بالمستأجر ${res.tenantName}: ${cleanPhone}`}
                                               dir="ltr"
                                             >
-                                              <Phone className="w-3 h-3 text-amber-800 shrink-0" />
+                                              <Phone className="w-2.5 h-2.5 text-amber-800 shrink-0" />
                                               <span dir="ltr">{formatPhoneForDisplay(part)}</span>
                                             </a>
                                           );
@@ -788,7 +788,7 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                                       </div>
                                     ) : (
                                       <div className="pt-0.5 border-t border-slate-100 w-full">
-                                        <span className="text-slate-300 font-normal text-xs">—</span>
+                                        <span className="text-slate-300 font-normal text-[10px]">—</span>
                                       </div>
                                     )
                                   )}
@@ -798,8 +798,8 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
 
                             {/* Monthly Fee */}
                             {visibleColumns.monthlyFee && (
-                              <td className="px-3 py-3 text-center whitespace-nowrap">
-                                <span className="px-2 py-0.5 bg-slate-100 text-slate-800 rounded-md font-black text-xs">
+                              <td className="w-16 sm:w-20 px-1 py-1.5 text-center whitespace-nowrap">
+                                <span className="px-1.5 py-0.2 bg-slate-100 text-slate-800 rounded font-black text-[10.5px]">
                                   {fin.monthlyFee.toLocaleString()} ج.م
                                 </span>
                               </td>
@@ -807,19 +807,19 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
 
                             {/* Balance */}
                             {visibleColumns.balance && (
-                              <td className="px-3 py-3 text-center whitespace-nowrap" title={`محسوب لعدد ${fin.monthsElapsed} شهر: مستحق ${fin.expectedDues.toLocaleString()} ج.م | مسدد ${fin.totalPaid.toLocaleString()} ج.م`}>
+                              <td className="w-20 sm:w-24 px-1 py-1.5 text-center whitespace-nowrap" title={`محسوب لعدد ${fin.monthsElapsed} شهر: مستحق ${fin.expectedDues.toLocaleString()} ج.م | مسدد ${fin.totalPaid.toLocaleString()} ج.م`}>
                                 {isDebt ? (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-rose-50 text-rose-600 border border-rose-200 rounded-lg font-black text-xs" dir="ltr">
-                                    <ArrowDownRight className="w-3.5 h-3.5" />
+                                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-rose-50 text-rose-600 border border-rose-200 rounded font-black text-[10px]" dir="ltr">
+                                    <ArrowDownRight className="w-3 h-3" />
                                     <span>-{Math.abs(fin.netBalance).toLocaleString()} ج.م</span>
                                   </span>
                                 ) : isSurplus ? (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg font-black text-xs" dir="ltr">
-                                    <ArrowUpRight className="w-3.5 h-3.5" />
+                                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded font-black text-[10px]" dir="ltr">
+                                    <ArrowUpRight className="w-3 h-3" />
                                     <span>+{fin.netBalance.toLocaleString()} ج.م</span>
                                   </span>
                                 ) : (
-                                  <span className="px-2.5 py-1 bg-slate-100 text-slate-600 rounded-lg font-black text-xs">
+                                  <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded font-black text-[10px]">
                                     0 ج.م
                                   </span>
                                 )}
@@ -828,8 +828,8 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
 
                             {/* Activity Type */}
                             {visibleColumns.activityType && (
-                              <td className="px-3 py-3 whitespace-nowrap">
-                                <span className="px-2 py-0.5 bg-slate-100 border border-slate-200 rounded text-[9px] text-slate-700 font-bold">
+                              <td className="w-16 sm:w-18 px-1 py-1.5 text-center whitespace-nowrap">
+                                <span className="px-1.5 py-0.2 bg-slate-100 border border-slate-200 rounded text-[8.5px] text-slate-700 font-bold">
                                   {res.activityType}
                                 </span>
                               </td>
@@ -837,19 +837,19 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
 
                             {/* Notes */}
                             {visibleColumns.notes && (
-                              <td className="px-3 py-3 text-slate-500 max-w-[150px] truncate" title={displayNotes}>
+                              <td className="min-w-[70px] max-w-[100px] px-1.5 py-1.5 text-slate-500 truncate text-[10.5px]" title={displayNotes}>
                                 {displayNotes || <span className="text-slate-300 font-normal">—</span>}
                               </td>
                             )}
 
                             {/* Actions */}
                             {!isReadOnly && role !== 'ASSISTANT' && visibleColumns.actions && (
-                              <td className="px-3 py-3 whitespace-nowrap">
-                                <div className="flex items-center justify-center gap-1.5">
+                              <td className="w-12 sm:w-14 px-0.5 py-1 whitespace-nowrap text-center">
+                                <div className="flex items-center justify-center gap-0.5">
                                   <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); openEditModal(res); }}
-                                    className="p-1.5 text-slate-500 hover:text-blue-900 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+                                    className="p-1 text-slate-500 hover:text-blue-900 hover:bg-slate-100 rounded transition cursor-pointer"
                                     title="تعديل بيانات الساكن"
                                   >
                                     <Edit className="w-3.5 h-3.5" />
@@ -857,7 +857,7 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                                   <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); handleDelete(res.id, res.name); }}
-                                    className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                                    className="p-1 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded transition cursor-pointer"
                                     title="حذف الساكن"
                                   >
                                     <Trash2 className="w-3.5 h-3.5" />

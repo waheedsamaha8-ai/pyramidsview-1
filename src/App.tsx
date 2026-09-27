@@ -66,6 +66,7 @@ import * as firestoreService from './services/firestoreService';
 import * as backupService from './services/backupService';
 import * as googleApi from './services/googleApi';
 import * as offlineSync from './services/offlineSync';
+import { saveImageToIndexedDB, restoreEntityImagesFromIndexedDB } from './services/imageStorage';
 import { fetchAllJoinRequests, verifyAuthorizedRole } from './services/authStore';
 import { getActiveBuilding } from './services/buildingStore';
 import { UserRole, Resident, Payment, Expense, AppNotification, BuildingRules, AppConfig, MaintenanceRequest, Poll, AdminDecision, BuildingEvent, ChatMessage, PublicComplaint, ComplaintComment, FloorConfig, Craftsman, CraftsmanComment } from './types';
@@ -454,6 +455,20 @@ export default function App() {
       localStorage.setItem('app_theme', 'light');
       const metaTheme = document.querySelector('meta[name="theme-color"]');
       if (metaTheme) metaTheme.setAttribute('content', '#1e3a8a');
+
+      // Restore saved font scale immediately with zoom and root size
+      const savedScale = localStorage.getItem('app_font_scale');
+      if (savedScale) {
+        const val = parseFloat(savedScale);
+        if (!isNaN(val) && val >= 75 && val <= 130) {
+          const scalePercent = val / 100;
+          document.documentElement.style.fontSize = `${16 * scalePercent}px`;
+          document.documentElement.style.setProperty('--app-font-scale', String(scalePercent));
+          if (document.body) {
+            (document.body.style as any).zoom = String(scalePercent);
+          }
+        }
+      }
     } catch (e) {
       console.error('Failed to apply theme', e);
     }
@@ -557,6 +572,9 @@ export default function App() {
 
   // Initialize Auth on load
   useEffect(() => {
+    // Proactively free up localStorage space if bloated with stale building caches
+    offlineSync.freeUpLocalStorageSpace();
+
     // One-time clean slate migration: wipe all dummy demo data and test sessions
     const CLEAN_SLATE_KEY = 'clean_slate_wipe_v4';
     if (!localStorage.getItem(CLEAN_SLATE_KEY)) {
@@ -797,13 +815,25 @@ export default function App() {
       }
       if (!detailKey || detailKey.includes('payments')) {
         const raw = offlineSync.getCachedData<Payment[]>('payments');
-        if (raw && Array.isArray(raw)) setPayments(raw);
+        if (raw && Array.isArray(raw)) {
+          restoreEntityImagesFromIndexedDB(raw).then(hydrated => setPayments(hydrated));
+        }
       }
       if (!detailKey || detailKey.includes('expenses')) {
         const raw = offlineSync.getCachedData<Expense[]>('expenses');
-        if (raw && Array.isArray(raw)) setExpenses(raw);
+        if (raw && Array.isArray(raw)) {
+          restoreEntityImagesFromIndexedDB(raw).then(hydrated => setExpenses(hydrated));
+        }
       }
     };
+
+    // Hydrate existing payments and expenses photos from IndexedDB immediately on mount
+    restoreEntityImagesFromIndexedDB(payments).then(restored => {
+      if (restored && restored.length > 0) setPayments(restored);
+    });
+    restoreEntityImagesFromIndexedDB(expenses).then(restored => {
+      if (restored && restored.length > 0) setExpenses(restored);
+    });
 
     window.addEventListener('pyramids_cache_updated', handleSyncEvent);
     window.addEventListener('storage', handleSyncEvent);
@@ -1350,6 +1380,10 @@ export default function App() {
       ...cleanPayment,
       fileUrl: resolvedBase64 || cleanPayment.fileUrl
     };
+
+    if (localPayment.fileUrl && localPayment.fileUrl.startsWith('data:image/')) {
+      saveImageToIndexedDB(String(cleanPayment.id), localPayment.fileUrl).catch(() => {});
+    }
     
     // Immediately persist in local state and offline cache
     const updatedPayments = [...payments.filter(p => p.id !== cleanPayment.id), localPayment];
@@ -1379,6 +1413,11 @@ export default function App() {
       ...cleanPayment,
       fileUrl: resolvedBase64 || cleanPayment.fileUrl
     };
+
+    if (localPayment.fileUrl && localPayment.fileUrl.startsWith('data:image/')) {
+      saveImageToIndexedDB(String(cleanPayment.id), localPayment.fileUrl).catch(() => {});
+    }
+
     const updatedPayments = payments.map((p) => p.id === cleanPayment.id ? localPayment : p);
     setPayments(updatedPayments);
     offlineSync.saveCachedData('payments', updatedPayments);
@@ -1426,6 +1465,11 @@ export default function App() {
       ...cleanExpense,
       fileUrl: resolvedBase64 || cleanExpense.fileUrl
     };
+
+    if (localExpense.fileUrl && localExpense.fileUrl.startsWith('data:image/')) {
+      saveImageToIndexedDB(String(cleanExpense.id), localExpense.fileUrl).catch(() => {});
+    }
+
     const updatedExpenses = [...expenses.filter(e => e.id !== cleanExpense.id), localExpense];
     setExpenses(updatedExpenses);
     offlineSync.saveCachedData('expenses', updatedExpenses);
@@ -1452,6 +1496,11 @@ export default function App() {
       ...cleanExpense,
       fileUrl: resolvedBase64 || cleanExpense.fileUrl
     };
+
+    if (localExpense.fileUrl && localExpense.fileUrl.startsWith('data:image/')) {
+      saveImageToIndexedDB(String(cleanExpense.id), localExpense.fileUrl).catch(() => {});
+    }
+
     const updatedExpenses = expenses.map((e) => e.id === cleanExpense.id ? localExpense : e);
     setExpenses(updatedExpenses);
     offlineSync.saveCachedData('expenses', updatedExpenses);

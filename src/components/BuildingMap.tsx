@@ -700,22 +700,22 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
           </div>
         </div>
 
-        {/* Legend */}
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-[10px] font-black bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 w-full lg:w-auto justify-center">
-          <div className="flex items-center gap-1.5">
-            <div className="w-3.5 h-3.5 bg-emerald-600 rounded-md shadow-2xs border border-emerald-700"></div>
+        {/* Legend - Single Row */}
+        <div className="flex flex-nowrap items-center justify-between sm:justify-center gap-1.5 sm:gap-3 text-[8.5px] min-[380px]:text-[9.5px] sm:text-[10px] font-black bg-slate-50 px-2 sm:px-3 py-1.5 sm:py-2 rounded-xl border border-slate-200 w-full lg:w-auto overflow-x-auto scrollbar-none whitespace-nowrap shrink-0">
+          <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+            <div className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 bg-emerald-600 rounded-sm sm:rounded-md shadow-2xs border border-emerald-700 shrink-0"></div>
             <span className="text-slate-800 font-bold">تم السداد ({stats.paidCount})</span>
           </div>
-          <div className="flex items-center gap-1.5">
-            <div className="w-3.5 h-3.5 bg-rose-600 rounded-md shadow-2xs border border-rose-700"></div>
+          <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+            <div className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 bg-rose-600 rounded-sm sm:rounded-md shadow-2xs border border-rose-700 shrink-0"></div>
             <span className="text-slate-800 font-bold">متأخر ({stats.unpaidCount})</span>
           </div>
-          <div className="flex items-center gap-1.5">
-            <div className="w-3.5 h-3.5 bg-amber-500 rounded-md shadow-2xs border border-amber-600"></div>
+          <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+            <div className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 bg-amber-500 rounded-sm sm:rounded-md shadow-2xs border border-amber-600 shrink-0"></div>
             <span className="text-slate-800 font-bold">تحت التشطيب غير مسدد ({stats.finishingUnpaidCount})</span>
           </div>
-          <div className="flex items-center gap-1.5">
-            <div className="w-3.5 h-3.5 bg-slate-700 rounded-md shadow-2xs border border-slate-800"></div>
+          <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+            <div className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 bg-slate-700 rounded-sm sm:rounded-md shadow-2xs border border-slate-800 shrink-0"></div>
             <span className="text-slate-800 font-bold">بدون تحصيل ({stats.rawNoFeeCount})</span>
           </div>
         </div>

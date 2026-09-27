@@ -30,8 +30,41 @@ import {
   Check,
   Send,
   X,
-  ExternalLink
+  ExternalLink,
+  AlertCircle
 } from 'lucide-react';
+
+export const getPaymentStatusDisplay = (status?: string) => {
+  const s = (status || '').trim().toLowerCase();
+  if (s === 'cancelled' || s === 'لاغي' || s === 'ملغي') {
+    return {
+      type: 'cancelled' as const,
+      label: 'لاغي',
+      badgeClass: 'bg-rose-50 text-rose-700 border-rose-200/80',
+      textClass: 'text-rose-600',
+      amountClass: 'line-through text-rose-500 font-bold',
+      icon: X,
+    };
+  }
+  if (s === 'pending' || s === 'لم يتم التحصيل' || s === 'uncollected' || s === 'معلق' || s === 'غير محصل') {
+    return {
+      type: 'pending' as const,
+      label: 'غير محصل',
+      badgeClass: 'bg-amber-50 text-amber-700 border-amber-200/80',
+      textClass: 'text-amber-700',
+      amountClass: 'text-amber-600 font-bold',
+      icon: Clock,
+    };
+  }
+  return {
+    type: 'collected' as const,
+    label: 'مدفوع',
+    badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200/80',
+    textClass: 'text-emerald-700',
+    amountClass: 'text-emerald-700 font-black',
+    icon: CheckCircle2,
+  };
+};
 
 interface ResidentAccountStatementProps {
   resident?: Resident;
@@ -996,29 +1029,29 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
           {/* Months Table - Full Width with Compact Columns & Sticky First Column */}
           <div className="border border-slate-100 rounded-2xl overflow-hidden shadow-2xs w-full bg-white">
             <div className="overflow-x-auto w-full" ref={table1Ref} onScroll={handleScroll1}>
-              <table className="w-full min-w-[660px] text-right border-collapse text-xs table-fixed">
+              <table className="w-full min-w-[480px] sm:min-w-[520px] text-right border-collapse text-[11px] sm:text-xs table-fixed">
                 <colgroup>
-                  <col className="w-14 min-w-[56px]" />
-                  <col className="w-[15%]" />
-                  <col className="w-[15%]" />
-                  <col className="w-[14%]" />
-                  <col className="w-[18%]" />
-                  <col className="w-[18%]" />
-                  <col className="w-[10%]" />
+                  <col className="w-[11%] min-w-[46px]" />
+                  <col className="w-[13%] min-w-[56px]" />
+                  <col className="w-[16%] min-w-[66px]" />
+                  <col className="w-[15%] min-w-[64px]" />
+                  <col className="w-[17%] min-w-[70px]" />
+                  <col className="w-[15%] min-w-[60px]" />
+                  <col className="w-[13%] min-w-[54px]" />
                 </colgroup>
                 <thead>
-                  <tr className="bg-slate-50/90 text-slate-600 font-extrabold text-[11px] border-b border-slate-100">
-                    <th className="sticky right-0 z-20 bg-slate-50 px-1 py-2 whitespace-nowrap text-center border-l border-slate-200/80 shadow-[-2px_0_4px_rgba(0,0,0,0.03)] text-[10px] sm:text-[11px]">
+                  <tr className="bg-slate-50/90 text-slate-600 font-extrabold text-[10.5px] sm:text-[11px] border-b border-slate-100">
+                    <th className="sticky right-0 z-20 bg-slate-50 px-1 py-1.5 whitespace-nowrap text-center border-l border-slate-200/80 shadow-[-2px_0_4px_rgba(0,0,0,0.03)] text-[10px] sm:text-[11px]">
                       الشهور
                     </th>
-                    <th className="px-2 py-2 sm:px-2.5 sm:py-2.5 whitespace-nowrap text-right">الاشتراك</th>
-                    <th className="px-2 py-2 sm:px-2.5 sm:py-2.5 whitespace-nowrap text-right">المسدد</th>
-                    <th className="px-0.5 py-2 whitespace-nowrap text-center text-[9px] sm:text-[10px]">
+                    <th className="px-1.5 py-1.5 sm:px-2 whitespace-nowrap text-right">الاشتراك</th>
+                    <th className="px-1.5 py-1.5 sm:px-2 whitespace-nowrap text-right">المسدد</th>
+                    <th className="px-1 py-1.5 whitespace-nowrap text-center text-[9.5px] sm:text-[10px]">
                       فئة التحصيل
                     </th>
-                    <th className="px-2 py-2 sm:px-2.5 sm:py-2.5 whitespace-nowrap text-center">حالة السداد</th>
-                    <th className="px-2 py-2 sm:px-2.5 sm:py-2.5 whitespace-nowrap text-center sm:text-right">رقم الإيصال</th>
-                    <th className="px-2 py-2 sm:px-2.5 sm:py-2.5 whitespace-nowrap text-center">صورة الإيصال</th>
+                    <th className="px-1.5 py-1.5 sm:px-2 whitespace-nowrap text-center">حالة السداد</th>
+                    <th className="px-1.5 py-1.5 sm:px-2 whitespace-nowrap text-center sm:text-right">رقم الإيصال</th>
+                    <th className="px-1.5 py-1.5 sm:px-2 whitespace-nowrap text-center">صورة الإيصال</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-xs font-bold text-slate-800">
@@ -1036,46 +1069,46 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
 
                     return (
                       <tr className={rowBg}>
-                        <td className={`sticky right-0 z-10 ${isNeg ? 'bg-amber-50' : isPos ? 'bg-teal-50' : 'bg-slate-50'} px-1 py-1 whitespace-nowrap leading-tight border-l border-slate-200/80 shadow-[-2px_0_4px_rgba(0,0,0,0.03)] w-12 sm:w-14 min-w-[48px] max-w-[54px] text-center`}>
+                        <td className={`sticky right-0 z-10 ${isNeg ? 'bg-amber-50' : isPos ? 'bg-teal-50' : 'bg-slate-50'} px-1 py-1 whitespace-nowrap leading-tight border-l border-slate-200/80 shadow-[-2px_0_4px_rgba(0,0,0,0.03)] text-center`}>
                           <div className="flex flex-col items-center justify-center leading-none py-0.5">
-                            <span className="font-black text-slate-900 text-[11px]">رصيد</span>
-                            <span className="text-[10px] font-black text-slate-600 mt-0.5">سابق</span>
+                            <span className="font-black text-slate-900 text-[10px] sm:text-[11px]">رصيد</span>
+                            <span className="text-[9px] sm:text-[10px] font-black text-slate-600 mt-0.5">سابق</span>
                           </div>
                         </td>
-                        <td className="px-2 py-1.5 sm:px-2.5 sm:py-2 whitespace-nowrap font-bold text-xs sm:text-[13px]">
+                        <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap font-bold text-[11px] sm:text-xs">
                           {isNeg ? `${Math.abs(initBal).toLocaleString()} ج.م` : '0 ج.م'}
                         </td>
-                        <td className="px-2 py-1.5 sm:px-2.5 sm:py-2 whitespace-nowrap font-bold text-xs sm:text-[13px]">
+                        <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap font-bold text-[11px] sm:text-xs">
                           {isPos ? `${initBal.toLocaleString()} ج.م` : '0 ج.م'}
                         </td>
-                        <td className="px-0.5 py-1 whitespace-nowrap text-center text-xs w-14 sm:w-16 min-w-[50px] max-w-[62px]">
-                          <span className="px-1 py-0.5 bg-slate-100 text-slate-700 border border-slate-200/80 rounded text-[9px] font-bold inline-block truncate max-w-[58px]" title={isCarried ? 'رصيد مرحل' : 'تسوية رصيد'}>
+                        <td className="px-1 py-1 whitespace-nowrap text-center text-[10px] sm:text-[11px]">
+                          <span className="px-1 py-0.5 bg-slate-100 text-slate-700 border border-slate-200/80 rounded text-[9px] font-bold inline-block truncate max-w-[54px]" title={isCarried ? 'رصيد مرحل' : 'تسوية رصيد'}>
                             {isCarried ? 'مرحل' : 'تسوية'}
                           </span>
                         </td>
-                        <td className="px-2 py-1.5 sm:px-2.5 sm:py-2 whitespace-nowrap text-center">
+                        <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center">
                           {isNeg ? (
-                            <span className="min-w-[70px] inline-flex items-center justify-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200/80 rounded-md text-[10px] font-black leading-none">
-                              <Clock className="w-3 h-3 text-amber-600 shrink-0" />
-                              <span>{isCarried ? `مديونية من ${currentYear - 1}` : 'مديونية سابقة'}</span>
+                            <span className="min-w-[62px] inline-flex items-center justify-center gap-0.5 px-1.5 py-0.5 bg-amber-50 text-amber-700 border border-amber-200/80 rounded-md text-[9.5px] font-black leading-none">
+                              <Clock className="w-2.5 h-2.5 text-amber-600 shrink-0" />
+                              <span>{isCarried ? `مديونية ${currentYear - 1}` : 'مديونية'}</span>
                             </span>
                           ) : isPos ? (
-                            <span className="min-w-[70px] inline-flex items-center justify-center gap-1 px-2 py-0.5 bg-teal-50 text-teal-700 border border-teal-200/80 rounded-md text-[10px] font-black leading-none">
-                              <CheckCircle2 className="w-3 h-3 text-teal-600 shrink-0" />
-                              <span>{isCarried ? `فائض من ${currentYear - 1}` : 'رصيد دائن'}</span>
+                            <span className="min-w-[62px] inline-flex items-center justify-center gap-0.5 px-1.5 py-0.5 bg-teal-50 text-teal-700 border border-teal-200/80 rounded-md text-[9.5px] font-black leading-none">
+                              <CheckCircle2 className="w-2.5 h-2.5 text-teal-600 shrink-0" />
+                              <span>{isCarried ? `فائض ${currentYear - 1}` : 'رصيد دائن'}</span>
                             </span>
                           ) : (
-                            <span className="min-w-[70px] inline-flex items-center justify-center gap-1 px-2 py-0.5 bg-slate-100 text-slate-500 border border-slate-200 rounded-md text-[10px] font-bold leading-none">
-                              <span>0 ج.م (لا يوجد)</span>
+                            <span className="min-w-[62px] inline-flex items-center justify-center gap-0.5 px-1.5 py-0.5 bg-slate-100 text-slate-500 border border-slate-200 rounded-md text-[9.5px] font-bold leading-none">
+                              <span>0 ج.م</span>
                             </span>
                           )}
                         </td>
-                        <td className="px-2 py-1.5 sm:px-2.5 sm:py-2 whitespace-nowrap text-center sm:text-right text-xs">
-                          <span className="font-mono px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-600">
-                            {isCarried ? 'مرحل تلقائياً' : (isNeg ? 'مرحل للمديونية' : isPos ? 'مرحل للرصيد' : 'رصيد مرحل')}
+                        <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center text-[10.5px]">
+                          <span className="font-mono px-1 py-0.5 rounded text-[9.5px] font-bold bg-slate-100 text-slate-600">
+                            {isCarried ? 'مرحل' : (isNeg ? 'مديونية' : isPos ? 'رصيد' : '—')}
                           </span>
                         </td>
-                        <td className="px-2 py-1.5 sm:px-2.5 sm:py-2 whitespace-nowrap text-center text-xs text-slate-300 font-normal">
+                        <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center text-[10.5px] text-slate-300 font-normal">
                           —
                         </td>
                       </tr>
@@ -1089,97 +1122,172 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                       </td>
                     </tr>
                   ) : (
-                    displayedMonths.map((m, idx) => (
-                      <tr key={idx} className={`group hover:bg-slate-50/70 transition ${!m.isPaid ? 'bg-rose-50/20' : ''}`}>
-                        <td className={`sticky right-0 z-10 ${!m.isPaid ? 'bg-[#fef8f8] group-hover:bg-[#fcf2f2]' : 'bg-white group-hover:bg-slate-50'} px-1 py-1 whitespace-nowrap leading-tight border-l border-slate-200/80 shadow-[-2px_0_4px_rgba(0,0,0,0.03)] w-12 sm:w-14 min-w-[48px] max-w-[54px] text-center`}>
-                          <div className="font-bold text-slate-900 text-xs">
-                            {monthNamesArabic[m.monthNum - 1]}
-                          </div>
-                          <div className="text-[9px] font-medium text-slate-400 leading-none mt-0.5">
-                            {m.year}
-                          </div>
-                        </td>
-                        <td className="px-2 py-1.5 sm:px-2.5 sm:py-2 whitespace-nowrap text-slate-600 font-bold text-xs sm:text-[13px]">
-                          {m.fee.toLocaleString()} ج.م
-                        </td>
-                        <td className="px-2 py-1.5 sm:px-2.5 sm:py-2 whitespace-nowrap text-xs sm:text-[13px]">
-                          <span className={m.paidAmount > 0 ? 'text-emerald-600 font-black' : 'text-slate-400 font-normal'}>
-                            {m.paidAmount > 0 ? `${m.paidAmount.toLocaleString()} ج.م` : '0 ج.م'}
-                          </span>
-                        </td>
-                        <td className="px-0.5 py-1 whitespace-nowrap text-center text-xs w-14 sm:w-16 min-w-[50px] max-w-[62px]">
-                          {m.matchingPayments.length > 0 ? (
-                            <div className="flex items-center justify-center flex-wrap gap-0.5">
-                              {Array.from(new Set(m.matchingPayments.map(p => p.paymentType || 'اشتراك شهري'))).map((type, tIdx) => (
-                                <span
-                                  key={tIdx}
-                                  className="px-1 py-0.5 bg-blue-50 text-blue-900 border border-blue-200/80 rounded text-[9px] font-bold inline-block truncate max-w-[58px]"
-                                  title={type}
-                                >
-                                  {type}
-                                </span>
-                              ))}
+                    displayedMonths.map((m, idx) => {
+                      const count = m.matchingPayments.length;
+                      return (
+                        <tr key={idx} className={`group hover:bg-slate-50/70 transition ${!m.isPaid ? 'bg-rose-50/20' : ''}`}>
+                          <td className={`sticky right-0 z-10 ${!m.isPaid ? 'bg-[#fef8f8] group-hover:bg-[#fcf2f2]' : 'bg-white group-hover:bg-slate-50'} px-1 py-1 whitespace-nowrap leading-tight border-l border-slate-200/80 shadow-[-2px_0_4px_rgba(0,0,0,0.03)] text-center align-middle`}>
+                            <div className="font-bold text-slate-900 text-[11px] sm:text-xs">
+                              {monthNamesArabic[m.monthNum - 1]}
                             </div>
-                          ) : (
-                            <span className="text-slate-300 font-normal">—</span>
-                          )}
-                        </td>
-                        <td className="px-2 py-1.5 sm:px-2.5 sm:py-2 whitespace-nowrap text-center">
-                          {m.isPaid ? (
-                            <span className="min-w-[70px] inline-flex items-center justify-center gap-1 px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200/80 rounded-md text-[10px] font-black leading-none">
-                              <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
-                              <span>مدفوع</span>
-                            </span>
-                          ) : m.paidAmount > 0 ? (
-                            <span className="min-w-[70px] inline-flex items-center justify-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200/80 rounded-md text-[10px] font-black leading-none">
-                              <Clock className="w-3 h-3 text-amber-600 shrink-0" />
-                              <span>سداد جزئي</span>
-                            </span>
-                          ) : (
-                            <span className="min-w-[70px] inline-flex items-center justify-center gap-1 px-2 py-0.5 bg-rose-50 text-rose-600 border border-rose-200/80 rounded-md text-[10px] font-black leading-none">
-                              <AlertTriangle className="w-3 h-3 text-rose-500 shrink-0" />
-                              <span>غير مدفوع</span>
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-2.5 py-1.5 sm:px-3 sm:py-2 whitespace-nowrap text-center sm:text-right text-xs">
-                          {m.matchingPayments.length > 0 ? (
-                            <div className="flex items-center justify-center sm:justify-start flex-wrap gap-1">
-                              {m.matchingPayments.map(p => (
-                                <span
-                                  key={p.id}
-                                  className="font-mono px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200"
-                                >
-                                  {p.receiptNumber ? `#${p.receiptNumber}` : 'مسدد'}
-                                </span>
-                              ))}
+                            <div className="text-[9px] font-medium text-slate-400 leading-none mt-0.5">
+                              {m.year}
                             </div>
-                          ) : (
-                            <span className="text-slate-300 font-normal">—</span>
-                          )}
-                        </td>
-                        <td className="px-2 py-1.5 sm:px-2.5 sm:py-2 whitespace-nowrap text-center text-xs">
-                          {m.matchingPayments.some(p => p.fileUrl) ? (
-                            <div className="flex items-center justify-center flex-wrap gap-1">
-                              {m.matchingPayments.filter(p => p.fileUrl).map((p, pIdx) => (
+                          </td>
+                          <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-slate-600 font-bold text-[11px] sm:text-xs align-middle">
+                            {m.fee.toLocaleString()} ج.م
+                          </td>
+                          <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-[11px] sm:text-xs align-middle">
+                            {count === 0 ? (
+                              <span className="text-slate-400 font-normal">0 ج.م</span>
+                            ) : count === 1 ? (
+                              (() => {
+                                const statusInfo = getPaymentStatusDisplay(m.matchingPayments[0].status);
+                                return (
+                                  <span className={statusInfo.amountClass}>
+                                    {m.matchingPayments[0].amount.toLocaleString()} ج.م
+                                  </span>
+                                );
+                              })()
+                            ) : (
+                              <div className="flex flex-col gap-1 py-0.5">
+                                {m.matchingPayments.map((p, pIdx) => {
+                                  const statusInfo = getPaymentStatusDisplay(p.status);
+                                  return (
+                                    <div key={p.id || pIdx} className="h-5 sm:h-6 flex items-center">
+                                      <span className={statusInfo.amountClass}>
+                                        {p.amount.toLocaleString()} ج.م
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-1 py-1 whitespace-nowrap text-center text-[10px] sm:text-[11px] align-middle">
+                            {count === 0 ? (
+                              <span className="text-slate-300 font-normal">—</span>
+                            ) : count === 1 ? (
+                              <span
+                                className="px-1 py-0.5 bg-blue-50 text-blue-900 border border-blue-200/80 rounded text-[9px] font-bold inline-block truncate max-w-[70px]"
+                                title={m.matchingPayments[0].paymentType || 'اشتراك شهري'}
+                              >
+                                {m.matchingPayments[0].paymentType || 'اشتراك شهري'}
+                              </span>
+                            ) : (
+                              <div className="flex flex-col gap-1 py-0.5 items-center justify-center">
+                                {m.matchingPayments.map((p, pIdx) => (
+                                  <div key={p.id || pIdx} className="h-5 sm:h-6 flex items-center justify-center">
+                                    <span
+                                      className="px-1 py-0.5 bg-blue-50 text-blue-900 border border-blue-200/80 rounded text-[9px] font-bold inline-block truncate max-w-[70px]"
+                                      title={p.paymentType || 'اشتراك شهري'}
+                                    >
+                                      {p.paymentType || 'اشتراك شهري'}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center align-middle">
+                            {count === 0 ? (
+                              <span className="min-w-[64px] inline-flex items-center justify-center gap-1 px-1.5 py-0.5 bg-rose-50 text-rose-600 border border-rose-200/80 rounded-md text-[9.5px] font-black leading-none">
+                                <AlertTriangle className="w-2.5 h-2.5 text-rose-500 shrink-0" />
+                                <span>غير مدفوع</span>
+                              </span>
+                            ) : count === 1 ? (
+                              (() => {
+                                const statusInfo = getPaymentStatusDisplay(m.matchingPayments[0].status);
+                                return (
+                                  <span className={`min-w-[64px] inline-flex items-center justify-center gap-1 px-1.5 py-0.5 ${statusInfo.badgeClass} rounded-md text-[9.5px] font-black leading-none`}>
+                                    <statusInfo.icon className="w-2.5 h-2.5 shrink-0" />
+                                    <span>{statusInfo.label}</span>
+                                  </span>
+                                );
+                              })()
+                            ) : (
+                              <div className="flex flex-col gap-1 py-0.5 items-center justify-center">
+                                {m.matchingPayments.map((p, pIdx) => {
+                                  const statusInfo = getPaymentStatusDisplay(p.status);
+                                  return (
+                                    <div key={p.id || pIdx} className="h-5 sm:h-6 flex items-center justify-center">
+                                      <span className={`min-w-[64px] inline-flex items-center justify-center gap-1 px-1.5 py-0.5 ${statusInfo.badgeClass} rounded-md text-[9.5px] font-black leading-none`}>
+                                        <statusInfo.icon className="w-2.5 h-2.5 shrink-0" />
+                                        <span>{statusInfo.label}</span>
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center sm:text-right text-[10.5px] align-middle">
+                            {count === 0 ? (
+                              <span className="text-slate-300 font-normal">—</span>
+                            ) : count === 1 ? (
+                              <span
+                                className="font-mono px-1 py-0.5 rounded text-[9.5px] font-bold bg-slate-100 text-slate-700 border border-slate-200 truncate max-w-[75px]"
+                                title={m.matchingPayments[0].receiptNumber ? `#${m.matchingPayments[0].receiptNumber}` : 'مسدد'}
+                              >
+                                {m.matchingPayments[0].receiptNumber ? `#${m.matchingPayments[0].receiptNumber}` : 'مسدد'}
+                              </span>
+                            ) : (
+                              <div className="flex flex-col gap-1 py-0.5 items-center justify-center sm:justify-start">
+                                {m.matchingPayments.map((p, pIdx) => (
+                                  <div key={p.id || pIdx} className="h-5 sm:h-6 flex items-center justify-center sm:justify-start">
+                                    <span
+                                      className="font-mono px-1 py-0.5 rounded text-[9.5px] font-bold bg-slate-100 text-slate-700 border border-slate-200 truncate max-w-[75px]"
+                                      title={p.receiptNumber ? `#${p.receiptNumber}` : 'مسدد'}
+                                    >
+                                      {p.receiptNumber ? `#${p.receiptNumber}` : 'مسدد'}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center text-xs align-middle">
+                            {count === 0 ? (
+                              <span className="text-slate-300 font-normal">—</span>
+                            ) : count === 1 ? (
+                              m.matchingPayments[0].fileUrl ? (
                                 <button
-                                  key={p.id || pIdx}
                                   type="button"
-                                  onClick={() => onPreviewImage && p.fileUrl && onPreviewImage(p.fileUrl)}
-                                  className="inline-flex items-center justify-center gap-1 px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200/80 rounded-lg text-[10px] font-bold transition cursor-pointer shadow-2xs"
+                                  onClick={() => onPreviewImage && m.matchingPayments[0].fileUrl && onPreviewImage(m.matchingPayments[0].fileUrl!)}
+                                  className="inline-flex items-center justify-center gap-0.5 px-1.5 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200/80 rounded-md text-[9px] font-bold transition cursor-pointer shadow-2xs"
                                   title="عرض صورة الإيصال"
                                 >
-                                  <ImageIcon className="w-3 h-3 text-blue-600 shrink-0" />
-                                  <span>عرض الإيصال</span>
+                                  <ImageIcon className="w-2.5 h-2.5 text-blue-600 shrink-0" />
+                                  <span>عرض</span>
                                 </button>
-                              ))}
-                            </div>
-                          ) : (
-                            <span className="text-slate-300 font-normal">—</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))
+                              ) : (
+                                <span className="text-slate-300 font-normal">—</span>
+                              )
+                            ) : (
+                              <div className="flex flex-col gap-1 py-0.5 items-center justify-center">
+                                {m.matchingPayments.map((p, pIdx) => (
+                                  <div key={p.id || pIdx} className="h-5 sm:h-6 flex items-center justify-center">
+                                    {p.fileUrl ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => onPreviewImage && p.fileUrl && onPreviewImage(p.fileUrl!)}
+                                        className="inline-flex items-center justify-center gap-0.5 px-1.5 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200/80 rounded-md text-[9px] font-bold transition cursor-pointer shadow-2xs"
+                                        title="عرض صورة الإيصال"
+                                      >
+                                        <ImageIcon className="w-2.5 h-2.5 text-blue-600 shrink-0" />
+                                        <span>عرض</span>
+                                      </button>
+                                    ) : (
+                                      <span className="text-slate-300 font-normal text-[10px]">—</span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
@@ -1203,29 +1311,29 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
 
           <div className="border border-slate-100 rounded-2xl overflow-hidden shadow-2xs w-full bg-white">
             <div className="overflow-x-auto w-full" ref={table2Ref} onScroll={handleScroll2}>
-              <table className="w-full min-w-[660px] text-right border-collapse text-xs table-fixed">
+              <table className="w-full min-w-[480px] sm:min-w-[520px] text-right border-collapse text-[11px] sm:text-xs table-fixed">
                 <colgroup>
-                  <col className="w-14 min-w-[56px]" />
-                  <col className="w-[15%]" />
-                  <col className="w-[15%]" />
-                  <col className="w-[14%]" />
-                  <col className="w-[18%]" />
-                  <col className="w-[18%]" />
-                  <col className="w-[10%]" />
+                  <col className="w-[11%] min-w-[46px]" />
+                  <col className="w-[13%] min-w-[56px]" />
+                  <col className="w-[16%] min-w-[66px]" />
+                  <col className="w-[15%] min-w-[64px]" />
+                  <col className="w-[17%] min-w-[70px]" />
+                  <col className="w-[15%] min-w-[60px]" />
+                  <col className="w-[13%] min-w-[54px]" />
                 </colgroup>
                 <thead>
-                  <tr className="bg-slate-50/90 text-slate-600 font-extrabold text-[11px] border-b border-slate-100">
-                    <th className="sticky right-0 z-20 bg-slate-50 px-1 py-2 whitespace-nowrap text-center border-l border-slate-200/80 shadow-[-2px_0_4px_rgba(0,0,0,0.03)] text-[10px] sm:text-[11px]">
+                  <tr className="bg-slate-50/90 text-slate-600 font-extrabold text-[10.5px] sm:text-[11px] border-b border-slate-100">
+                    <th className="sticky right-0 z-20 bg-slate-50 px-1 py-1.5 whitespace-nowrap text-center border-l border-slate-200/80 shadow-[-2px_0_4px_rgba(0,0,0,0.03)] text-[10px] sm:text-[11px]">
                       الشهور
                     </th>
-                    <th className="px-2 py-2 sm:px-2.5 sm:py-2.5 whitespace-nowrap text-right">الاشتراك</th>
-                    <th className="px-2 py-2 sm:px-2.5 sm:py-2.5 whitespace-nowrap text-right">المسدد</th>
-                    <th className="px-0.5 py-2 whitespace-nowrap text-center text-[9px] sm:text-[10px]">
+                    <th className="px-1.5 py-1.5 sm:px-2 whitespace-nowrap text-right">الاشتراك</th>
+                    <th className="px-1.5 py-1.5 sm:px-2 whitespace-nowrap text-right">المسدد</th>
+                    <th className="px-1 py-1.5 whitespace-nowrap text-center text-[9.5px] sm:text-[10px]">
                       فئة التحصيل
                     </th>
-                    <th className="px-2 py-2 sm:px-2.5 sm:py-2.5 whitespace-nowrap text-center">حالة السداد</th>
-                    <th className="px-2 py-2 sm:px-2.5 sm:py-2.5 whitespace-nowrap text-center sm:text-right">رقم الإيصال</th>
-                    <th className="px-2 py-2 sm:px-2.5 sm:py-2.5 whitespace-nowrap text-center">صورة الإيصال</th>
+                    <th className="px-1.5 py-1.5 sm:px-2 whitespace-nowrap text-center">حالة السداد</th>
+                    <th className="px-1.5 py-1.5 sm:px-2 whitespace-nowrap text-center sm:text-right">رقم الإيصال</th>
+                    <th className="px-1.5 py-1.5 sm:px-2 whitespace-nowrap text-center">صورة الإيصال</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-xs font-bold text-slate-800">
@@ -1239,53 +1347,63 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                     unitPayments.map((p) => {
                       const mIdx = parseInt(String(p.month), 10) - 1;
                       const mName = monthNamesArabic[mIdx] || p.month;
+                      const statusInfo = getPaymentStatusDisplay(p.status);
                       return (
-                        <tr key={p.id} className="group hover:bg-slate-50/70 transition">
-                          <td className="sticky right-0 z-10 bg-white group-hover:bg-slate-50 px-1 py-1 whitespace-nowrap leading-tight border-l border-slate-200/80 shadow-[-2px_0_4px_rgba(0,0,0,0.03)] w-12 sm:w-14 min-w-[48px] max-w-[54px] text-center">
-                            <div className="font-bold text-slate-900 text-xs">
+                        <tr 
+                          key={p.id} 
+                          className={`group transition ${
+                            statusInfo.type === 'cancelled' 
+                              ? 'bg-rose-50/25 hover:bg-rose-50/50' 
+                              : statusInfo.type === 'pending'
+                              ? 'bg-amber-50/25 hover:bg-amber-50/50'
+                              : 'hover:bg-slate-50/70'
+                          }`}
+                        >
+                          <td className="sticky right-0 z-10 bg-white group-hover:bg-slate-50 px-1 py-1 whitespace-nowrap leading-tight border-l border-slate-200/80 shadow-[-2px_0_4px_rgba(0,0,0,0.03)] text-center align-middle">
+                            <div className="font-bold text-slate-900 text-[11px] sm:text-xs">
                               {mName}
                             </div>
                             <div className="text-[9px] font-medium text-slate-400 leading-none mt-0.5">
                               {p.year}
                             </div>
                           </td>
-                          <td className="px-2 py-1.5 sm:px-2.5 sm:py-2 whitespace-nowrap text-slate-600 font-bold text-xs sm:text-[13px]">
+                          <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-slate-600 font-bold text-[11px] sm:text-xs align-middle">
                             {financials.monthlyFee.toLocaleString()} ج.م
                           </td>
-                          <td className="px-2 py-1.5 sm:px-2.5 sm:py-2 whitespace-nowrap text-xs sm:text-[13px]">
-                            <span className="text-emerald-600 font-black">
+                          <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-[11px] sm:text-xs align-middle">
+                            <span className={statusInfo.amountClass}>
                               {p.amount.toLocaleString()} ج.م
                             </span>
                           </td>
-                          <td className="px-0.5 py-1 whitespace-nowrap text-center text-xs w-14 sm:w-16 min-w-[50px] max-w-[62px]">
+                          <td className="px-1 py-1 whitespace-nowrap text-center text-[10px] sm:text-[11px] align-middle">
                             <span
-                              className="px-1 py-0.5 bg-blue-50 text-blue-900 border border-blue-200/80 rounded text-[9px] font-bold inline-block truncate max-w-[58px]"
+                              className="px-1 py-0.5 bg-blue-50 text-blue-900 border border-blue-200/80 rounded text-[9px] font-bold inline-block truncate max-w-[70px]"
                               title={p.paymentType || 'اشتراك شهري'}
                             >
                               {p.paymentType || 'اشتراك شهري'}
                             </span>
                           </td>
-                          <td className="px-2 py-1.5 sm:px-2.5 sm:py-2 whitespace-nowrap text-center">
-                            <span className="min-w-[70px] inline-flex items-center justify-center gap-1 px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200/80 rounded-md text-[10px] font-black leading-none">
-                              <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
-                              <span>مستلم ومعتمد</span>
+                          <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center align-middle">
+                            <span className={`min-w-[64px] inline-flex items-center justify-center gap-1 px-1.5 py-0.5 ${statusInfo.badgeClass} rounded-md text-[9.5px] font-black leading-none`}>
+                              <statusInfo.icon className="w-2.5 h-2.5 shrink-0" />
+                              <span>{statusInfo.label}</span>
                             </span>
                           </td>
-                          <td className="px-2.5 py-1.5 sm:px-3 sm:py-2 whitespace-nowrap text-center sm:text-right text-xs">
-                            <span className="font-mono px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                          <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center sm:text-right text-[10.5px] align-middle">
+                            <span className="font-mono px-1 py-0.5 rounded text-[9.5px] font-bold bg-slate-100 text-slate-700 border border-slate-200 truncate max-w-[75px]" title={p.receiptNumber ? `#${p.receiptNumber}` : 'مسدد'}>
                               {p.receiptNumber ? `#${p.receiptNumber}` : 'مسدد'}
                             </span>
                           </td>
-                          <td className="px-2 py-1.5 sm:px-2.5 sm:py-2 whitespace-nowrap text-center text-xs">
+                          <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center text-xs align-middle">
                             {p.fileUrl ? (
                               <button
                                 type="button"
                                 onClick={() => onPreviewImage && p.fileUrl && onPreviewImage(p.fileUrl)}
-                                className="inline-flex items-center justify-center gap-1 px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200/80 rounded-lg text-[10px] font-bold transition cursor-pointer shadow-2xs"
+                                className="inline-flex items-center justify-center gap-0.5 px-1.5 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200/80 rounded-md text-[9px] font-bold transition cursor-pointer shadow-2xs"
                                 title="عرض صورة الإيصال"
                               >
-                                <ImageIcon className="w-3 h-3 text-blue-600 shrink-0" />
-                                <span>عرض الإيصال</span>
+                                <ImageIcon className="w-2.5 h-2.5 text-blue-600 shrink-0" />
+                                <span>عرض</span>
                               </button>
                             ) : (
                               <span className="text-slate-300 font-normal">—</span>
@@ -1457,39 +1575,105 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
 
               {/* Monthly breakdown rows */}
               {monthsTimeline.map((m) => {
-                const isPartial = m.paidAmount > 0 && !m.isPaid;
-                const isUnpaid = m.paidAmount === 0 && !m.isPaid;
+                const count = m.matchingPayments.length;
+                const isUnpaid = count === 0 || !m.isPaid;
                 return (
-                  <tr key={`${m.year}-${m.monthNum}`} className={`border-b border-slate-300 ${isUnpaid ? 'bg-rose-50/40' : isPartial ? 'bg-amber-50/40' : ''}`}>
-                    <td className="border border-slate-300 p-2 text-center font-black text-slate-800">{m.monthLabel}</td>
-                    <td className="border border-slate-300 p-2 text-center font-semibold text-slate-700">{m.fee.toLocaleString()} ج.م</td>
-                    <td className="border border-slate-300 p-2 text-center font-black text-emerald-700">
-                      {m.paidAmount > 0 ? `${m.paidAmount.toLocaleString()} ج.م` : '0 ج.م'}
-                    </td>
-                    <td className="border border-slate-300 p-2 text-center text-xs font-bold text-slate-700">
-                      {m.matchingPayments.length > 0 
-                        ? Array.from(new Set(m.matchingPayments.map(p => p.paymentType || 'اشتراك شهري'))).join(' ، ')
-                        : '—'}
-                    </td>
-                    <td className="border border-slate-300 p-2 text-center font-bold">
-                      {m.isPaid ? (
-                        <span className="inline-block px-2 py-0.5 bg-emerald-50 text-emerald-800 font-black rounded-md border border-emerald-200">
-                          مدفوع بالكامل
-                        </span>
-                      ) : isPartial ? (
-                        <span className="inline-block px-2 py-0.5 bg-amber-50 text-amber-800 font-black rounded-md border border-amber-200">
-                          سداد جزئي ({m.paidAmount} من {m.fee} ج.م)
-                        </span>
+                  <tr key={`${m.year}-${m.monthNum}`} className={`border-b border-slate-300 ${isUnpaid ? 'bg-rose-50/40' : ''}`}>
+                    <td className="border border-slate-300 p-2 text-center font-black text-slate-800 align-middle">{m.monthLabel}</td>
+                    <td className="border border-slate-300 p-2 text-center font-semibold text-slate-700 align-middle">{m.fee.toLocaleString()} ج.م</td>
+                    <td className="border border-slate-300 p-2 text-center align-middle font-bold">
+                      {count === 0 ? (
+                        <span className="text-slate-400">0 ج.م</span>
+                      ) : count === 1 ? (
+                        (() => {
+                          const statusInfo = getPaymentStatusDisplay(m.matchingPayments[0].status);
+                          return (
+                            <span className={statusInfo.amountClass}>
+                              {m.matchingPayments[0].amount.toLocaleString()} ج.م
+                            </span>
+                          );
+                        })()
                       ) : (
+                        <div className="flex flex-col gap-1 items-center justify-center">
+                          {m.matchingPayments.map((p, pIdx) => {
+                            const statusInfo = getPaymentStatusDisplay(p.status);
+                            return (
+                              <div key={p.id || pIdx} className={statusInfo.amountClass}>
+                                {p.amount.toLocaleString()} ج.م
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </td>
+                    <td className="border border-slate-300 p-2 text-center text-xs font-bold text-slate-700 align-middle">
+                      {count === 0 ? (
+                        <span>—</span>
+                      ) : count === 1 ? (
+                        <span>{m.matchingPayments[0].paymentType || 'اشتراك شهري'}</span>
+                      ) : (
+                        <div className="flex flex-col gap-1 items-center justify-center">
+                          {m.matchingPayments.map((p, pIdx) => (
+                            <div key={p.id || pIdx}>
+                              {p.paymentType || 'اشتراك شهري'}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </td>
+                    <td className="border border-slate-300 p-2 text-center font-bold align-middle">
+                      {count === 0 ? (
                         <span className="inline-block px-2 py-0.5 bg-rose-50 text-rose-700 font-black rounded-md border border-rose-200">
                           غير مدفوع
                         </span>
+                      ) : count === 1 ? (
+                        (() => {
+                          const statusInfo = getPaymentStatusDisplay(m.matchingPayments[0].status);
+                          return (
+                            <span className={`inline-block px-2 py-0.5 rounded-md border font-black ${
+                              statusInfo.type === 'cancelled'
+                                ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                : statusInfo.type === 'pending'
+                                ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                            }`}>
+                              {statusInfo.label}
+                            </span>
+                          );
+                        })()
+                      ) : (
+                        <div className="flex flex-col gap-1 items-center justify-center">
+                          {m.matchingPayments.map((p, pIdx) => {
+                            const statusInfo = getPaymentStatusDisplay(p.status);
+                            return (
+                              <span key={p.id || pIdx} className={`inline-block px-2 py-0.5 rounded-md border font-black text-[10px] ${
+                                statusInfo.type === 'cancelled'
+                                  ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                  : statusInfo.type === 'pending'
+                                  ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                  : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                              }`}>
+                                {statusInfo.label}
+                              </span>
+                            );
+                          })}
+                        </div>
                       )}
                     </td>
-                    <td className="border border-slate-300 p-2 text-center font-mono text-[11px] font-bold text-slate-800">
-                      {m.matchingPayments.length > 0 
-                        ? m.matchingPayments.map(p => `إيصال #${p.receiptNumber || 'مسدد'} (${p.date})`).join(' | ')
-                        : '—'}
+                    <td className="border border-slate-300 p-2 text-center font-mono text-[11px] font-bold text-slate-800 align-middle">
+                      {count === 0 ? (
+                        <span>—</span>
+                      ) : count === 1 ? (
+                        <span>{m.matchingPayments[0].receiptNumber ? `#${m.matchingPayments[0].receiptNumber}` : 'مسدد'} ({m.matchingPayments[0].date})</span>
+                      ) : (
+                        <div className="flex flex-col gap-1 items-center justify-center">
+                          {m.matchingPayments.map((p, pIdx) => (
+                            <div key={p.id || pIdx}>
+                              {p.receiptNumber ? `#${p.receiptNumber}` : 'مسدد'} ({p.date})
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </td>
                   </tr>
                 );
@@ -1524,6 +1708,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                   {unitPayments.map((p) => {
                     const mIdx = parseInt(String(p.month), 10) - 1;
                     const mName = monthNamesArabic[mIdx] || p.month;
+                    const statusInfo = getPaymentStatusDisplay(p.status);
                     return (
                       <tr key={p.id} className="border-b border-slate-300">
                         <td className="border border-slate-300 p-2 text-center font-black text-slate-800">
@@ -1532,15 +1717,23 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                         <td className="border border-slate-300 p-2 text-center font-bold text-slate-700">
                           {financials.monthlyFee.toLocaleString()} ج.م
                         </td>
-                        <td className="border border-slate-300 p-2 text-center font-black text-emerald-700">
-                          {p.amount.toLocaleString()} ج.م
+                        <td className="border border-slate-300 p-2 text-center font-black">
+                          <span className={statusInfo.amountClass}>
+                            {p.amount.toLocaleString()} ج.م
+                          </span>
                         </td>
                         <td className="border border-slate-300 p-2 text-center text-xs font-bold text-slate-700">
                           {p.paymentType || 'اشتراك شهري'}
                         </td>
                         <td className="border border-slate-300 p-2 text-center">
-                          <span className="inline-block px-2 py-0.5 bg-emerald-50 text-emerald-800 font-black rounded-md border border-emerald-200">
-                            مستلم ومعتمد ✓
+                          <span className={`inline-block px-2 py-0.5 rounded-md border font-black text-[11px] ${
+                            statusInfo.type === 'cancelled'
+                              ? 'bg-rose-50 text-rose-700 border-rose-200'
+                              : statusInfo.type === 'pending'
+                              ? 'bg-amber-50 text-amber-800 border-amber-200'
+                              : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                          }`}>
+                            {statusInfo.label}
                           </span>
                         </td>
                         <td className="border border-slate-300 p-2 text-center font-mono text-xs font-bold text-slate-800">

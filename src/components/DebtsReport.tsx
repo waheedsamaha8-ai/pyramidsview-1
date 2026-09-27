@@ -838,24 +838,24 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
       {viewMode === 'table' ? (
         <div className="bg-white rounded-2xl border border-slate-100 shadow-xs overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-right border-collapse min-w-[700px]">
+            <table className="w-full text-right border-collapse min-w-[620px]">
               <thead>
                 <tr className="bg-slate-50/90 text-slate-500 font-extrabold text-[10px] border-b border-slate-200">
                   {/* Unit Number - Sticky */}
                   <th 
                     onClick={() => toggleSort('flat')}
-                    className="px-3 py-3 sticky right-0 bg-slate-50 shadow-xs z-10 border-l border-slate-200 cursor-pointer hover:bg-slate-100 transition whitespace-nowrap"
+                    className="w-12 sm:w-14 px-1 py-1.5 sticky right-0 bg-slate-50 shadow-xs z-10 border-l border-slate-200 cursor-pointer hover:bg-slate-100 transition whitespace-nowrap text-center text-[10px]"
                   >
-                    <div className="flex items-center gap-1">
-                      <span>رقم الوحدة</span>
-                      <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                    <div className="flex items-center gap-0.5 justify-center">
+                      <span>الوحدة</span>
+                      <ArrowUpDown className="w-2.5 h-2.5 text-slate-400" />
                     </div>
                   </th>
                   
                   {/* Owner & Tenant Combined */}
                   <th 
                     onClick={() => toggleSort('name')}
-                    className="px-3 py-3 cursor-pointer hover:bg-slate-100 transition whitespace-nowrap"
+                    className="min-w-[95px] max-w-[130px] px-1.5 py-1.5 cursor-pointer hover:bg-slate-100 transition whitespace-nowrap text-[10px]"
                   >
                     <div className="flex items-center gap-1">
                       <span>المالك / المستأجر</span>
@@ -864,44 +864,44 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                   </th>
 
                   {/* Activity Type */}
-                  <th className="px-3 py-3 whitespace-nowrap">نوع النشاط</th>
+                  <th className="w-14 sm:w-16 px-1 py-1.5 text-center whitespace-nowrap text-[10px]">النشاط</th>
 
                   {/* Monthly Fee */}
-                  <th className="px-3 py-3 text-center whitespace-nowrap">الاشتراك الشهري</th>
+                  <th className="w-16 sm:w-18 px-1 py-1.5 text-center whitespace-nowrap text-[10px]">الاشتراك</th>
 
                   {/* Carried Previous Balance (Exported from previous years) */}
-                  <th className="px-3 py-3 text-center whitespace-nowrap">
+                  <th className="w-16 sm:w-20 px-1 py-1.5 text-center whitespace-nowrap text-[10px]">
                     {selectedYearFilter !== 'all' && selectedYearFilter > startYear 
-                      ? `رصيد مرحل (${selectedYearFilter - 1})` 
-                      : 'رصيد سابق مرحل'}
+                      ? `رصيد (${selectedYearFilter - 1})` 
+                      : 'رصيد سابق'}
                   </th>
 
                   {/* Months Elapsed & Late */}
-                  <th className="px-3 py-3 text-center whitespace-nowrap">الشهور المتأخرة</th>
+                  <th className="w-16 sm:w-20 px-1 py-1.5 text-center whitespace-nowrap text-[10px]">المتأخرات</th>
 
                   {/* Late Amount for Unpaid Months */}
-                  <th className="px-3 py-3 text-center whitespace-nowrap">المبلغ المتأخر</th>
+                  <th className="w-16 sm:w-20 px-1 py-1.5 text-center whitespace-nowrap text-[10px]">مبلغ متأخر</th>
 
                   {/* Total Paid */}
-                  <th className="px-3 py-3 text-center whitespace-nowrap">المبلغ المدفوع</th>
+                  <th className="w-16 sm:w-20 px-1 py-1.5 text-center whitespace-nowrap text-[10px]">المدفوع</th>
 
                   {/* Net Debt (Sorted) */}
                   <th 
                     onClick={() => toggleSort('amount')}
-                    className="px-3 py-3 text-center cursor-pointer hover:bg-slate-100 transition text-red-900 whitespace-nowrap"
+                    className="w-20 sm:w-22 px-1 py-1.5 text-center cursor-pointer hover:bg-slate-100 transition text-red-900 whitespace-nowrap text-[10px]"
                   >
-                    <div className="flex items-center justify-center gap-1 font-black">
-                      <span>صافي المديونية</span>
-                      <ArrowUpDown className="w-3 h-3 text-red-500" />
+                    <div className="flex items-center justify-center gap-0.5 font-black">
+                      <span>صافي الدين</span>
+                      <ArrowUpDown className="w-2.5 h-2.5 text-red-500" />
                     </div>
                   </th>
 
                   {/* Notes */}
-                  <th className="px-3 py-3 whitespace-nowrap">ملاحظات</th>
+                  <th className="min-w-[70px] max-w-[100px] px-1.5 py-1.5 whitespace-nowrap text-[10px]">ملاحظات</th>
 
                   {/* Quick Contact & Reminders */}
                   {role !== 'RESIDENT' && (
-                    <th className="px-3 py-3 text-center whitespace-nowrap">تواصل وتذكير</th>
+                    <th className="w-16 sm:w-20 px-0.5 py-1 text-center whitespace-nowrap text-[10px]">تواصل</th>
                   )}
                 </tr>
               </thead>
@@ -951,101 +951,101 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                         return (
                           <tr key={resident.id} className="group hover:bg-red-50/20 transition">
                             {/* Unit Number - Sticky */}
-                            <td className="px-3 py-3 text-blue-900 font-black whitespace-nowrap sticky right-0 bg-white group-hover:bg-slate-50 z-5 border-l border-slate-100 shadow-xs">
-                              وحدة {resident.flatNumber}
+                            <td className="w-12 sm:w-14 px-1 py-1.5 text-blue-900 font-black whitespace-nowrap sticky right-0 bg-white group-hover:bg-slate-50 z-5 border-l border-slate-100 shadow-xs text-center">
+                              <span className="text-[10px] sm:text-xs">وحدة {resident.flatNumber}</span>
                             </td>
 
                             {/* Owner & Tenant Combined (No phone numbers) */}
-                            <td className="px-3 py-3 whitespace-nowrap">
-                              <div className="flex flex-col gap-1 justify-center">
-                                <div className="flex items-center gap-1.5">
-                                  <span className="font-bold text-slate-900">{resident.name}</span>
+                            <td className="min-w-[95px] max-w-[130px] px-1.5 py-1.5 whitespace-nowrap">
+                              <div className="flex flex-col gap-0.5 justify-center">
+                                <div className="flex items-center gap-1">
+                                  <span className="font-bold text-slate-900 text-xs truncate max-w-[110px]">{resident.name}</span>
                                 </div>
                                 {hasTenant && (
-                                  <div className="flex items-center gap-1.5 text-amber-950 font-bold text-[10.5px] pt-0.5 border-t border-slate-100">
-                                    <span className="text-[8.5px] font-black bg-amber-100 text-amber-900 px-1.5 py-0.2 rounded border border-amber-200/80">مستأجر</span>
-                                    <span>{resident.tenantName}</span>
+                                  <div className="flex items-center gap-1 text-amber-950 font-bold text-[9.5px] pt-0.5 border-t border-slate-100">
+                                    <span className="text-[7.5px] font-black bg-amber-100 text-amber-900 px-1 py-0.2 rounded border border-amber-200/80">مستأجر</span>
+                                    <span className="truncate max-w-[95px]">{resident.tenantName}</span>
                                   </div>
                                 )}
                               </div>
                             </td>
 
                             {/* Activity Type */}
-                            <td className="px-3 py-3 whitespace-nowrap">
-                              <span className="px-2.5 py-0.5 bg-slate-50 text-slate-700 rounded-md text-[10px] font-extrabold border border-slate-200">
+                            <td className="w-14 sm:w-16 px-1 py-1.5 text-center whitespace-nowrap">
+                              <span className="px-1.5 py-0.2 bg-slate-50 text-slate-700 rounded text-[8.5px] font-extrabold border border-slate-200">
                                 {resident.activityType}
                               </span>
                             </td>
 
                             {/* Monthly Fee */}
-                            <td className="px-3 py-3 text-center font-bold text-slate-700 whitespace-nowrap">
+                            <td className="w-16 sm:w-18 px-1 py-1.5 text-center font-bold text-slate-700 whitespace-nowrap text-xs">
                               {financials.monthlyFee} ج.م
                             </td>
 
                             {/* Carried Previous Balance */}
-                            <td className="px-3 py-3 text-center whitespace-nowrap">
+                            <td className="w-16 sm:w-20 px-1 py-1.5 text-center whitespace-nowrap">
                               {carriedBalance < 0 ? (
-                                <span className="inline-flex items-center gap-0.5 px-2 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 rounded-md font-black text-[11px]" dir="ltr">
-                                  <ArrowDownRight className="w-3 h-3" />
+                                <span className="inline-flex items-center gap-0.5 px-1 py-0.2 bg-rose-50 text-rose-700 border border-rose-200 rounded font-black text-[10px]" dir="ltr">
+                                  <ArrowDownRight className="w-2.5 h-2.5" />
                                   <span>-{Math.abs(carriedBalance).toLocaleString()} ج.م</span>
                                 </span>
                               ) : carriedBalance > 0 ? (
-                                <span className="inline-flex items-center gap-0.5 px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md font-black text-[11px]" dir="ltr">
-                                  <ArrowUpRight className="w-3 h-3" />
+                                <span className="inline-flex items-center gap-0.5 px-1 py-0.2 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded font-black text-[10px]" dir="ltr">
+                                  <ArrowUpRight className="w-2.5 h-2.5" />
                                   <span>+{carriedBalance.toLocaleString()} ج.م</span>
                                 </span>
                               ) : (
-                                <span className="text-slate-300 font-normal">—</span>
+                                <span className="text-slate-300 font-normal text-xs">—</span>
                               )}
                             </td>
 
                             {/* Late Months Due */}
-                            <td className="px-3 py-3 text-center font-black text-rose-700 whitespace-nowrap">
+                            <td className="w-16 sm:w-20 px-1 py-1.5 text-center font-black text-rose-700 whitespace-nowrap text-[10.5px]">
                               <span>{financials.unpaidMonthsCount} شهر</span>
                               {financials.paidMonthsCount > 0 && (
-                                <span className="block text-[9.5px] font-bold text-slate-400">
+                                <span className="block text-[8.5px] font-bold text-slate-400">
                                   (مسدد {financials.paidMonthsCount} من {financials.monthsElapsed})
                                 </span>
                               )}
                             </td>
 
                             {/* Late Amount for Unpaid Months */}
-                            <td className="px-3 py-3 text-center text-slate-900 font-black whitespace-nowrap">
+                            <td className="w-16 sm:w-20 px-1 py-1.5 text-center text-slate-900 font-black whitespace-nowrap text-xs">
                               {Math.round(financials.unpaidMonthsDues).toLocaleString()} ج.م
                             </td>
 
                             {/* Total Paid */}
-                            <td className="px-3 py-3 text-center whitespace-nowrap">
+                            <td className="w-16 sm:w-20 px-1 py-1.5 text-center whitespace-nowrap">
                               <div className="flex flex-col items-center">
-                                <span className="text-emerald-700 font-black">
+                                <span className="text-emerald-700 font-black text-xs">
                                   {Math.round(financials.totalPaid).toLocaleString()} ج.م
                                 </span>
                                 {financials.otherCollectionsPaid > 0 && (
-                                  <span className="text-[9px] text-blue-700 font-bold">
-                                    (منها {Math.round(financials.otherCollectionsPaid)} تحصيلات أخرى)
+                                  <span className="text-[8.5px] text-blue-700 font-bold">
+                                    (منها {Math.round(financials.otherCollectionsPaid)} أخرى)
                                   </span>
                                 )}
                               </div>
                             </td>
 
                             {/* Net Remaining Debt in Red */}
-                            <td className="px-3 py-3 text-center font-black text-rose-700 bg-rose-50/70 group-hover:bg-rose-100/80 transition-all text-xs sm:text-sm whitespace-nowrap border-x border-rose-100">
+                            <td className="w-20 sm:w-22 px-1 py-1.5 text-center font-black text-rose-700 bg-rose-50/70 group-hover:bg-rose-100/80 transition-all text-xs whitespace-nowrap border-x border-rose-100">
                               <span dir="ltr">-{debtAmount.toLocaleString()} ج.م</span>
                               {financials.otherCollectionsDebt > 0 && (
-                                <span className="block text-[9px] text-rose-800 font-bold">
-                                  (يتضمن {Math.round(financials.otherCollectionsDebt)} ج.م بنود أخرى)
+                                <span className="block text-[8.5px] text-rose-800 font-bold">
+                                  (منها {Math.round(financials.otherCollectionsDebt)} أخرى)
                                 </span>
                               )}
                             </td>
 
                             {/* Notes */}
-                            <td className="px-3 py-3 text-slate-500 font-semibold text-[11px] max-w-[150px] truncate" title={displayNotes}>
+                            <td className="min-w-[70px] max-w-[100px] px-1.5 py-1.5 text-slate-500 font-semibold text-[10.5px] truncate" title={displayNotes}>
                               {displayNotes || '—'}
                             </td>
 
                             {/* Actions & Quick Contact */}
                             {role !== 'RESIDENT' && (
-                              <td className="px-3 py-3 text-center whitespace-nowrap">
+                              <td className="w-16 sm:w-20 px-0.5 py-1 text-center whitespace-nowrap">
                                 {(() => {
                                   const isOwnerReminded = Boolean(remindedTargets[`${resident.id}_owner`]);
                                   const isTenantReminded = Boolean(remindedTargets[`${resident.id}_tenant`]);

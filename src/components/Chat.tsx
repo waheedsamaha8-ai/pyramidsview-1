@@ -28,7 +28,7 @@ import {
 } from 'lucide-react';
 import { ConfirmModal } from './ConfirmModal';
 import { CommunityHeader, CommunityCounts, CommunityServiceId } from './CommunityHeader';
-import { compressImageFile } from '../utils/imageCompressor';
+import { compressImageFile, compressBase64Image } from '../utils/imageCompressor';
 
 interface ChatProps {
   messages: ChatMessage[];
@@ -256,13 +256,19 @@ export const Chat: React.FC<ChatProps> = ({
     if (!file) return;
 
     try {
-      const compressedDataUrl = await compressImageFile(file, { maxWidth: 1024, maxHeight: 1024, quality: 0.72 });
+      const compressedDataUrl = await compressImageFile(file, { maxWidth: 550, maxHeight: 550, quality: 0.48 });
       setChatImageFile(compressedDataUrl);
     } catch {
-      // Fallback
+      // Safe fallback with compression
       const reader = new FileReader();
-      reader.onload = () => {
-        setChatImageFile(reader.result as string);
+      reader.onload = async () => {
+        try {
+          const raw = reader.result as string;
+          const compressed = await compressBase64Image(raw, { maxWidth: 550, maxHeight: 550, quality: 0.48 });
+          setChatImageFile(compressed);
+        } catch {
+          setChatImageFile(reader.result as string);
+        }
       };
       reader.readAsDataURL(file);
     }
@@ -274,13 +280,19 @@ export const Chat: React.FC<ChatProps> = ({
     if (!file) return;
 
     try {
-      const compressedDataUrl = await compressImageFile(file, { maxWidth: 1024, maxHeight: 1024, quality: 0.72 });
+      const compressedDataUrl = await compressImageFile(file, { maxWidth: 550, maxHeight: 550, quality: 0.48 });
       setComplaintImageFile(compressedDataUrl);
     } catch {
-      // Fallback
+      // Safe fallback with compression
       const reader = new FileReader();
-      reader.onload = () => {
-        setComplaintImageFile(reader.result as string);
+      reader.onload = async () => {
+        try {
+          const raw = reader.result as string;
+          const compressed = await compressBase64Image(raw, { maxWidth: 550, maxHeight: 550, quality: 0.48 });
+          setComplaintImageFile(compressed);
+        } catch {
+          setComplaintImageFile(reader.result as string);
+        }
       };
       reader.readAsDataURL(file);
     }

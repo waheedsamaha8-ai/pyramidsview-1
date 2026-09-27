@@ -7,7 +7,8 @@ import { generateElementImageBlob, GeneratedImageResult } from '../utils/imageEx
 import { shareImageViaWhatsApp } from '../utils/shareImageViaWhatsApp';
 import { ShareReportModal } from './ShareReportModal';
 import { ReceiptClaimModal, ReceiptClaimData } from './ReceiptClaimModal';
-import { compressImageFile } from '../utils/imageCompressor';
+import { compressImageFile, compressBase64Image } from '../utils/imageCompressor';
+import { getImageFromIndexedDB, saveImageToIndexedDB } from '../services/imageStorage';
 
 interface PaymentsListProps {
   payments: Payment[];
@@ -646,7 +647,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
     setShowModal(true);
   };
 
-  const openEditModal = (payment: Payment) => {
+  const openEditModal = async (payment: Payment) => {
     setSelectedPayment(payment);
     setResidentId(payment.residentId);
     setMonth(payment.month);
@@ -659,8 +660,15 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
     setReceiptNumber(payment.receiptNumber || '');
     setPaymentStatus((payment.status as any) || 'collected');
     setNotes(payment.notes || '');
-    setImageName(payment.fileUrl || payment.fileId ? 'صورة إيصال مرفوعة مسبقاً' : '');
-    setExistingFileUrl(payment.fileUrl || '');
+
+    const resolvedUrl = payment.fileUrl 
+      || await getImageFromIndexedDB(String(payment.id))
+      || await getImageFromIndexedDB(`${payment.id}_fileUrl`)
+      || await getImageFromIndexedDB(`${payment.id}_receiptImage`)
+      || '';
+
+    setImageName(resolvedUrl || payment.fileId ? 'صورة إيصال مرفوعة مسبقاً' : '');
+    setExistingFileUrl(resolvedUrl);
     setBase64Image('');
     setError(null);
     setShowModal(true);
@@ -686,12 +694,18 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
 
     setImageName(file.name);
     try {
-      const dataUrl = await compressImageFile(file, { maxWidth: 1024, maxHeight: 1024, quality: 0.72 });
+      const dataUrl = await compressImageFile(file, { maxWidth: 550, maxHeight: 550, quality: 0.48 });
       setBase64Image(dataUrl);
     } catch {
       const reader = new FileReader();
-      reader.onload = () => {
-        setBase64Image(reader.result as string);
+      reader.onload = async () => {
+        try {
+          const raw = reader.result as string;
+          const compressed = await compressBase64Image(raw, { maxWidth: 550, maxHeight: 550, quality: 0.48 });
+          setBase64Image(compressed);
+        } catch {
+          setBase64Image(reader.result as string);
+        }
       };
       reader.readAsDataURL(file);
     }
@@ -965,34 +979,34 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
           <div className="overflow-x-auto">
             <table className="w-full text-right border-collapse">
               <thead>
-                <tr className="bg-slate-50 text-slate-400 font-extrabold text-[11px] border-b border-slate-100">
-                  <th className="px-4 py-3 sticky right-0 bg-slate-50 shadow-xs z-10 border-l border-slate-100">الوحدة</th>
-                  <th className="px-4 py-3">الساكن</th>
-                  <th className="px-4 py-3">المبلغ المستلم</th>
-                  <th className="px-4 py-3">الفئة / الشهر</th>
+                <tr className="bg-slate-50 text-slate-500 font-extrabold text-[10px] sm:text-[10.5px] border-b border-slate-100">
+                  <th className="w-12 sm:w-14 px-1 py-1.5 sticky right-0 bg-slate-50 shadow-xs z-10 border-l border-slate-100 text-center whitespace-nowrap">الوحدة</th>
+                  <th className="min-w-[95px] max-w-[130px] px-1.5 py-1.5 whitespace-nowrap">الساكن</th>
+                  <th className="w-16 sm:w-20 px-1 py-1.5 text-center whitespace-nowrap">المبلغ المستلم</th>
+                  <th className="w-20 sm:w-22 px-1 py-1.5 text-center whitespace-nowrap">الفئة / الشهر</th>
                   <th 
                     onClick={toggleReceiptSort}
-                    className="px-4 py-3 cursor-pointer hover:bg-slate-100 transition select-none"
+                    className="w-14 sm:w-16 px-1 py-1.5 cursor-pointer hover:bg-slate-100 transition select-none text-center whitespace-nowrap"
                   >
-                    <div className="flex items-center gap-1.5 justify-start">
-                      <span>رقم الإيصال</span>
-                      <ArrowUpDown className={`w-3.5 h-3.5 ${receiptSort !== 'none' ? 'text-blue-900 font-bold' : 'text-slate-400'}`} />
+                    <div className="flex items-center gap-1 justify-center">
+                      <span>الإيصال</span>
+                      <ArrowUpDown className={`w-3 h-3 ${receiptSort !== 'none' ? 'text-blue-900 font-bold' : 'text-slate-400'}`} />
                       {receiptSort !== 'none' && (
-                        <span className="text-[9px] px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded-md font-black">
+                        <span className="text-[8px] px-1 py-0.2 bg-blue-50 text-blue-700 rounded-md font-black">
                           {receiptSort === 'desc' ? 'تنازلي' : 'تصاعدي'}
                         </span>
                       )}
                     </div>
                   </th>
-                  <th className="px-4 py-3">الملاحظات</th>
-                  {!isReadOnly && role !== 'ASSISTANT' && <th className="px-4 py-3 text-center">الإجراءات</th>}
-                  <th className="px-4 py-3 text-center">الإيصال الصادر</th>
+                  <th className="min-w-[70px] max-w-[100px] px-1 py-1.5 whitespace-nowrap">الملاحظات</th>
+                  {!isReadOnly && role !== 'ASSISTANT' && <th className="w-11 sm:w-12 px-0.5 py-1 text-center whitespace-nowrap">الإجراءات</th>}
+                  <th className="w-20 sm:w-22 px-0.5 py-1 text-center whitespace-nowrap">الإيصال الصادر</th>
                 </tr>
               </thead>
                <tbody className="divide-y divide-slate-100 text-xs font-bold text-slate-800">
                 {filteredPayments.length === 0 ? (
                   <tr>
-                    <td colSpan={!isReadOnly && role !== 'ASSISTANT' ? 8 : 7} className="px-4 py-10 text-center text-slate-400 font-bold">
+                    <td colSpan={!isReadOnly && role !== 'ASSISTANT' ? 8 : 7} className="px-3 py-8 text-center text-slate-400 font-bold">
                       <div className="flex flex-col items-center gap-1.5">
                         <FileText className="w-7 h-7 stroke-[1.5]" />
                         <span>لا توجد عمليات تحصيل مسجلة تطابق هذه الشروط في {currentYear}</span>
@@ -1024,14 +1038,14 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                               : 'hover:bg-slate-50/50'
                         }`}
                       >
-                        <td className={`px-4 py-3 sticky right-0 z-5 border-l border-slate-100 shadow-xs transition ${
+                        <td className={`w-12 sm:w-14 px-1 py-1.5 sticky right-0 z-5 border-l border-slate-100 shadow-xs transition text-center ${
                           isSelected 
                             ? 'bg-yellow-50 text-amber-950' 
                             : isAttention
                               ? 'bg-rose-50/90 text-rose-950 group-hover:bg-rose-100/80'
                               : 'bg-white group-hover:bg-slate-50'
                         }`}>
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-black ${
+                          <span className={`px-1 py-0.5 rounded text-[9px] font-black ${
                             isAttention ? 'bg-rose-100 text-rose-900 border border-rose-200' : 'bg-blue-50 text-blue-700'
                           }`}>
                             وحدة {p.flatNumber}
@@ -1039,38 +1053,38 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                         </td>
 
                         {/* Resident: Owner & Tenant */}
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          <div className="flex flex-col gap-1 justify-center">
-                            <div className="flex items-center gap-1.5">
-                              <span className="font-bold text-slate-900">{ownerName}</span>
+                        <td className="min-w-[95px] max-w-[130px] px-1 py-1.5 whitespace-nowrap">
+                          <div className="flex flex-col gap-0.5 justify-center">
+                            <div className="flex items-center gap-1">
+                              <span className="font-bold text-slate-900 text-xs truncate max-w-[110px]">{ownerName}</span>
                               {hasTenant && (
-                                <span className="text-[9px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">مالك</span>
+                                <span className="text-[8px] font-bold text-slate-500 bg-slate-100 px-1 py-0.2 rounded">مالك</span>
                               )}
                             </div>
                             {hasTenant && (
-                              <div className="flex items-center gap-1.5 text-amber-950 font-black text-[11px] pt-0.5 border-t border-slate-100">
-                                <span className="text-[9px] font-extrabold bg-amber-100 text-amber-900 px-1.5 py-0.5 rounded border border-amber-200/80">مستأجر</span>
-                                <span>{tenantName}</span>
+                              <div className="flex items-center gap-1 text-amber-950 font-black text-[9.5px] pt-0.5 border-t border-slate-100">
+                                <span className="text-[7.5px] font-extrabold bg-amber-100 text-amber-900 px-1 py-0.2 rounded border border-amber-200/80">مستأجر</span>
+                                <span className="truncate max-w-[95px]">{tenantName}</span>
                               </div>
                             )}
                           </div>
                         </td>
 
                         {/* Amount */}
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          <div className="flex flex-col">
+                        <td className="w-16 sm:w-20 px-1 py-1.5 whitespace-nowrap text-center">
+                          <div className="flex flex-col items-center">
                             <span className={`text-xs font-black ${
                               isCancelled ? 'line-through text-rose-500' : isUncollected ? 'text-amber-600' : 'text-emerald-600'
                             }`}>
                               {Math.round(p.amount)} ج.م
                             </span>
                             {isUncollected && (
-                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded text-[9px] font-black w-fit mt-0.5">
-                                ⏳ لم يتم التحصيل
+                              <span className="inline-flex items-center gap-0.5 px-1 py-0.2 bg-amber-50 text-amber-700 border border-amber-200 rounded text-[8px] font-black w-fit mt-0.5">
+                                ⏳ معلق
                               </span>
                             )}
                             {isCancelled && (
-                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 rounded text-[9px] font-black w-fit mt-0.5">
+                              <span className="inline-flex items-center gap-0.5 px-1 py-0.2 bg-rose-50 text-rose-700 border border-rose-200 rounded text-[8px] font-black w-fit mt-0.5">
                                 🚫 لاغي
                               </span>
                             )}
@@ -1078,29 +1092,29 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                         </td>
 
                         {/* Type & Month combined */}
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          <div className="flex flex-col gap-1 justify-center">
-                            <span className="px-2 py-0.5 border border-slate-100 bg-slate-50 text-slate-700 rounded text-[10px] font-extrabold w-fit">
+                        <td className="w-20 sm:w-22 px-1 py-1.5 whitespace-nowrap text-center">
+                          <div className="flex flex-col gap-0.5 items-center justify-center">
+                            <span className="px-1 py-0.2 border border-slate-100 bg-slate-50 text-slate-700 rounded text-[9px] font-extrabold w-fit truncate max-w-[90px]">
                               {p.paymentType}
                             </span>
-                            <span className="text-[11px] text-slate-500 font-bold">
+                            <span className="text-[9.5px] text-slate-500 font-bold">
                               {monthNamesArabic[parseInt(p.month, 10) - 1]} {p.year}
                             </span>
                           </div>
                         </td>
 
                         {/* Receipt Number */}
-                        <td className="px-4 py-3 text-slate-500 font-mono whitespace-nowrap">{p.receiptNumber || 'بدون إيصال'}</td>
+                        <td className="w-14 sm:w-16 px-1 py-1.5 text-slate-500 font-mono whitespace-nowrap text-center text-xs">{p.receiptNumber || '—'}</td>
 
                         {/* Notes */}
-                        <td className="px-4 py-3 text-slate-500 font-semibold text-xs max-w-[180px] truncate" title={p.notes || ''}>
+                        <td className="min-w-[70px] max-w-[100px] px-1 py-1.5 text-slate-500 font-semibold text-[10.5px] truncate" title={p.notes || ''}>
                           {p.notes || '—'}
                         </td>
 
                         {/* Actions */}
                         {!isReadOnly && role !== 'ASSISTANT' && (
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <div className="flex items-center justify-center gap-1.5">
+                          <td className="w-11 sm:w-12 px-0.5 py-1 whitespace-nowrap text-center">
+                            <div className="flex items-center justify-center gap-0.5">
                               <button
                                 onClick={(e) => { e.stopPropagation(); openEditModal(p); }}
                                 className="p-1 text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded transition cursor-pointer"
@@ -1120,25 +1134,25 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                         )}
 
                         {/* Receipt Generation & Preview (Last Column) */}
-                        <td className="px-4 py-3 text-center whitespace-nowrap">
-                          <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                        <td className="w-20 sm:w-22 px-0.5 py-1 text-center whitespace-nowrap">
+                          <div className="flex items-center justify-center gap-1 flex-wrap">
                             <button
                               type="button"
                               onClick={(e) => { e.stopPropagation(); handleGenerateSinglePaymentReceipt(p); }}
-                              className="p-1 px-1.5 text-emerald-800 hover:bg-emerald-100 rounded-lg transition inline-flex items-center gap-1 text-[10px] cursor-pointer font-black border border-emerald-200 bg-emerald-50/70"
+                              className="p-1 px-1.5 text-emerald-800 hover:bg-emerald-100 rounded-lg transition inline-flex items-center gap-0.5 text-[9px] cursor-pointer font-black border border-emerald-200 bg-emerald-50/70"
                               title="توليد صورة إيصال سداد ومشاركتها مباشرة لواتساب الوحدة"
                             >
                               <Share2 className="w-3 h-3 text-emerald-600" />
-                              <span>توليد صورة إيصال</span>
+                              <span>إيصال</span>
                             </button>
                             {p.fileUrl && (
                               <button
                                 onClick={(e) => { e.stopPropagation(); onPreviewImage(p.fileUrl!); }}
-                                className="p-1 px-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition inline-flex items-center gap-1 text-[10px] cursor-pointer font-bold border border-blue-100"
+                                className="p-1 px-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition inline-flex items-center gap-0.5 text-[9px] cursor-pointer font-bold border border-blue-100"
                                 title="معاينة المرفق"
                               >
                                 <Eye className="w-3 h-3" />
-                                <span>المرفق</span>
+                                <span>مرفق</span>
                               </button>
                             )}
                           </div>
@@ -1152,10 +1166,10 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                     <React.Fragment key={group.floor.id}>
                       {/* Floor Separator Row */}
                       <tr className="bg-slate-100/90 border-y border-slate-200">
-                        <td colSpan={!isReadOnly && role !== 'ASSISTANT' ? 8 : 7} className="py-2.5 px-4 text-right border-r-4 border-r-blue-800 sticky right-0 z-5 bg-slate-100/95 shadow-xs">
+                        <td colSpan={!isReadOnly && role !== 'ASSISTANT' ? 8 : 7} className="py-2 px-3 text-right border-r-4 border-r-blue-800 sticky right-0 z-5 bg-slate-100/95 shadow-xs">
                           <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2.5">
-                              <Building className="w-5 h-5 text-blue-900" />
+                            <div className="flex items-center gap-2">
+                              <Building className="w-4 h-4 text-blue-900" />
                               <span className="text-xs sm:text-sm font-black text-slate-900">
                                 {group.floor.floorLabel}
                               </span>
@@ -1163,7 +1177,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                                 {group.payments.length} {group.payments.length === 1 ? 'دفعة' : 'دفعات'}
                               </span>
                             </div>
-                            <span className="text-[10px] font-extrabold text-blue-900 bg-blue-50 px-2.5 py-0.5 rounded border border-blue-100 shadow-2xs">
+                            <span className="text-[10px] font-extrabold text-blue-900 bg-blue-50 px-2 py-0.5 rounded border border-blue-100 shadow-2xs">
                               {group.floor.activityType || 'سكني'}
                             </span>
                           </div>
@@ -1193,14 +1207,14 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                                   : 'hover:bg-slate-50/50'
                             }`}
                           >
-                            <td className={`px-4 py-3 sticky right-0 z-5 border-l border-slate-100 shadow-xs transition ${
+                            <td className={`w-12 sm:w-14 px-1 py-1.5 sticky right-0 z-5 border-l border-slate-100 shadow-xs transition text-center ${
                               isSelected 
                                 ? 'bg-yellow-50 text-amber-950' 
                                 : isAttention
                                   ? 'bg-rose-50/90 text-rose-950 group-hover:bg-rose-100/80'
                                   : 'bg-white group-hover:bg-slate-50'
                             }`}>
-                              <span className={`px-2 py-0.5 rounded text-[10px] font-black ${
+                              <span className={`px-1 py-0.5 rounded text-[9px] font-black ${
                                 isAttention ? 'bg-rose-100 text-rose-900 border border-rose-200' : 'bg-blue-50 text-blue-700'
                               }`}>
                                 وحدة {p.flatNumber}
@@ -1208,38 +1222,38 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                             </td>
 
                             {/* Resident: Owner & Tenant */}
-                            <td className="px-4 py-3 whitespace-nowrap">
-                              <div className="flex flex-col gap-1 justify-center">
-                                <div className="flex items-center gap-1.5">
-                                  <span className="font-bold text-slate-900">{ownerName}</span>
+                            <td className="min-w-[95px] max-w-[130px] px-1 py-1.5 whitespace-nowrap">
+                              <div className="flex flex-col gap-0.5 justify-center">
+                                <div className="flex items-center gap-1">
+                                  <span className="font-bold text-slate-900 text-xs truncate max-w-[110px]">{ownerName}</span>
                                   {hasTenant && (
-                                    <span className="text-[9px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">مالك</span>
+                                    <span className="text-[8px] font-bold text-slate-500 bg-slate-100 px-1 py-0.2 rounded">مالك</span>
                                   )}
                                 </div>
                                 {hasTenant && (
-                                  <div className="flex items-center gap-1.5 text-amber-950 font-black text-[11px] pt-0.5 border-t border-slate-100">
-                                    <span className="text-[9px] font-extrabold bg-amber-100 text-amber-900 px-1.5 py-0.5 rounded border border-amber-200/80">مستأجر</span>
-                                    <span>{tenantName}</span>
+                                  <div className="flex items-center gap-1 text-amber-950 font-black text-[9.5px] pt-0.5 border-t border-slate-100">
+                                    <span className="text-[7.5px] font-extrabold bg-amber-100 text-amber-900 px-1 py-0.2 rounded border border-amber-200/80">مستأجر</span>
+                                    <span className="truncate max-w-[95px]">{tenantName}</span>
                                   </div>
                                 )}
                               </div>
                             </td>
 
                             {/* Amount */}
-                            <td className="px-4 py-3 whitespace-nowrap">
-                              <div className="flex flex-col">
+                            <td className="w-16 sm:w-20 px-1 py-1.5 whitespace-nowrap text-center">
+                              <div className="flex flex-col items-center">
                                 <span className={`text-xs font-black ${
                                   isCancelled ? 'line-through text-rose-500' : isUncollected ? 'text-amber-600' : 'text-emerald-600'
                                 }`}>
                                   {Math.round(p.amount)} ج.م
                                 </span>
                                 {isUncollected && (
-                                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded text-[9px] font-black w-fit mt-0.5">
-                                    ⏳ لم يتم التحصيل
+                                  <span className="inline-flex items-center gap-0.5 px-1 py-0.2 bg-amber-50 text-amber-700 border border-amber-200 rounded text-[8px] font-black w-fit mt-0.5">
+                                    ⏳ معلق
                                   </span>
                                 )}
                                 {isCancelled && (
-                                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 rounded text-[9px] font-black w-fit mt-0.5">
+                                  <span className="inline-flex items-center gap-0.5 px-1 py-0.2 bg-rose-50 text-rose-700 border border-rose-200 rounded text-[8px] font-black w-fit mt-0.5">
                                     🚫 لاغي
                                   </span>
                                 )}
@@ -1247,29 +1261,29 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                             </td>
 
                             {/* Type & Month combined */}
-                            <td className="px-4 py-3 whitespace-nowrap">
-                              <div className="flex flex-col gap-1 justify-center">
-                                <span className="px-2 py-0.5 border border-slate-100 bg-slate-50 text-slate-700 rounded text-[10px] font-extrabold w-fit">
+                            <td className="w-20 sm:w-22 px-1 py-1.5 whitespace-nowrap text-center">
+                              <div className="flex flex-col gap-0.5 items-center justify-center">
+                                <span className="px-1 py-0.2 border border-slate-100 bg-slate-50 text-slate-700 rounded text-[9px] font-extrabold w-fit truncate max-w-[90px]">
                                   {p.paymentType}
                                 </span>
-                                <span className="text-[11px] text-slate-500 font-bold">
+                                <span className="text-[9.5px] text-slate-500 font-bold">
                                   {monthNamesArabic[parseInt(p.month, 10) - 1]} {p.year}
                                 </span>
                               </div>
                             </td>
 
                             {/* Receipt Number */}
-                            <td className="px-4 py-3 text-slate-500 font-mono whitespace-nowrap">{p.receiptNumber || 'بدون إيصال'}</td>
+                            <td className="w-14 sm:w-16 px-1 py-1.5 text-slate-500 font-mono whitespace-nowrap text-center text-xs">{p.receiptNumber || '—'}</td>
 
                             {/* Notes */}
-                            <td className="px-4 py-3 text-slate-500 font-semibold text-xs max-w-[180px] truncate" title={p.notes || ''}>
+                            <td className="min-w-[70px] max-w-[100px] px-1 py-1.5 text-slate-500 font-semibold text-[10.5px] truncate" title={p.notes || ''}>
                               {p.notes || '—'}
                             </td>
 
                             {/* Actions */}
                             {!isReadOnly && role !== 'ASSISTANT' && (
-                              <td className="px-4 py-3 whitespace-nowrap">
-                                <div className="flex items-center justify-center gap-1.5">
+                              <td className="w-11 sm:w-12 px-0.5 py-1 whitespace-nowrap text-center">
+                                <div className="flex items-center justify-center gap-0.5">
                                   <button
                                     onClick={(e) => { e.stopPropagation(); openEditModal(p); }}
                                     className="p-1 text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded transition cursor-pointer"
@@ -1289,25 +1303,25 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                             )}
 
                             {/* Receipt Generation & Preview (Last Column) */}
-                            <td className="px-4 py-3 text-center whitespace-nowrap">
-                              <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                            <td className="w-20 sm:w-22 px-0.5 py-1 text-center whitespace-nowrap">
+                              <div className="flex items-center justify-center gap-1 flex-wrap">
                                 <button
                                   type="button"
                                   onClick={(e) => { e.stopPropagation(); handleGenerateSinglePaymentReceipt(p); }}
-                                  className="p-1 px-1.5 text-emerald-800 hover:bg-emerald-100 rounded-lg transition inline-flex items-center gap-1 text-[10px] cursor-pointer font-black border border-emerald-200 bg-emerald-50/70"
+                                  className="p-1 px-1.5 text-emerald-800 hover:bg-emerald-100 rounded-lg transition inline-flex items-center gap-0.5 text-[9px] cursor-pointer font-black border border-emerald-200 bg-emerald-50/70"
                                   title="توليد صورة إيصال سداد ومشاركتها مباشرة لواتساب الوحدة"
                                 >
                                   <Share2 className="w-3 h-3 text-emerald-600" />
-                                  <span>توليد صورة إيصال</span>
+                                  <span>إيصال</span>
                                 </button>
                                 {p.fileUrl && (
                                   <button
                                     onClick={(e) => { e.stopPropagation(); onPreviewImage(p.fileUrl!); }}
-                                    className="p-1 px-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition inline-flex items-center gap-1 text-[10px] cursor-pointer font-bold border border-blue-100"
+                                    className="p-1 px-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition inline-flex items-center gap-0.5 text-[9px] cursor-pointer font-bold border border-blue-100"
                                     title="معاينة المرفق"
                                   >
                                     <Eye className="w-3 h-3" />
-                                    <span>المرفق</span>
+                                    <span>مرفق</span>
                                   </button>
                                 )}
                               </div>
@@ -1319,23 +1333,23 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                   ))
                 )}
                 {filteredPayments.length > 0 && (
-                  <tr className="bg-emerald-50/90 border-t-2 border-emerald-300 font-extrabold text-slate-900">
-                    <td className="px-3 py-3 text-right font-black text-emerald-950 text-xs sticky right-0 z-5 bg-emerald-50 shadow-xs border-l border-slate-100 whitespace-nowrap">
+                  <tr className="bg-emerald-50/90 border-t-2 border-emerald-300 font-extrabold text-slate-900 text-xs">
+                    <td className="px-1.5 py-2 text-right font-black text-emerald-950 sticky right-0 z-5 bg-emerald-50 shadow-xs border-l border-slate-100 whitespace-nowrap">
                       الإجمالي
                     </td>
-                    <td className="px-3 py-3 text-slate-700 font-black text-xs whitespace-nowrap">
+                    <td className="px-1.5 py-2 text-slate-700 font-black whitespace-nowrap">
                       ({filteredPayments.length} عملية)
                     </td>
-                    <td className="px-3 py-3 text-emerald-700 text-sm font-black whitespace-nowrap bg-emerald-100/70 border-x border-emerald-200" dir="ltr">
+                    <td className="px-1.5 py-2 text-emerald-700 text-xs sm:text-sm font-black whitespace-nowrap bg-emerald-100/70 border-x border-emerald-200" dir="ltr">
                       {Math.round(totalAmount).toLocaleString()} ج.م
                     </td>
-                    <td className="px-3 py-3 text-center text-slate-400 font-bold whitespace-nowrap">—</td>
-                    <td className="px-3 py-3 text-center text-slate-400 font-bold whitespace-nowrap">—</td>
-                    <td className="px-3 py-3 text-center text-slate-400 font-bold whitespace-nowrap">—</td>
+                    <td className="px-1 py-2 text-center text-slate-400 font-bold whitespace-nowrap">—</td>
+                    <td className="px-1 py-2 text-center text-slate-400 font-bold whitespace-nowrap">—</td>
+                    <td className="px-1 py-2 text-center text-slate-400 font-bold whitespace-nowrap">—</td>
                     {!isReadOnly && role !== 'ASSISTANT' && (
-                      <td className="px-3 py-3 text-center text-slate-400 font-bold whitespace-nowrap">—</td>
+                      <td className="px-0.5 py-2 text-center text-slate-400 font-bold whitespace-nowrap">—</td>
                     )}
-                    <td className="px-3 py-3 text-center text-slate-400 font-bold whitespace-nowrap">—</td>
+                    <td className="px-0.5 py-2 text-center text-slate-400 font-bold whitespace-nowrap">—</td>
                   </tr>
                 )}
               </tbody>

@@ -1,6 +1,7 @@
 import { OfflineAction, Resident, Payment, Expense, AppConfig, BuildingRules } from '../types';
 import * as firestoreService from './firestoreService';
 import * as googleApi from './googleApi';
+import { saveImageToIndexedDB, sanitizeAndStoreHeavyImages } from './imageStorage';
 
 const QUEUE_KEY = 'offline_actions_queue';
 
@@ -23,9 +24,12 @@ export function getOfflineQueue(): OfflineAction[] {
               if (!p.base64Image) {
                 p.base64Image = p[key];
               }
-              p[key] = ''; // Remove raw base64 from sheet cell field
-              modified = true;
-            } else if (p[key].length > 45000) {
+              // Preserve fileUrl and imageUrl so attachments remain accessible
+              if (key !== 'fileUrl' && key !== 'imageUrl' && key !== 'base64Image') {
+                p[key] = ''; // Remove raw base64 from sheet cell field
+                modified = true;
+              }
+            } else if (p[key].length > 45000 && key !== 'fileUrl' && key !== 'imageUrl' && key !== 'base64Image') {
               p[key] = p[key].substring(0, 45000);
               modified = true;
             }
@@ -321,23 +325,31 @@ export function getBuildingCacheKey(k: string): string {
   return `cache_${bId}_${k}`;
 }
 
-// Safely sanitize an item or array of items to prune heavy base64 strings when storage quota is reached
+// Safely sanitize an item or array of items to prune heavy base64 strings
 function pruneHeavyMediaForCache(data: any): any {
-  if (!data) return data;
-  if (Array.isArray(data)) {
-    return data.map(item => pruneHeavyMediaForCache(item));
-  }
-  if (typeof data === 'object') {
-    const clone = { ...data };
-    for (const key of Object.keys(clone)) {
-      if (typeof clone[key] === 'string' && clone[key].startsWith('data:image/') && clone[key].length > 5000) {
-        // Strip large data URL to preserve essential numerical and text metadata
-        clone[key] = '';
+  return sanitizeAndStoreHeavyImages(data, 100);
+}
+
+// Clean up stale or legacy cache entries from other buildings or orphaned keys if quota is pressured
+export function freeUpLocalStorageSpace(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const keysToRemove: string[] = [];
+    const activeBId = getActiveBuildingId();
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k) continue;
+      // If it's a cache of another building or an old temporary backup
+      if (k.startsWith('cache_bld_') && !k.startsWith(`cache_${activeBId}_`)) {
+        keysToRemove.push(k);
+      } else if (k.startsWith('pyramids_excel_backup_') || k.startsWith('temp_') || k.startsWith('drive_folders_')) {
+        keysToRemove.push(k);
       }
     }
-    return clone;
-  }
-  return data;
+    keysToRemove.forEach(k => {
+      try { localStorage.removeItem(k); } catch {}
+    });
+  } catch {}
 }
 
 // Standard getters and setters for local cache with automatic key alias synchronization
@@ -363,18 +375,38 @@ export function getCachedData<T>(key: string): T | null {
 
 export function saveCachedData(key: string, data: any) {
   const keys = normalizeKeyAliases(key);
+  
+  // Strip large base64 images from payments and expenses before writing to localStorage
+  // All photos are preserved permanently in IndexedDB by sanitizeAndStoreHeavyImages
+  const sanitizedData = (key === 'payments' || key === 'expenses')
+    ? sanitizeAndStoreHeavyImages(data, 500)
+    : data;
+
   for (const k of keys) {
     const cacheKey = getBuildingCacheKey(k);
     try {
-      localStorage.setItem(cacheKey, JSON.stringify(data));
+      localStorage.setItem(cacheKey, JSON.stringify(sanitizedData));
     } catch (e: any) {
       console.warn('LocalStorage save warning, attempting quota recovery:', e);
+      freeUpLocalStorageSpace();
       try {
-        // Quota exceeded recovery: Prune heavy base64 photos to save critical financial/records data
-        const pruned = pruneHeavyMediaForCache(data);
+        // Aggressive pruning: remove any inline base64 string
+        const pruned = sanitizeAndStoreHeavyImages(data, 0);
         localStorage.setItem(cacheKey, JSON.stringify(pruned));
       } catch (err2) {
-        console.error('LocalStorage critical quota failure:', err2);
+        // Fallback: If still failing, purge stale caches and try once more
+        try {
+          freeUpLocalStorageSpace();
+          const minimal = Array.isArray(sanitizedData) ? sanitizedData.map((item: any) => {
+            const copy = { ...item };
+            delete copy.fileUrl;
+            delete copy.base64Image;
+            return copy;
+          }) : sanitizedData;
+          localStorage.setItem(cacheKey, JSON.stringify(minimal));
+        } catch (err3) {
+          console.error('LocalStorage critical quota failure gracefully handled:', err3);
+        }
       }
     }
   }

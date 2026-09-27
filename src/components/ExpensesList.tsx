@@ -4,7 +4,8 @@ import { Search, Plus, Filter, Calendar, FileText, Image as ImageIcon, Camera, T
 import { generateElementImageBlob, GeneratedImageResult } from '../utils/imageExport';
 import { shareImageViaWhatsApp } from '../utils/shareImageViaWhatsApp';
 import { ShareReportModal } from './ShareReportModal';
-import { compressImageFile } from '../utils/imageCompressor';
+import { compressImageFile, compressBase64Image } from '../utils/imageCompressor';
+import { getImageFromIndexedDB, saveImageToIndexedDB } from '../services/imageStorage';
 
 interface ExpensesListProps {
   expenses: Expense[];
@@ -197,7 +198,10 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({
 
   const openAddModal = () => {
     setSelectedExpense(null);
-    setMonth(String(new Date().getMonth() + 1).padStart(2, '0'));
+    const activeTargetMonth = onlyCurrentMonth 
+      ? actualCurrentMonth 
+      : (filterMonth ? String(filterMonth).padStart(2, '0') : actualCurrentMonth);
+    setMonth(activeTargetMonth);
     setExpenseType(expenseTypes[0] || 'كهرباء');
     setAmount('');
     setNotes('');
@@ -208,14 +212,20 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({
     setShowModal(true);
   };
 
-  const openEditModal = (expense: Expense) => {
+  const openEditModal = async (expense: Expense) => {
     setSelectedExpense(expense);
     setMonth(expense.month);
     setExpenseType(expense.expenseType);
     setAmount(expense.amount);
     setNotes(expense.notes || '');
-    setImageName(expense.fileUrl || expense.fileId ? 'صورة فاتورة مرفوعة مسبقاً' : '');
-    setExistingFileUrl(expense.fileUrl || '');
+
+    const resolvedUrl = expense.fileUrl 
+      || await getImageFromIndexedDB(String(expense.id))
+      || await getImageFromIndexedDB(`${expense.id}_fileUrl`)
+      || '';
+
+    setImageName(resolvedUrl || expense.fileId ? 'صورة فاتورة مرفوعة مسبقاً' : '');
+    setExistingFileUrl(resolvedUrl);
     setBase64Image('');
     setError(null);
     setShowModal(true);
@@ -242,12 +252,18 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({
 
     setImageName(file.name);
     try {
-      const dataUrl = await compressImageFile(file, { maxWidth: 1024, maxHeight: 1024, quality: 0.72 });
+      const dataUrl = await compressImageFile(file, { maxWidth: 550, maxHeight: 550, quality: 0.48 });
       setBase64Image(dataUrl);
     } catch {
       const reader = new FileReader();
-      reader.onload = () => {
-        setBase64Image(reader.result as string);
+      reader.onload = async () => {
+        try {
+          const raw = reader.result as string;
+          const compressed = await compressBase64Image(raw, { maxWidth: 550, maxHeight: 550, quality: 0.48 });
+          setBase64Image(compressed);
+        } catch {
+          setBase64Image(reader.result as string);
+        }
       };
       reader.readAsDataURL(file);
     }
@@ -455,19 +471,19 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({
           <div className="overflow-x-auto">
             <table className="w-full text-right border-collapse">
               <thead>
-                <tr className="bg-slate-50 text-slate-400 font-extrabold text-[11px] border-b border-slate-100">
-                  <th className="px-4 py-3">البند</th>
-                  <th className="px-4 py-3">الشهر</th>
-                  <th className="px-4 py-3">المبلغ</th>
-                  <th className="px-4 py-3">ملاحظات والتفاصيل</th>
-                  <th className="px-4 py-3 text-center">الفاتورة</th>
-                  {!isReadOnly && role !== 'ASSISTANT' && <th className="px-4 py-3 text-center">الإجراءات</th>}
+                <tr className="bg-slate-50 text-slate-500 font-extrabold text-[10px] sm:text-[10.5px] border-b border-slate-100">
+                  <th className="w-20 sm:w-24 px-1.5 py-1.5 whitespace-nowrap">البند</th>
+                  <th className="w-20 sm:w-22 px-1.5 py-1.5 whitespace-nowrap">الشهر</th>
+                  <th className="w-20 sm:w-22 px-1.5 py-1.5 whitespace-nowrap">المبلغ</th>
+                  <th className="min-w-[80px] max-w-[130px] px-1.5 py-1.5 whitespace-nowrap">ملاحظات والتفاصيل</th>
+                  <th className="w-14 sm:w-16 px-1 py-1.5 text-center whitespace-nowrap">الفاتورة</th>
+                  {!isReadOnly && role !== 'ASSISTANT' && <th className="w-12 sm:w-14 px-0.5 py-1 text-center whitespace-nowrap">الإجراءات</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs font-bold text-slate-800">
                 {filteredExpenses.length === 0 ? (
                   <tr>
-                    <td colSpan={!isReadOnly && role !== 'ASSISTANT' ? 6 : 5} className="px-4 py-10 text-center text-slate-400 font-bold">
+                    <td colSpan={!isReadOnly && role !== 'ASSISTANT' ? 6 : 5} className="px-3 py-8 text-center text-slate-400 font-bold">
                       <div className="flex flex-col items-center gap-1.5">
                         <FileText className="w-7 h-7 stroke-[1.5]" />
                         <span>لا توجد مصروفات مسجلة تطابق هذه الشروط في {currentYear}</span>
@@ -489,35 +505,35 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({
                               : 'hover:bg-slate-50/50'
                           }`}
                         >
-                          <td className="px-4 py-3">
-                            <span className="px-2 py-0.5 bg-red-50 text-red-700 rounded text-[10px] font-black">
+                          <td className="w-20 sm:w-24 px-1.5 py-1.5 whitespace-nowrap">
+                            <span className="px-2 py-0.5 bg-red-50 text-red-700 rounded text-[9.5px] font-black">
                               {exp.expenseType}
                             </span>
                           </td>
-                          <td className="px-4 py-3 text-slate-500 font-semibold">
+                          <td className="w-20 sm:w-22 px-1.5 py-1.5 text-slate-500 font-semibold whitespace-nowrap text-[10.5px]">
                             {monthNamesArabic[parseInt(exp.month) - 1]} {exp.year}
                           </td>
-                          <td className="px-4 py-3 text-red-600 font-black">{Math.round(exp.amount)} ج.م</td>
-                          <td className="px-4 py-3 text-slate-500 font-semibold leading-relaxed max-w-xs truncate">
-                            {exp.notes || 'لا توجد'}
+                          <td className="w-20 sm:w-22 px-1.5 py-1.5 text-red-600 font-black whitespace-nowrap text-xs">{Math.round(exp.amount)} ج.م</td>
+                          <td className="min-w-[80px] max-w-[130px] px-1.5 py-1.5 text-slate-500 font-semibold leading-relaxed truncate text-[10.5px]" title={exp.notes || ''}>
+                            {exp.notes || '—'}
                           </td>
-                          <td className="px-4 py-3 text-center">
+                          <td className="w-14 sm:w-16 px-1 py-1.5 text-center whitespace-nowrap">
                             {exp.fileUrl ? (
                               <button
                                 onClick={(e) => { e.stopPropagation(); onPreviewImage(exp.fileUrl!); }}
-                                className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition inline-flex items-center gap-1 text-[10px] cursor-pointer font-bold"
+                                className="p-1 px-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition inline-flex items-center gap-0.5 text-[9.5px] cursor-pointer font-bold border border-blue-100"
                                 title="عرض الفاتورة"
                               >
-                                <Eye className="w-3.5 h-3.5" />
+                                <Eye className="w-3 h-3" />
                                 <span>عرض</span>
                               </button>
                             ) : (
-                              <span className="text-[10px] text-slate-300 font-bold">لا يوجد</span>
+                              <span className="text-[9.5px] text-slate-300 font-bold">لا يوجد</span>
                             )}
                           </td>
                           {!isReadOnly && role !== 'ASSISTANT' && (
-                            <td className="px-4 py-3">
-                              <div className="flex items-center justify-center gap-1.5">
+                            <td className="w-12 sm:w-14 px-0.5 py-1 whitespace-nowrap">
+                              <div className="flex items-center justify-center gap-0.5">
                                 <button
                                   onClick={(e) => { e.stopPropagation(); openEditModal(exp); }}
                                   className="p-1 text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded transition"
@@ -540,14 +556,14 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({
                     })
                 )}
                 {filteredExpenses.length > 0 && (
-                  <tr className="bg-red-50/90 border-t-2 border-red-200 font-extrabold text-slate-900">
-                    <td colSpan={2} className="px-4 py-3.5 text-right font-black text-red-950 text-xs sm:text-sm">
+                  <tr className="bg-red-50/90 border-t-2 border-red-200 font-extrabold text-slate-900 text-xs">
+                    <td colSpan={2} className="px-2 py-2 text-right font-black text-red-950">
                       إجمالي المصروفات الكلي:
                     </td>
-                    <td className="px-4 py-3.5 text-red-700 text-sm font-black whitespace-nowrap">
+                    <td className="px-2 py-2 text-red-700 text-xs sm:text-sm font-black whitespace-nowrap">
                       {Math.round(totalAmount)} ج.م
                     </td>
-                    <td colSpan={!isReadOnly && role !== 'ASSISTANT' ? 3 : 2} className="px-4 py-3.5"></td>
+                    <td colSpan={!isReadOnly && role !== 'ASSISTANT' ? 3 : 2} className="px-2 py-2"></td>
                   </tr>
                 )}
               </tbody>
