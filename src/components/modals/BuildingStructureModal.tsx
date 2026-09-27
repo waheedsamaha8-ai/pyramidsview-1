@@ -422,20 +422,20 @@ export const BuildingStructureModal: React.FC<BuildingStructureModalProps> = ({
                         <button
                           type="button"
                           onClick={() => setEditingFloorId(floor.id)}
-                          className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-850 border border-amber-200 rounded-xl text-xs font-black flex items-center gap-1 transition cursor-pointer"
+                          className="px-3.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-850 border border-amber-200 rounded-xl text-xs font-black flex items-center gap-1.5 transition transform hover:scale-105 active:scale-95 cursor-pointer shadow-2xs"
                           title="تعديل الدور وأسماء ووحدات ونشاط هذا الدور"
                         >
-                          <Edit className="w-3.5 h-3.5 text-amber-600" />
+                          <Edit className="w-4 h-4 text-amber-600" />
                           <span>تعديل</span>
                         </button>
 
                         <button
                           type="button"
                           onClick={() => onDeleteFloor(floor.id, floor.floorLabel)}
-                          className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-black flex items-center gap-1 transition cursor-pointer"
+                          className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-black flex items-center gap-1.5 transition transform hover:scale-105 active:scale-95 cursor-pointer shadow-2xs"
                           title="حذف هذا الدور بالكامل من قاعدة البيانات"
                         >
-                          <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                          <Trash2 className="w-4 h-4 text-rose-600" />
                           <span>حذف</span>
                         </button>
                       </div>

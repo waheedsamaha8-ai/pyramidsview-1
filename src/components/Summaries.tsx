@@ -937,10 +937,10 @@ export const Summaries: React.FC<SummariesProps> = ({
                                         setEditPaymentStatus(pay.status || 'collected');
                                         setEditReceiptNumber(pay.receiptNumber || '');
                                       }}
-                                      className="p-1 text-slate-500 hover:text-slate-800 hover:bg-white/80 rounded transition cursor-pointer"
+                                      className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-white/80 rounded transition cursor-pointer"
                                       title="تعديل"
                                     >
-                                      <Edit className="w-3 h-3" />
+                                      <Edit className="w-3.5 h-3.5" />
                                     </button>
 
                                     {deleteConfirmId === pay.id ? (
@@ -973,10 +973,10 @@ export const Summaries: React.FC<SummariesProps> = ({
                                     ) : (
                                       <button
                                         onClick={() => setDeleteConfirmId(pay.id)}
-                                        className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition cursor-pointer"
+                                        className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition cursor-pointer"
                                         title="حذف"
                                       >
-                                        <Trash2 className="w-3 h-3" />
+                                        <Trash2 className="w-3.5 h-3.5" />
                                       </button>
                                     )}
                                   </>

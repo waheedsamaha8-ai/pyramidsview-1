@@ -185,22 +185,22 @@ export const SettingsCategoriesSection: React.FC<SettingsCategoriesSectionProps>
               return (
                 <div key={type} className="flex items-center justify-between p-2 bg-slate-50/70 hover:bg-slate-100/70 border border-slate-200/80 rounded-xl transition gap-2">
                   {isAdmin ? (
-                    <div className="flex items-center gap-1 shrink-0">
+                    <div className="flex items-center gap-1.5 shrink-0">
                       <button
                         type="button"
                         onClick={() => handleDeleteItem('activityTypes', type)}
-                        className="p-1.5 text-red-500 hover:bg-red-50 hover:text-red-700 rounded-lg transition cursor-pointer"
+                        className="p-1.5 text-rose-500 hover:bg-rose-50 hover:text-rose-700 rounded-lg transition transform hover:scale-110 active:scale-95 cursor-pointer border border-rose-100 shadow-2xs"
                         title="حذف هذا النوع"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-4 h-4" />
                       </button>
                       <button
                         type="button"
                         onClick={() => openEditModal('activityTypes', type)}
-                        className="p-1.5 text-blue-700 hover:bg-blue-100/70 hover:text-blue-900 rounded-lg transition cursor-pointer flex items-center gap-1 text-[11px] font-bold bg-blue-50/80 px-2"
+                        className="p-1.5 text-blue-700 hover:bg-blue-100/70 hover:text-blue-900 rounded-lg transition transform hover:scale-105 active:scale-95 cursor-pointer flex items-center gap-1.5 text-[11px] font-black bg-blue-50/80 px-2.5 border border-blue-200/60 shadow-2xs"
                         title="تعديل هذا النوع والاشتراك"
                       >
-                        <Pencil className="w-3 h-3 text-blue-800" />
+                        <Pencil className="w-3.5 h-3.5 text-blue-800" />
                         <span>تعديل</span>
                       </button>
                     </div>
@@ -255,22 +255,22 @@ export const SettingsCategoriesSection: React.FC<SettingsCategoriesSectionProps>
               return (
                 <div key={type} className="flex items-center justify-between p-2 bg-slate-50/70 hover:bg-slate-100/70 border border-slate-200/80 rounded-xl transition gap-2">
                   {isAdmin ? (
-                    <div className="flex items-center gap-1 shrink-0">
+                    <div className="flex items-center gap-1.5 shrink-0">
                       <button
                         type="button"
                         onClick={() => handleDeleteItem('paymentTypes', type)}
-                        className="p-1.5 text-red-500 hover:bg-red-50 hover:text-red-700 rounded-lg transition cursor-pointer"
+                        className="p-1.5 text-rose-500 hover:bg-rose-50 hover:text-rose-700 rounded-lg transition transform hover:scale-110 active:scale-95 cursor-pointer border border-rose-100 shadow-2xs"
                         title="حذف هذا النوع"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-4 h-4" />
                       </button>
                       <button
                         type="button"
                         onClick={() => openEditModal('paymentTypes', type)}
-                        className="p-1.5 text-emerald-800 hover:bg-emerald-100/70 rounded-lg transition cursor-pointer flex items-center gap-1 text-[11px] font-bold bg-emerald-50/80 px-2"
+                        className="p-1.5 text-emerald-800 hover:bg-emerald-100/70 rounded-lg transition transform hover:scale-105 active:scale-95 cursor-pointer flex items-center gap-1.5 text-[11px] font-black bg-emerald-50/80 px-2.5 border border-emerald-200/60 shadow-2xs"
                         title="تعديل هذا النوع"
                       >
-                        <Pencil className="w-3 h-3 text-emerald-800" />
+                        <Pencil className="w-3.5 h-3.5 text-emerald-800" />
                         <span>تعديل</span>
                       </button>
                     </div>
@@ -319,22 +319,22 @@ export const SettingsCategoriesSection: React.FC<SettingsCategoriesSectionProps>
               return (
                 <div key={type} className="flex items-center justify-between p-2 bg-slate-50/70 hover:bg-slate-100/70 border border-slate-200/80 rounded-xl transition gap-2">
                   {isAdmin ? (
-                    <div className="flex items-center gap-1 shrink-0">
+                    <div className="flex items-center gap-1.5 shrink-0">
                       <button
                         type="button"
                         onClick={() => handleDeleteItem('expenseTypes', type)}
-                        className="p-1.5 text-red-500 hover:bg-red-50 hover:text-red-700 rounded-lg transition cursor-pointer"
+                        className="p-1.5 text-rose-500 hover:bg-rose-50 hover:text-rose-700 rounded-lg transition transform hover:scale-110 active:scale-95 cursor-pointer border border-rose-100 shadow-2xs"
                         title="حذف هذا النوع"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-4 h-4" />
                       </button>
                       <button
                         type="button"
                         onClick={() => openEditModal('expenseTypes', type)}
-                        className="p-1.5 text-amber-900 hover:bg-amber-100/70 rounded-lg transition cursor-pointer flex items-center gap-1 text-[11px] font-bold bg-amber-50/80 px-2"
+                        className="p-1.5 text-amber-900 hover:bg-amber-100/70 rounded-lg transition transform hover:scale-105 active:scale-95 cursor-pointer flex items-center gap-1.5 text-[11px] font-black bg-amber-50/80 px-2.5 border border-amber-200/60 shadow-2xs"
                         title="تعديل هذا النوع"
                       >
-                        <Pencil className="w-3 h-3 text-amber-800" />
+                        <Pencil className="w-3.5 h-3.5 text-amber-800" />
                         <span>تعديل</span>
                       </button>
                     </div>

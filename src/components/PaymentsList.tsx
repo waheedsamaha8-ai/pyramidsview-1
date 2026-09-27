@@ -999,7 +999,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                     </div>
                   </th>
                   <th className="min-w-[70px] max-w-[100px] px-1 py-1.5 whitespace-nowrap">الملاحظات</th>
-                  {!isReadOnly && role !== 'ASSISTANT' && <th className="w-11 sm:w-12 px-0.5 py-1 text-center whitespace-nowrap">الإجراءات</th>}
+                  {!isReadOnly && role !== 'ASSISTANT' && <th className="w-16 sm:w-20 px-1 py-1.5 text-center whitespace-nowrap">الإجراءات</th>}
                   <th className="w-20 sm:w-22 px-0.5 py-1 text-center whitespace-nowrap">الإيصال الصادر</th>
                 </tr>
               </thead>
@@ -1113,21 +1113,21 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
 
                         {/* Actions */}
                         {!isReadOnly && role !== 'ASSISTANT' && (
-                          <td className="w-11 sm:w-12 px-0.5 py-1 whitespace-nowrap text-center">
-                            <div className="flex items-center justify-center gap-0.5">
+                          <td className="w-16 sm:w-20 px-1 py-1.5 whitespace-nowrap text-center">
+                            <div className="flex items-center justify-center gap-1.5">
                               <button
                                 onClick={(e) => { e.stopPropagation(); openEditModal(p); }}
-                                className="p-1 text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded transition cursor-pointer"
+                                className="p-1.5 text-slate-600 hover:text-blue-900 hover:bg-blue-50 border border-slate-200/80 rounded-lg transition transform hover:scale-110 active:scale-95 cursor-pointer shadow-2xs"
                                 title="تعديل"
                               >
-                                <Edit className="w-3.5 h-3.5" />
+                                <Edit className="w-4 h-4" />
                               </button>
                               <button
                                 onClick={(e) => { e.stopPropagation(); handleDelete(p.id); }}
-                                className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded transition cursor-pointer"
+                                className="p-1.5 text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-rose-200 rounded-lg transition transform hover:scale-110 active:scale-95 cursor-pointer shadow-2xs"
                                 title="حذف"
                               >
-                                <Trash2 className="w-3.5 h-3.5" />
+                                <Trash2 className="w-4 h-4" />
                               </button>
                             </div>
                           </td>
@@ -1282,21 +1282,21 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
 
                             {/* Actions */}
                             {!isReadOnly && role !== 'ASSISTANT' && (
-                              <td className="w-11 sm:w-12 px-0.5 py-1 whitespace-nowrap text-center">
-                                <div className="flex items-center justify-center gap-0.5">
+                              <td className="w-16 sm:w-20 px-1 py-1.5 whitespace-nowrap text-center">
+                                <div className="flex items-center justify-center gap-1.5">
                                   <button
                                     onClick={(e) => { e.stopPropagation(); openEditModal(p); }}
-                                    className="p-1 text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded transition cursor-pointer"
+                                    className="p-1.5 text-slate-600 hover:text-blue-900 hover:bg-blue-50 border border-slate-200/80 rounded-lg transition transform hover:scale-110 active:scale-95 cursor-pointer shadow-2xs"
                                     title="تعديل"
                                   >
-                                    <Edit className="w-3.5 h-3.5" />
+                                    <Edit className="w-4 h-4" />
                                   </button>
                                   <button
                                     onClick={(e) => { e.stopPropagation(); handleDelete(p.id); }}
-                                    className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded transition cursor-pointer"
+                                    className="p-1.5 text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-rose-200 rounded-lg transition transform hover:scale-110 active:scale-95 cursor-pointer shadow-2xs"
                                     title="حذف"
                                   >
-                                    <Trash2 className="w-3.5 h-3.5" />
+                                    <Trash2 className="w-4 h-4" />
                                   </button>
                                 </div>
                               </td>
@@ -1513,20 +1513,20 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                         )}
 
                         {!isReadOnly && role !== 'ASSISTANT' && (
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-2">
                             <button
                               onClick={(e) => { e.stopPropagation(); openEditModal(p); }}
-                              className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 border border-slate-100 rounded-lg transition cursor-pointer"
+                              className="p-2 text-slate-600 hover:text-blue-900 hover:bg-blue-50 border border-slate-200 rounded-xl transition transform hover:scale-110 active:scale-95 cursor-pointer shadow-2xs"
                               title="تعديل"
                             >
-                              <Edit className="w-3.5 h-3.5" />
+                              <Edit className="w-4 h-4" />
                             </button>
                             <button
                               onClick={(e) => { e.stopPropagation(); handleDelete(p.id); }}
-                              className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 border border-red-55 rounded-lg transition cursor-pointer"
+                              className="p-2 text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-rose-200 rounded-xl transition transform hover:scale-110 active:scale-95 cursor-pointer shadow-2xs"
                               title="حذف"
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
+                              <Trash2 className="w-4 h-4" />
                             </button>
                           </div>
                         )}

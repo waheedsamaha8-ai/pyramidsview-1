@@ -532,14 +532,14 @@ export const Chat: React.FC<ChatProps> = ({
                               <button
                                 type="button"
                                 onClick={() => startEditingMessage(msg.id, msg.text || '')}
-                                className={`p-1.5 rounded-lg transition cursor-pointer flex items-center justify-center ${
+                                className={`p-1.5 rounded-xl transition transform hover:scale-110 active:scale-95 cursor-pointer flex items-center justify-center ${
                                   isMe
                                     ? 'bg-blue-800/90 hover:bg-blue-700 text-blue-100 hover:text-white border border-blue-600/50 shadow-2xs'
                                     : 'bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-600 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/50 shadow-2xs'
                                 }`}
                                 title="تعديل الرسالة"
                               >
-                                <Edit className="w-3.5 h-3.5" />
+                                <Edit className="w-4 h-4" />
                               </button>
                             )}
 
@@ -554,14 +554,14 @@ export const Chat: React.FC<ChatProps> = ({
                                     () => onDeleteMessage(msg.id)
                                   );
                                 }}
-                                className={`p-1.5 rounded-lg transition cursor-pointer flex items-center justify-center ${
+                                className={`p-1.5 rounded-xl transition transform hover:scale-110 active:scale-95 cursor-pointer flex items-center justify-center ${
                                   isMe
                                     ? 'bg-red-500/25 hover:bg-red-500/50 text-red-100 hover:text-white border border-red-400/40 shadow-2xs'
                                     : 'bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/60 text-red-600 dark:text-red-400 border border-red-200/80 dark:border-red-900/50 shadow-2xs'
                                 }`}
                                 title="حذف الرسالة"
                               >
-                                <Trash2 className="w-3.5 h-3.5" />
+                                <Trash2 className="w-4 h-4" />
                               </button>
                             )}
                           </div>

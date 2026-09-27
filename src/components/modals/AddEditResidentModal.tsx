@@ -340,10 +340,10 @@ export const AddEditResidentModal: React.FC<AddEditResidentModalProps> = ({
                       <button
                         type="button"
                         onClick={() => setPhoneNumbers(phoneNumbers.filter((_, i) => i !== index))}
-                        className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition shrink-0 cursor-pointer"
+                        className="p-2 text-rose-500 hover:bg-rose-50 rounded-xl transition transform hover:scale-110 active:scale-95 shrink-0 cursor-pointer border border-rose-100 shadow-2xs"
                         title="حذف هذا الرقم"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-4 h-4" />
                       </button>
                     )}
                   </div>
@@ -408,10 +408,10 @@ export const AddEditResidentModal: React.FC<AddEditResidentModalProps> = ({
                           <button
                             type="button"
                             onClick={() => setTenantPhoneNumbers(tenantPhoneNumbers.filter((_, i) => i !== index))}
-                            className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition shrink-0 cursor-pointer"
+                            className="p-2 text-rose-500 hover:bg-rose-50 rounded-xl transition transform hover:scale-110 active:scale-95 shrink-0 cursor-pointer border border-rose-100 shadow-2xs"
                             title="حذف هذا الرقم"
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            <Trash2 className="w-4 h-4" />
                           </button>
                         )}
                       </div>

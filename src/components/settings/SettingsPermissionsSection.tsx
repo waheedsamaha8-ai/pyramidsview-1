@@ -273,10 +273,10 @@ ${appUrl}
                 {isAdmin && onDeleteRule && (
                   <button
                     onClick={() => onDeleteRule(idx)}
-                    className="p-1 text-red-500 hover:bg-red-50 rounded-lg transition cursor-pointer shrink-0"
+                    className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-xl transition transform hover:scale-110 active:scale-95 cursor-pointer shrink-0 border border-transparent hover:border-rose-200"
                     title="حذف البند"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <Trash2 className="w-4 h-4" />
                   </button>
                 )}
                 <div className="flex-1 text-right">

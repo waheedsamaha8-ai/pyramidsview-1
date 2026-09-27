@@ -497,10 +497,10 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                           <button
                             type="button"
                             onClick={() => setConfirmDeleteId(ev.id)}
-                            className="p-1.5 bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 hover:bg-red-100 border border-red-200/60 dark:border-red-800/60 rounded-lg transition cursor-pointer"
+                            className="p-2 bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 hover:bg-red-100 border border-red-200/60 dark:border-red-800/60 rounded-xl transition transform hover:scale-110 active:scale-95 cursor-pointer shadow-2xs"
                             title="حذف الحدث"
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
                       ) : (

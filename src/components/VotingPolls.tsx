@@ -746,9 +746,9 @@ export const VotingPolls: React.FC<VotingPollsProps> = ({
                                 'تأكيد الحذف'
                               );
                             }}
-                            className="w-full py-1.5 bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 hover:bg-red-100 font-black text-xs rounded-lg transition cursor-pointer flex items-center justify-center gap-1 border border-red-200/50 dark:border-red-800/50"
+                            className="w-full py-2 bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 hover:bg-red-100 font-black text-xs rounded-xl transition transform hover:scale-[1.02] active:scale-95 cursor-pointer flex items-center justify-center gap-1.5 border border-red-200/60 dark:border-red-800/50 shadow-2xs"
                           >
-                            <Trash2 className="w-3 h-3" />
+                            <Trash2 className="w-3.5 h-3.5" />
                             <span>إزالة الاستبيان</span>
                           </button>
                         </div>
@@ -1016,9 +1016,9 @@ export const VotingPolls: React.FC<VotingPollsProps> = ({
                             <button
                               type="button"
                               onClick={() => startEditDecision(d)}
-                              className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-black text-xs rounded-lg transition cursor-pointer flex items-center gap-1 border border-slate-200 dark:border-slate-700"
+                              className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-black text-xs rounded-xl transition transform hover:scale-105 active:scale-95 cursor-pointer flex items-center gap-1.5 border border-slate-200 dark:border-slate-700 shadow-2xs"
                             >
-                              <Edit3 className="w-3 h-3" />
+                              <Edit3 className="w-3.5 h-3.5" />
                               <span>تعديل</span>
                             </button>
                           )}
@@ -1034,9 +1034,9 @@ export const VotingPolls: React.FC<VotingPollsProps> = ({
                                   'تأكيد حذف القرار'
                                 );
                               }}
-                              className="px-2.5 py-1 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 text-red-600 dark:text-red-400 font-black text-xs rounded-lg transition cursor-pointer flex items-center gap-1 border border-red-200/50 dark:border-red-800/50"
+                              className="px-3 py-1.5 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 text-red-600 dark:text-red-400 font-black text-xs rounded-xl transition transform hover:scale-105 active:scale-95 cursor-pointer flex items-center gap-1.5 border border-red-200/60 dark:border-red-800/50 shadow-2xs"
                             >
-                              <Trash2 className="w-3 h-3" />
+                              <Trash2 className="w-3.5 h-3.5" />
                               <span>حذف</span>
                             </button>
                           )}

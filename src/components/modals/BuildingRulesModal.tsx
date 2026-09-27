@@ -106,10 +106,10 @@ export const BuildingRulesModal: React.FC<BuildingRulesModalProps> = ({
                   <button
                     type="button"
                     onClick={() => onDeleteRule(idx)}
-                    className="text-red-500 hover:text-red-700 p-1 hover:bg-red-50 rounded-lg transition cursor-pointer shrink-0"
+                    className="text-red-500 hover:text-red-700 p-1.5 hover:bg-red-50 rounded-xl transition transform hover:scale-110 active:scale-95 cursor-pointer shrink-0 border border-transparent hover:border-red-200"
                     title="إزالة هذا البند"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <Trash2 className="w-4 h-4" />
                   </button>
                 )}
                 <div className="flex items-start gap-2 flex-1 text-right">
