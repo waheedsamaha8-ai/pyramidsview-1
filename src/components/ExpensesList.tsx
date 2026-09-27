@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo, useEffect } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import { Expense, UserRole, Resident } from '../types';
 import { Search, Plus, Filter, Calendar, FileText, Image as ImageIcon, Camera, Trash2, Edit, AlertCircle, Eye, LayoutGrid, List, Upload, Download, RefreshCw, Share2, CheckCircle2, Printer } from 'lucide-react';
 import { generateElementImageBlob, GeneratedImageResult } from '../utils/imageExport';
@@ -6,7 +6,6 @@ import { shareImageViaWhatsApp } from '../utils/shareImageViaWhatsApp';
 import { ShareReportModal } from './ShareReportModal';
 import { compressImageFile, compressBase64Image } from '../utils/imageCompressor';
 import { getImageFromIndexedDB, saveImageToIndexedDB } from '../services/imageStorage';
-import { groupResidentsByFloor, formatResidentOptionLabel } from '../utils/buildingStructure';
 
 interface ExpensesListProps {
   expenses: Expense[];
@@ -14,7 +13,7 @@ interface ExpensesListProps {
   role: UserRole;
   currentYear: number;
   currentMonth?: number;
-  onSelectMonth?: (m: number) => void;
+  setCurrentMonth?: React.Dispatch<React.SetStateAction<number>>;
   residents?: Resident[];
   onAdd: (expense: Expense, base64Image?: string) => void;
   onEdit: (expense: Expense, base64Image?: string) => void;
@@ -28,7 +27,7 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({
   role,
   currentYear,
   currentMonth,
-  onSelectMonth,
+  setCurrentMonth,
   residents = [],
   onAdd,
   onEdit,
@@ -45,19 +44,6 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('table');
   const [confirmData, setConfirmData] = useState<{ type: 'add' | 'edit' | 'delete'; expenseData?: Expense; base64Image?: string; deleteId?: string } | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
-
-  const actualCurrentMonth = useMemo(() => {
-    if (currentMonth !== undefined) {
-      return String(currentMonth + 1).padStart(2, '0');
-    }
-    return String(new Date().getMonth() + 1).padStart(2, '0');
-  }, [currentMonth]);
-
-  useEffect(() => {
-    if (currentMonth !== undefined) {
-      setFilterMonth(String(currentMonth + 1).padStart(2, '0'));
-    }
-  }, [currentMonth]);
   const [shareReportModal, setShareReportModal] = useState<{
     isOpen: boolean;
     imageBlob: Blob | null;
@@ -73,6 +59,10 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({
     reportPeriodText: '',
     reportStatsText: '',
   });
+
+  const actualCurrentMonth = currentMonth !== undefined 
+    ? String(currentMonth + 1).padStart(2, '0') 
+    : String(new Date().getMonth() + 1).padStart(2, '0');
 
   // Form states
   const [month, setMonth] = useState(actualCurrentMonth);
@@ -368,10 +358,10 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({
                 const val = e.target.value;
                 setFilterMonth(val);
                 setOnlyCurrentMonth(false);
-                if (val && onSelectMonth) {
+                if (val && setCurrentMonth) {
                   const mIdx = parseInt(val, 10) - 1;
-                  if (!isNaN(mIdx) && mIdx >= 0 && mIdx <= 11) {
-                    onSelectMonth(mIdx);
+                  if (!isNaN(mIdx)) {
+                    setCurrentMonth(mIdx);
                   }
                 }
               }}
@@ -732,7 +722,16 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({
                   <label className="text-xs font-bold text-slate-500">الشهر</label>
                   <select
                     value={month}
-                    onChange={(e) => setMonth(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setMonth(val);
+                      if (val && setCurrentMonth) {
+                        const mIdx = parseInt(val, 10) - 1;
+                        if (!isNaN(mIdx)) {
+                          setCurrentMonth(mIdx);
+                        }
+                      }
+                    }}
                     disabled={role === 'ASSISTANT' && !!selectedExpense}
                     className="w-full px-4 py-3 bg-slate-50 border border-slate-100 focus:bg-white rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 outline-none text-right font-medium transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                   >

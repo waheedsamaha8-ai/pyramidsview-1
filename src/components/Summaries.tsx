@@ -9,8 +9,6 @@ interface SummariesProps {
   payments: Payment[];
   expenses: Expense[];
   currentYear: number;
-  currentMonth?: number;
-  onSelectMonth?: (m: number) => void;
   role: UserRole;
   onCellClick: (residentId: string, month: string, currentStatus: boolean, paymentId?: string, customAmount?: number, paymentType?: string) => void;
   floorConfigs: FloorConfig[];
@@ -22,6 +20,8 @@ interface SummariesProps {
   defaultMonthlyFee?: number;
   paymentTypes?: string[];
   config?: AppConfig;
+  currentMonth?: number;
+  setCurrentMonth?: React.Dispatch<React.SetStateAction<number>>;
 }
 
 export const Summaries: React.FC<SummariesProps> = ({
@@ -29,8 +29,6 @@ export const Summaries: React.FC<SummariesProps> = ({
   payments,
   expenses,
   currentYear,
-  currentMonth,
-  onSelectMonth,
   role,
   onCellClick,
   floorConfigs,
@@ -42,6 +40,8 @@ export const Summaries: React.FC<SummariesProps> = ({
   defaultMonthlyFee,
   paymentTypes,
   config,
+  currentMonth,
+  setCurrentMonth,
 }) => {
   const [selectedCell, setSelectedCell] = useState<{
     resident: Resident;
@@ -191,20 +191,26 @@ export const Summaries: React.FC<SummariesProps> = ({
     return groups;
   }, [effectiveFloorConfigs, residents, sortedResidents]);
 
-  // 3. Category Expenses Breakdown (Table 2) - Dynamic and fully responsive to expenseTypes in config
+  // 3. Category Expenses Breakdown (Table 2)
+  // Category list is fully dynamic and controlled by expenseTypes in Expense Management (config.expenseTypes)
   const categoryList = useMemo(() => {
     const configuredTypes = (expenseTypes && expenseTypes.length > 0)
       ? expenseTypes
-      : ['صيانة مصاعد', 'نظافة وخدمات', 'كهرباء خدمات', 'حراسة وأمن', 'صيانة سباكة ومياه', 'نثريات وطوارئ'];
+      : (config?.expenseTypes && config.expenseTypes.length > 0)
+        ? config.expenseTypes
+        : ['كهرباء', 'صيانة المصعد', 'نظافة', 'أمن وحراسة', 'سباكة ومياه', 'صيانة عامة', 'أخرى'];
 
-    const currentYearExpenses = expenses.filter(e => e.year === currentYear);
-    const extraFromExpenses = currentYearExpenses
-      .map(e => e.expenseType)
-      .filter(Boolean)
-      .filter(t => !configuredTypes.includes(t));
-    
-    return Array.from(new Set([...configuredTypes, ...extraFromExpenses]));
-  }, [expenses, currentYear, expenseTypes]);
+    const list: string[] = [];
+    const seen = new Set<string>();
+    for (const cat of configuredTypes) {
+      const trimmed = cat?.trim();
+      if (trimmed && !seen.has(trimmed)) {
+        seen.add(trimmed);
+        list.push(trimmed);
+      }
+    }
+    return list;
+  }, [expenseTypes, config?.expenseTypes]);
 
   const categoryMonthlyData = useMemo(() => {
     return categoryList.map(cat => {
@@ -264,9 +270,9 @@ export const Summaries: React.FC<SummariesProps> = ({
           payments={payments} 
           floorConfigs={floorConfigs} 
           currentYear={currentYear} 
-          currentMonth={currentMonth}
-          onSelectMonth={onSelectMonth}
           config={config}
+          currentMonth={currentMonth}
+          setCurrentMonth={setCurrentMonth}
         />
       </section>
 

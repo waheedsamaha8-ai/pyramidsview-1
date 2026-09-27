@@ -378,7 +378,7 @@ export default function App() {
   const [reportEndDate, setReportEndDate] = useState(new Date().toISOString().split('T')[0]);
 
   // UI state with active tab persistence
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'residents' | 'payments' | 'expenses' | 'summaries' | 'building-map' | 'history' | 'maintenance' | 'polls' | 'calendar' | 'chat' | 'settings' | 'debts-report'>(() => getInitialTab());
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'residents' | 'payments' | 'expenses' | 'summaries' | 'history' | 'maintenance' | 'polls' | 'calendar' | 'chat' | 'settings' | 'debts-report'>(() => getInitialTab());
 
   // Automatically save active tab to keep user position on refresh
   useEffect(() => {
@@ -1999,6 +1999,53 @@ export default function App() {
       firestoreService.saveBatchResidentsToFirestore(updatedResidents).catch(() => {});
     }
 
+    // Check if any expense type was renamed or deleted to update existing expenses accordingly
+    const oldExpenseTypes = config.expenseTypes || [];
+    const newExpenseTypes = updatedConfig.expenseTypes || [];
+    let updatedExpenses = [...expenses];
+    let expensesChanged = false;
+
+    if (oldExpenseTypes.length === newExpenseTypes.length) {
+      let renamedFrom: string | null = null;
+      let renamedTo: string | null = null;
+      for (let i = 0; i < oldExpenseTypes.length; i++) {
+        if (oldExpenseTypes[i] !== newExpenseTypes[i]) {
+          renamedFrom = oldExpenseTypes[i];
+          renamedTo = newExpenseTypes[i];
+          break;
+        }
+      }
+      if (renamedFrom && renamedTo) {
+        updatedExpenses = expenses.map(e => {
+          if (e.expenseType === renamedFrom) {
+            expensesChanged = true;
+            return { ...e, expenseType: renamedTo! };
+          }
+          return e;
+        });
+      }
+    } else if (newExpenseTypes.length < oldExpenseTypes.length) {
+      const deletedExpenseTypes = oldExpenseTypes.filter(t => !newExpenseTypes.includes(t));
+      if (deletedExpenseTypes.length > 0) {
+        const fallbackType = newExpenseTypes[0] || 'أخرى';
+        updatedExpenses = expenses.map(e => {
+          if (deletedExpenseTypes.includes(e.expenseType)) {
+            expensesChanged = true;
+            return { ...e, expenseType: fallbackType };
+          }
+          return e;
+        });
+      }
+    }
+
+    if (expensesChanged) {
+      setExpenses(updatedExpenses);
+      offlineSync.saveCachedData('expenses', updatedExpenses);
+      updatedExpenses.forEach(exp => {
+        firestoreService.saveExpenseToFirestore(exp).catch(() => {});
+      });
+    }
+
     setConfig(updatedConfig);
     offlineSync.saveCachedData('config', updatedConfig);
     addNotification('تم حفظ الإعدادات', 'تم حفظ وتحديث إعدادات النظام بنجاح.', 'success');
@@ -2743,7 +2790,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#e2e8f0] dark:bg-[#0b1329]">
+    <div className="min-h-screen flex flex-col bg-slate-200/70 dark:bg-[#0b1329]">
       
       {/* Top responsive banner / header */}
       <AppHeader
@@ -2869,7 +2916,7 @@ export default function App() {
             role={role}
             currentYear={currentYear}
             currentMonth={currentMonth}
-            onSelectMonth={setCurrentMonth}
+            setCurrentMonth={setCurrentMonth}
             floorConfigs={buildingLayout}
             config={config}
             onAdd={addPayment}
@@ -2888,7 +2935,7 @@ export default function App() {
             role={role}
             currentYear={currentYear}
             currentMonth={currentMonth}
-            onSelectMonth={setCurrentMonth}
+            setCurrentMonth={setCurrentMonth}
             residents={residents}
             onAdd={addExpense}
             onEdit={editExpense}
@@ -2897,15 +2944,15 @@ export default function App() {
           />
         )}
 
-        {/* Summaries & Building Map Tab */}
-        {(activeTab === 'summaries' || activeTab === 'building-map') && (
+        {/* Summaries Tab */}
+        {activeTab === 'summaries' && (
           <Summaries 
             residents={residents}
             payments={payments}
             expenses={expenses}
             currentYear={currentYear}
             currentMonth={currentMonth}
-            onSelectMonth={setCurrentMonth}
+            setCurrentMonth={setCurrentMonth}
             role={role}
             onCellClick={handleSummaryCellClick}
             onAddPayment={addPayment}
