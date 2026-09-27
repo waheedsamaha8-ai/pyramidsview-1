@@ -27,6 +27,15 @@
               } catch (e) {}
               if (origWarn) origWarn.apply(console, arguments);
             };
+            var savedScale = localStorage.getItem('app_font_scale');
+            if (savedScale) {
+              var sVal = parseFloat(savedScale);
+              if (!isNaN(sVal) && sVal >= 75 && sVal <= 130) {
+                var sPercent = sVal / 100;
+                document.documentElement.style.fontSize = (16 * sPercent) + 'px';
+                document.documentElement.style.setProperty('--app-font-scale', sPercent);
+              }
+            }
           }
         } catch (e) {}
       })();
