@@ -405,3 +405,63 @@ export function getDuplicateResidentIds(rawList: Resident[]): string[] {
     .filter(r => r && r.id && !keptIds.has(r.id))
     .map(r => r.id);
 }
+
+export interface FloorResidentGroup {
+  floorLabel: string;
+  residents: Resident[];
+}
+
+/**
+ * Groups residents by floor for unit dropdowns, sorted naturally by floor and flat number.
+ */
+export function groupResidentsByFloor(
+  residents: Resident[],
+  floorConfigs?: FloorConfig[]
+): FloorResidentGroup[] {
+  if (!residents || residents.length === 0) return [];
+
+  const groupsMap = new Map<string, { label: string; floorNum: number; residents: Resident[] }>();
+
+  residents.forEach((res) => {
+    if (!res || res.flatNumber === undefined || res.flatNumber === null) return;
+    const parsed = parseFlatNumber(res.flatNumber);
+    const mainNum = parsed.main;
+    const floorIndex = mainNum >= 100 ? Math.floor(mainNum / 100) : (mainNum > 0 ? Math.floor((mainNum - 1) / 4) + 1 : 0);
+    const label = getFloorName(floorIndex);
+    const key = `floor_${floorIndex}`;
+
+    if (!groupsMap.has(key)) {
+      groupsMap.set(key, { label, floorNum: floorIndex, residents: [] });
+    }
+    groupsMap.get(key)!.residents.push(res);
+  });
+
+  const sortedKeys = Array.from(groupsMap.keys()).sort((a, b) => {
+    return groupsMap.get(a)!.floorNum - groupsMap.get(b)!.floorNum;
+  });
+
+  return sortedKeys.map((key) => {
+    const grp = groupsMap.get(key)!;
+    grp.residents.sort((a, b) => compareFlatNumbers(a.flatNumber, b.flatNumber));
+    return {
+      floorLabel: grp.label,
+      residents: grp.residents,
+    };
+  });
+}
+
+/**
+ * Formats option text for resident select dropdowns: shows Owner Name and Tenant Name underneath/if existing.
+ */
+export function formatResidentOptionLabel(res: Resident): string {
+  if (!res) return '';
+  const flatStr = String(res.flatNumber || '').trim();
+  const ownerName = (res.name || '').trim();
+  const tenantName = (res.tenantName || '').trim();
+  
+  if (tenantName) {
+    return `وحدة ${flatStr} — المالك: ${ownerName} 👤 (المستأجر: ${tenantName})`;
+  }
+  return `وحدة ${flatStr} — المالك: ${ownerName}`;
+}
+

@@ -1,7 +1,7 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { Payment, Resident, UserRole, FloorConfig, AppConfig } from '../types';
 import { Search, Plus, Calendar, FileText, Image as ImageIcon, Camera, Trash2, Edit, AlertCircle, Eye, User, LayoutGrid, List, Building, ArrowUpDown, Upload, X, ZoomIn, Download, RefreshCw, Share2, CheckCircle2, Receipt, Printer } from 'lucide-react';
-import { deriveFloorConfigsFromResidents, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber } from '../utils/buildingStructure';
+import { deriveFloorConfigsFromResidents, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber, groupResidentsByFloor, formatResidentOptionLabel } from '../utils/buildingStructure';
 import { getResidentMonthlyFee, calculateResidentFinancials } from '../utils/financialCalculations';
 import { generateElementImageBlob, GeneratedImageResult } from '../utils/imageExport';
 import { shareImageViaWhatsApp } from '../utils/shareImageViaWhatsApp';
@@ -16,6 +16,8 @@ interface PaymentsListProps {
   paymentTypes: string[];
   role: UserRole;
   currentYear: number;
+  currentMonth?: number;
+  onSelectMonth?: (m: number) => void;
   floorConfigs?: FloorConfig[];
   config?: AppConfig;
   onAdd: (payment: Payment, base64Image?: string) => void;
@@ -31,6 +33,8 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
   paymentTypes,
   role,
   currentYear,
+  currentMonth,
+  onSelectMonth,
   floorConfigs,
   config,
   onAdd,
@@ -47,7 +51,18 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
   const [showModal, setShowModal] = useState(false);
   const [receiptSort, setReceiptSort] = useState<'none' | 'desc' | 'asc'>('none');
 
-  const actualCurrentMonth = String(new Date().getMonth() + 1).padStart(2, '0');
+  const actualCurrentMonth = useMemo(() => {
+    if (currentMonth !== undefined) {
+      return String(currentMonth + 1).padStart(2, '0');
+    }
+    return String(new Date().getMonth() + 1).padStart(2, '0');
+  }, [currentMonth]);
+
+  useEffect(() => {
+    if (currentMonth !== undefined) {
+      setFilterMonth(String(currentMonth + 1).padStart(2, '0'));
+    }
+  }, [currentMonth]);
 
   const toggleReceiptSort = () => {
     if (receiptSort === 'none') {
@@ -840,16 +855,18 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
             <select
               value={filterResident}
               onChange={(e) => setFilterResident(e.target.value)}
-              className="w-full md:w-44 px-2.5 py-2 bg-white border border-slate-100 rounded-xl text-xs font-bold focus:ring-2 focus:ring-blue-500/10 outline-none rtl:text-right cursor-pointer"
+              className="w-full md:w-52 px-2.5 py-2 bg-white border border-slate-100 rounded-xl text-xs font-bold focus:ring-2 focus:ring-blue-500/10 outline-none rtl:text-right cursor-pointer"
             >
-              <option value="">كل السكان</option>
-              {residents
-                .sort((a, b) => compareFlatNumbers(a.flatNumber, b.flatNumber))
-                .map((r) => (
-                  <option key={r.id} value={r.id}>
-                    وحدة {r.flatNumber} - {r.name}
-                  </option>
-                ))}
+              <option value="">كل السكان والوحدات</option>
+              {groupResidentsByFloor(residents, floorConfigs).map((group) => (
+                <optgroup key={group.floorLabel} label={group.floorLabel}>
+                  {group.residents.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {formatResidentOptionLabel(r)}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
             </select>
           </div>
 
@@ -857,8 +874,15 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
             <select
               value={onlyCurrentMonth ? actualCurrentMonth : filterMonth}
               onChange={(e) => {
-                setFilterMonth(e.target.value);
+                const val = e.target.value;
+                setFilterMonth(val);
                 setOnlyCurrentMonth(false);
+                if (val && onSelectMonth) {
+                  const mIdx = parseInt(val, 10) - 1;
+                  if (!isNaN(mIdx) && mIdx >= 0 && mIdx <= 11) {
+                    onSelectMonth(mIdx);
+                  }
+                }
               }}
               className="w-full md:w-32 px-2.5 py-2 bg-white border border-slate-100 rounded-xl text-xs font-bold focus:ring-2 focus:ring-blue-500/10 outline-none rtl:text-right cursor-pointer"
             >
@@ -1587,13 +1611,16 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 focus:bg-white rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-500/10 outline-none text-right font-bold transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                   required
                 >
-                  {residents
-                    .sort((a, b) => compareFlatNumbers(a.flatNumber, b.flatNumber))
-                    .map((r) => (
-                      <option key={r.id} value={r.id}>
-                        وحدة {r.flatNumber} - {r.name}
-                      </option>
-                    ))}
+                  <option value="" disabled>اختر الوحدة / الساكن...</option>
+                  {groupResidentsByFloor(residents, floorConfigs).map((group) => (
+                    <optgroup key={group.floorLabel} label={group.floorLabel}>
+                      {group.residents.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {formatResidentOptionLabel(r)}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
                 </select>
               </div>
 

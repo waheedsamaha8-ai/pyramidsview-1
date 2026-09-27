@@ -9,6 +9,8 @@ interface SummariesProps {
   payments: Payment[];
   expenses: Expense[];
   currentYear: number;
+  currentMonth?: number;
+  onSelectMonth?: (m: number) => void;
   role: UserRole;
   onCellClick: (residentId: string, month: string, currentStatus: boolean, paymentId?: string, customAmount?: number, paymentType?: string) => void;
   floorConfigs: FloorConfig[];
@@ -27,6 +29,8 @@ export const Summaries: React.FC<SummariesProps> = ({
   payments,
   expenses,
   currentYear,
+  currentMonth,
+  onSelectMonth,
   role,
   onCellClick,
   floorConfigs,
@@ -187,16 +191,19 @@ export const Summaries: React.FC<SummariesProps> = ({
     return groups;
   }, [effectiveFloorConfigs, residents, sortedResidents]);
 
-  // 3. Category Expenses Breakdown (Table 2)
+  // 3. Category Expenses Breakdown (Table 2) - Dynamic and fully responsive to expenseTypes in config
   const categoryList = useMemo(() => {
-    const currentYearExpenses = expenses.filter(e => e.year === currentYear);
-    const fromExpenses = currentYearExpenses.map(e => e.expenseType).filter(Boolean);
-    const defaultList = expenseTypes && expenseTypes.length > 0
+    const configuredTypes = (expenseTypes && expenseTypes.length > 0)
       ? expenseTypes
-      : ['كهرباء', 'صيانة المصعد', 'نظافة', 'أمن وحراسة', 'سباكة ومياه', 'صيانة عامة', 'أخرى'];
+      : ['صيانة مصاعد', 'نظافة وخدمات', 'كهرباء خدمات', 'حراسة وأمن', 'صيانة سباكة ومياه', 'نثريات وطوارئ'];
+
+    const currentYearExpenses = expenses.filter(e => e.year === currentYear);
+    const extraFromExpenses = currentYearExpenses
+      .map(e => e.expenseType)
+      .filter(Boolean)
+      .filter(t => !configuredTypes.includes(t));
     
-    const set = new Set<string>([...fromExpenses, ...defaultList]);
-    return Array.from(set);
+    return Array.from(new Set([...configuredTypes, ...extraFromExpenses]));
   }, [expenses, currentYear, expenseTypes]);
 
   const categoryMonthlyData = useMemo(() => {
@@ -257,6 +264,8 @@ export const Summaries: React.FC<SummariesProps> = ({
           payments={payments} 
           floorConfigs={floorConfigs} 
           currentYear={currentYear} 
+          currentMonth={currentMonth}
+          onSelectMonth={onSelectMonth}
           config={config}
         />
       </section>

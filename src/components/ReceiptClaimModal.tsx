@@ -3,6 +3,7 @@ import { Resident } from '../types';
 import { shareImageViaWhatsApp } from '../utils/shareImageViaWhatsApp';
 import { generateElementImageBlob } from '../utils/imageExport';
 import { generateReceiptClaimFast, printReceiptClaim } from '../utils/receiptClaimGenerator';
+import { groupResidentsByFloor, formatResidentOptionLabel } from '../utils/buildingStructure';
 import { 
   formatMobileNumber, 
   formatPhoneForDisplay, 
@@ -585,10 +586,14 @@ const ReceiptClaimModalContent: React.FC<{
                   className="w-full bg-slate-50 border border-slate-300 focus:border-blue-500 rounded-xl px-3 py-2 text-xs font-bold outline-none cursor-pointer"
                 >
                   <option value="">-- اختر الوحدة المراد إرسال المستند إليها --</option>
-                  {residents.map(r => (
-                    <option key={r.id} value={r.id}>
-                      الوحدة {r.flatNumber} - {r.name} {r.phone ? `(${formatMobileNumber(r.phone)})` : ''}
-                    </option>
+                  {groupResidentsByFloor(residents).map((group) => (
+                    <optgroup key={group.floorLabel} label={group.floorLabel}>
+                      {group.residents.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {formatResidentOptionLabel(r)}
+                        </option>
+                      ))}
+                    </optgroup>
                   ))}
                 </select>
               </div>

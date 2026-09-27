@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { generateElementImage, generateElementImageBlob, GeneratedImageResult } from '../utils/imageExport';
 import { Resident, Payment, AppConfig } from '../types';
 import { calculateResidentFinancials, getCarriedPreviousBalance } from '../utils/financialCalculations';
-import { compareFlatNumbers, isSameFlatNumber } from '../utils/buildingStructure';
+import { compareFlatNumbers, isSameFlatNumber, groupResidentsByFloor, formatResidentOptionLabel } from '../utils/buildingStructure';
 import { formatMobileNumber, formatPhoneForDisplay, toWhatsAppNumber } from '../utils/phoneUtils';
 import { 
   FileText, 
@@ -641,10 +641,14 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                 className="w-full sm:w-64 min-w-0 px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-black text-blue-950 outline-none cursor-pointer hover:border-blue-500 transition shadow-xs"
               >
                 <option value="">اختار وحدة</option>
-                {residents.slice().sort((a, b) => compareFlatNumbers(a.flatNumber, b.flatNumber)).map(r => (
-                  <option key={r.id} value={r.id}>
-                    وحدة {r.flatNumber} — {r.name} {r.tenantName ? `(المستأجر: ${r.tenantName})` : ''}
-                  </option>
+                {groupResidentsByFloor(residents).map((group) => (
+                  <optgroup key={group.floorLabel} label={group.floorLabel}>
+                    {group.residents.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {formatResidentOptionLabel(r)}
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
             </div>
@@ -701,10 +705,14 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                 className="w-full sm:w-60 min-w-0 px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black text-blue-950 outline-none cursor-pointer hover:border-blue-300 transition shadow-xs"
               >
                 <option value="">اختار وحدة</option>
-                {residents.slice().sort((a, b) => compareFlatNumbers(a.flatNumber, b.flatNumber)).map(r => (
-                  <option key={r.id} value={r.id}>
-                    وحدة {r.flatNumber} — {r.name} {r.tenantName ? `(المستأجر: ${r.tenantName})` : ''}
-                  </option>
+                {groupResidentsByFloor(residents).map((group) => (
+                  <optgroup key={group.floorLabel} label={group.floorLabel}>
+                    {group.residents.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {formatResidentOptionLabel(r)}
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
 

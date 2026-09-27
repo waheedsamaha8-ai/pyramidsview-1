@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Resident, Payment, FloorConfig, AppConfig } from '../types';
 import { 
   Building2, 
@@ -37,6 +37,8 @@ interface BuildingMapProps {
   payments: Payment[];
   floorConfigs: FloorConfig[];
   currentYear: number;
+  currentMonth?: number;
+  onSelectMonth?: (m: number) => void;
   config?: AppConfig;
 }
 
@@ -45,11 +47,21 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
   payments,
   floorConfigs,
   currentYear,
+  currentMonth,
+  onSelectMonth,
   config,
 }) => {
   const currentMonthNum = new Date().getMonth() + 1;
-  const initialMonth = currentMonthNum < 10 ? `0${currentMonthNum}` : `${currentMonthNum}`;
+  const initialMonth = currentMonth !== undefined 
+    ? String(currentMonth + 1).padStart(2, '0')
+    : (currentMonthNum < 10 ? `0${currentMonthNum}` : `${currentMonthNum}`);
   const [selectedMonth, setSelectedMonth] = useState<string>(initialMonth);
+
+  useEffect(() => {
+    if (currentMonth !== undefined) {
+      setSelectedMonth(String(currentMonth + 1).padStart(2, '0'));
+    }
+  }, [currentMonth]);
   const [selectedPaymentType, setSelectedPaymentType] = useState<string>('اشتراك شهري');
   const [activeUnit, setActiveUnit] = useState<{ unitNum: number | string; floor: FloorConfig; resident?: Resident } | null>(null);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
@@ -674,7 +686,16 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
               <span className="text-[10.5px] font-bold text-slate-500 whitespace-nowrap">الشهر:</span>
               <select 
                 value={selectedMonth}
-                onChange={(e) => setSelectedMonth(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setSelectedMonth(val);
+                  if (onSelectMonth) {
+                    const idx = parseInt(val, 10) - 1;
+                    if (!isNaN(idx) && idx >= 0 && idx <= 11) {
+                      onSelectMonth(idx);
+                    }
+                  }
+                }}
                 className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs font-black text-blue-950 outline-none cursor-pointer hover:border-blue-300 transition"
               >
                 {months.map((m, idx) => (

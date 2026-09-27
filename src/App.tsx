@@ -378,7 +378,7 @@ export default function App() {
   const [reportEndDate, setReportEndDate] = useState(new Date().toISOString().split('T')[0]);
 
   // UI state with active tab persistence
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'residents' | 'payments' | 'expenses' | 'summaries' | 'history' | 'maintenance' | 'polls' | 'calendar' | 'chat' | 'settings' | 'debts-report'>(() => getInitialTab());
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'residents' | 'payments' | 'expenses' | 'summaries' | 'building-map' | 'history' | 'maintenance' | 'polls' | 'calendar' | 'chat' | 'settings' | 'debts-report'>(() => getInitialTab());
 
   // Automatically save active tab to keep user position on refresh
   useEffect(() => {
@@ -2743,7 +2743,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-100 dark:bg-[#0b1329]">
+    <div className="min-h-screen flex flex-col bg-[#e2e8f0] dark:bg-[#0b1329]">
       
       {/* Top responsive banner / header */}
       <AppHeader
@@ -2868,6 +2868,8 @@ export default function App() {
             paymentTypes={config.paymentTypes}
             role={role}
             currentYear={currentYear}
+            currentMonth={currentMonth}
+            onSelectMonth={setCurrentMonth}
             floorConfigs={buildingLayout}
             config={config}
             onAdd={addPayment}
@@ -2885,6 +2887,8 @@ export default function App() {
             expenseTypes={config.expenseTypes}
             role={role}
             currentYear={currentYear}
+            currentMonth={currentMonth}
+            onSelectMonth={setCurrentMonth}
             residents={residents}
             onAdd={addExpense}
             onEdit={editExpense}
@@ -2893,13 +2897,15 @@ export default function App() {
           />
         )}
 
-        {/* Summaries Tab */}
-        {activeTab === 'summaries' && (
+        {/* Summaries & Building Map Tab */}
+        {(activeTab === 'summaries' || activeTab === 'building-map') && (
           <Summaries 
             residents={residents}
             payments={payments}
             expenses={expenses}
             currentYear={currentYear}
+            currentMonth={currentMonth}
+            onSelectMonth={setCurrentMonth}
             role={role}
             onCellClick={handleSummaryCellClick}
             onAddPayment={addPayment}

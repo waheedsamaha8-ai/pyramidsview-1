@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { Expense, UserRole, Resident } from '../types';
 import { Search, Plus, Filter, Calendar, FileText, Image as ImageIcon, Camera, Trash2, Edit, AlertCircle, Eye, LayoutGrid, List, Upload, Download, RefreshCw, Share2, CheckCircle2, Printer } from 'lucide-react';
 import { generateElementImageBlob, GeneratedImageResult } from '../utils/imageExport';
@@ -6,12 +6,15 @@ import { shareImageViaWhatsApp } from '../utils/shareImageViaWhatsApp';
 import { ShareReportModal } from './ShareReportModal';
 import { compressImageFile, compressBase64Image } from '../utils/imageCompressor';
 import { getImageFromIndexedDB, saveImageToIndexedDB } from '../services/imageStorage';
+import { groupResidentsByFloor, formatResidentOptionLabel } from '../utils/buildingStructure';
 
 interface ExpensesListProps {
   expenses: Expense[];
   expenseTypes: string[];
   role: UserRole;
   currentYear: number;
+  currentMonth?: number;
+  onSelectMonth?: (m: number) => void;
   residents?: Resident[];
   onAdd: (expense: Expense, base64Image?: string) => void;
   onEdit: (expense: Expense, base64Image?: string) => void;
@@ -24,6 +27,8 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({
   expenseTypes,
   role,
   currentYear,
+  currentMonth,
+  onSelectMonth,
   residents = [],
   onAdd,
   onEdit,
@@ -40,6 +45,19 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('table');
   const [confirmData, setConfirmData] = useState<{ type: 'add' | 'edit' | 'delete'; expenseData?: Expense; base64Image?: string; deleteId?: string } | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+
+  const actualCurrentMonth = useMemo(() => {
+    if (currentMonth !== undefined) {
+      return String(currentMonth + 1).padStart(2, '0');
+    }
+    return String(new Date().getMonth() + 1).padStart(2, '0');
+  }, [currentMonth]);
+
+  useEffect(() => {
+    if (currentMonth !== undefined) {
+      setFilterMonth(String(currentMonth + 1).padStart(2, '0'));
+    }
+  }, [currentMonth]);
   const [shareReportModal, setShareReportModal] = useState<{
     isOpen: boolean;
     imageBlob: Blob | null;
@@ -55,8 +73,6 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({
     reportPeriodText: '',
     reportStatsText: '',
   });
-
-  const actualCurrentMonth = String(new Date().getMonth() + 1).padStart(2, '0');
 
   // Form states
   const [month, setMonth] = useState(actualCurrentMonth);
@@ -349,8 +365,15 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({
             <select
               value={onlyCurrentMonth ? actualCurrentMonth : filterMonth}
               onChange={(e) => {
-                setFilterMonth(e.target.value);
+                const val = e.target.value;
+                setFilterMonth(val);
                 setOnlyCurrentMonth(false);
+                if (val && onSelectMonth) {
+                  const mIdx = parseInt(val, 10) - 1;
+                  if (!isNaN(mIdx) && mIdx >= 0 && mIdx <= 11) {
+                    onSelectMonth(mIdx);
+                  }
+                }
               }}
               className="w-full md:w-36 px-2.5 py-2 bg-white border border-slate-100 rounded-xl text-xs font-bold focus:ring-2 focus:ring-blue-500/10 outline-none rtl:text-right cursor-pointer"
             >

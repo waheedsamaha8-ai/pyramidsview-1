@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Resident } from '../types';
+import { groupResidentsByFloor, formatResidentOptionLabel } from '../utils/buildingStructure';
 import { shareImageViaWhatsApp } from '../utils/shareImageViaWhatsApp';
 import { formatMobileNumber, formatPhoneForDisplay, normalizePhoneInput, toWhatsAppNumber } from '../utils/phoneUtils';
 import { 
@@ -261,10 +262,14 @@ export const ShareReportModal: React.FC<ShareReportModalProps> = ({
                     className="flex-1 bg-white border border-slate-200 focus:border-blue-500 rounded-xl px-3 py-2 text-xs font-bold outline-none cursor-pointer"
                   >
                     <option value="">-- اختر الوحدة المرتبطة لإرسال التقرير إليها --</option>
-                    {residents.map(r => (
-                      <option key={r.id} value={r.id}>
-                        وحدة {r.flatNumber} - {r.name} {r.phone ? `(${formatMobileNumber(r.phone)})` : '(بدون هاتف)'}
-                      </option>
+                    {groupResidentsByFloor(residents).map((group) => (
+                      <optgroup key={group.floorLabel} label={group.floorLabel}>
+                        {group.residents.map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {formatResidentOptionLabel(r)}
+                          </option>
+                        ))}
+                      </optgroup>
                     ))}
                   </select>
                 </div>
