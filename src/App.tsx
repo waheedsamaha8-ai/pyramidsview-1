@@ -456,18 +456,11 @@ export default function App() {
       const metaTheme = document.querySelector('meta[name="theme-color"]');
       if (metaTheme) metaTheme.setAttribute('content', '#1e3a8a');
 
-      // Restore saved font scale immediately with zoom and root size
-      const savedScale = localStorage.getItem('app_font_scale');
-      if (savedScale) {
-        const val = parseFloat(savedScale);
-        if (!isNaN(val) && val >= 75 && val <= 130) {
-          const scalePercent = val / 100;
-          document.documentElement.style.fontSize = `${16 * scalePercent}px`;
-          document.documentElement.style.setProperty('--app-font-scale', String(scalePercent));
-          if (document.body) {
-            (document.body.style as any).zoom = String(scalePercent);
-          }
-        }
+      localStorage.removeItem('app_font_scale');
+      document.documentElement.style.fontSize = '';
+      document.documentElement.style.removeProperty('--app-font-scale');
+      if (document.body) {
+        (document.body.style as any).zoom = '';
       }
     } catch (e) {
       console.error('Failed to apply theme', e);

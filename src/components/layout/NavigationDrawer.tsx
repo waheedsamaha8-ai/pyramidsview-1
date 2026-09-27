@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { 
   Building2, 
   X, 
@@ -10,11 +10,7 @@ import {
   MessageSquare, 
   Settings, 
   BookOpen, 
-  LogOut,
-  Type,
-  ZoomIn,
-  ZoomOut,
-  RotateCcw
+  LogOut
 } from 'lucide-react';
 import { UserRole } from '../../types';
 
@@ -47,41 +43,6 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
   userName,
   onLogout
 }) => {
-  const [fontScale, setFontScale] = useState<number>(() => {
-    try {
-      const saved = localStorage.getItem('app_font_scale');
-      if (saved) {
-        const val = parseFloat(saved);
-        if (!isNaN(val) && val >= 75 && val <= 130) return val;
-      }
-    } catch {}
-    return 100;
-  });
-
-  useEffect(() => {
-    try {
-      const scalePercent = fontScale / 100;
-      document.documentElement.style.fontSize = `${16 * scalePercent}px`;
-      document.documentElement.style.setProperty('--app-font-scale', String(scalePercent));
-      if (typeof document !== 'undefined' && document.body) {
-        (document.body.style as any).zoom = String(scalePercent);
-      }
-      localStorage.setItem('app_font_scale', String(fontScale));
-    } catch {}
-  }, [fontScale]);
-
-  const handleIncreaseFont = () => {
-    setFontScale(prev => Math.min(130, Math.round(prev + 3)));
-  };
-
-  const handleDecreaseFont = () => {
-    setFontScale(prev => Math.max(76, Math.round(prev - 3)));
-  };
-
-  const handleResetFont = () => {
-    setFontScale(100);
-  };
-
   if (!isOpen) return null;
 
   return (
@@ -111,58 +72,6 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
             </button>
           </div>
 
-          {/* Quick Font Size Zoom - Prominent at the top of Sidebar */}
-          <div className="bg-slate-50 dark:bg-slate-800/80 p-2.5 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 space-y-2 shadow-2xs">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5 text-xs font-black text-slate-800 dark:text-slate-100">
-                <Type className="w-4 h-4 text-blue-900 dark:text-blue-400" />
-                <span>حجم خط وتكبير الشاشة</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <span className="text-[11px] font-mono font-black text-blue-950 dark:text-blue-300 bg-white dark:bg-slate-900 px-2 py-0.5 rounded-md border border-slate-200 dark:border-slate-700 shadow-2xs">
-                  {fontScale}%
-                </span>
-                {fontScale !== 100 && (
-                  <button
-                    type="button"
-                    onClick={handleResetFont}
-                    className="p-1 text-slate-400 hover:text-blue-700 dark:hover:text-blue-300 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-md transition cursor-pointer"
-                    title="إعادة ضبط الحجم الافتراضي (100%)"
-                  >
-                    <RotateCcw className="w-3 h-3" />
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-1.5 pt-0.5">
-              <button
-                type="button"
-                onClick={handleDecreaseFont}
-                disabled={fontScale <= 76}
-                className="py-1.5 px-2 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-700 active:scale-95 text-slate-800 dark:text-slate-100 rounded-xl text-xs font-black border border-slate-200 dark:border-slate-700 flex items-center justify-center gap-1.5 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs"
-                title="تصغير حجم الخط بدرجة صغيرة (-3%)"
-              >
-                <ZoomOut className="w-3.5 h-3.5 text-slate-600 dark:text-slate-300" />
-                <span>تصغير A-</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleIncreaseFont}
-                disabled={fontScale >= 130}
-                className="py-1.5 px-2 bg-blue-900 hover:bg-blue-800 active:scale-95 text-white rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs"
-                title="تكبير حجم الخط بدرجة صغيرة (+3%)"
-              >
-                <ZoomIn className="w-3.5 h-3.5 text-blue-200" />
-                <span>تكبير A+</span>
-              </button>
-            </div>
-            <p className="text-[9px] text-slate-400 dark:text-slate-400 font-bold text-center">
-              درجات ضبط صغيرة ودقيقة (±3%)
-            </p>
-          </div>
-
           {/* Navigation Sections */}
           <div className="flex flex-col gap-2">
             {/* 1. Main Interface */}
@@ -174,138 +83,162 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
             >
               <div className="flex items-center gap-2.5">
                 <LayoutDashboard className="w-4 h-4" />
-                <span>الواجهة الرئيسية</span>
+                <span>الرئيسية (لوحة التحكم)</span>
               </div>
-              <ChevronLeft className="w-3.5 h-3.5 opacity-60" />
+              <ChevronLeft className="w-4 h-4 opacity-70" />
             </button>
 
-            {/* 2. Collection & Finance Category */}
-            <div className="space-y-1">
-              <button 
-                onClick={() => onToggleSection('collection')}
-                className="w-full flex items-center justify-between py-2 px-3 bg-slate-50 dark:bg-slate-800 rounded-xl text-xs font-black text-blue-950 dark:text-white transition cursor-pointer"
+            {/* 2. Financial Management Category */}
+            <div className="bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-100 dark:border-slate-800 overflow-hidden">
+              <button
+                onClick={() => onToggleSection('finances')}
+                className="w-full flex items-center justify-between p-3 text-xs font-black text-slate-800 dark:text-slate-100 hover:bg-slate-100/80 dark:hover:bg-slate-800 transition cursor-pointer"
               >
-                <div className="flex items-center gap-2">
-                  <Wallet className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                  <span>قسم التحصيل والمالية</span>
+                <div className="flex items-center gap-2.5 text-emerald-800 dark:text-emerald-400 font-black">
+                  <Wallet className="w-4 h-4" />
+                  <span>الإدارة المالية والمصروفات</span>
                 </div>
-                <ChevronDown className={`w-3.5 h-3.5 transition-transform ${expandedSections.includes('collection') ? '' : '-rotate-90'}`} />
+                <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${expandedSections.includes('finances') ? 'rotate-180' : ''}`} />
               </button>
-              {expandedSections.includes('collection') && (
-                <div className="pr-3 flex flex-col gap-1 mt-1 border-r-2 border-emerald-200 dark:border-emerald-800 mr-2">
+
+              {expandedSections.includes('finances') && (
+                <div className="px-2 pb-2 space-y-1">
                   <button
                     onClick={() => { onNavigateTab('payments'); onClose(); }}
-                    className={`w-full py-2 px-3 rounded-lg text-xs font-bold text-right transition cursor-pointer ${activeTab === 'payments' ? 'bg-blue-900 text-white' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+                    className={`w-full py-2 px-3 rounded-xl text-xs font-bold text-right transition flex items-center justify-between cursor-pointer ${
+                      activeTab === 'payments' ? 'bg-emerald-700 text-white font-black' : 'text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700'
+                    }`}
                   >
-                    التحصيلات وسندات القبض
+                    <span>سجل التحصيلات والاشتراكات</span>
+                    <span className="text-[10px] opacity-70">إيرادات</span>
                   </button>
                   <button
                     onClick={() => { onNavigateTab('expenses'); onClose(); }}
-                    className={`w-full py-2 px-3 rounded-lg text-xs font-bold text-right transition cursor-pointer ${activeTab === 'expenses' ? 'bg-blue-900 text-white' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+                    className={`w-full py-2 px-3 rounded-xl text-xs font-bold text-right transition flex items-center justify-between cursor-pointer ${
+                      activeTab === 'expenses' ? 'bg-emerald-700 text-white font-black' : 'text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700'
+                    }`}
                   >
-                    المصروفات والفواتير
-                  </button>
-                  <button
-                    onClick={() => { onNavigateTab('debts-report'); onClose(); }}
-                    className={`w-full py-2 px-3 rounded-lg text-xs font-bold text-right transition cursor-pointer ${activeTab === 'debts-report' ? 'bg-blue-900 text-white' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
-                  >
-                    كشف المديونيات
+                    <span>سجل المصروفات وفواتير الصيانة</span>
+                    <span className="text-[10px] opacity-70">مصروفات</span>
                   </button>
                   <button
                     onClick={() => { onNavigateTab('summaries'); onClose(); }}
-                    className={`w-full py-2 px-3 rounded-lg text-xs font-bold text-right transition cursor-pointer ${activeTab === 'summaries' ? 'bg-blue-900 text-white' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+                    className={`w-full py-2 px-3 rounded-xl text-xs font-bold text-right transition flex items-center justify-between cursor-pointer ${
+                      activeTab === 'summaries' ? 'bg-emerald-700 text-white font-black' : 'text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700'
+                    }`}
                   >
-                    الملخصات وخريطة السداد
+                    <span>كشف التحصيل الشهري والحساب الختامي</span>
+                    <span className="text-[10px] opacity-70">ملخصات</span>
                   </button>
                   <button
-                    onClick={() => { onNavigateTab('history'); onClose(); }}
-                    className={`w-full py-2 px-3 rounded-lg text-xs font-bold text-right transition cursor-pointer ${activeTab === 'history' ? 'bg-blue-900 text-white' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+                    onClick={() => { onNavigateTab('building-map'); onClose(); }}
+                    className={`w-full py-2 px-3 rounded-xl text-xs font-bold text-right transition flex items-center justify-between cursor-pointer ${
+                      activeTab === 'building-map' ? 'bg-emerald-700 text-white font-black' : 'text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700'
+                    }`}
                   >
-                    سجل المعاملات المالية
+                    <span>خريطة سداد العمارة</span>
+                    <span className="text-[10px] opacity-70">تفاعلي</span>
+                  </button>
+                  <button
+                    onClick={() => { onNavigateTab('debts-report'); onClose(); }}
+                    className={`w-full py-2 px-3 rounded-xl text-xs font-bold text-right transition flex items-center justify-between cursor-pointer ${
+                      activeTab === 'debts-report' ? 'bg-emerald-700 text-white font-black' : 'text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    <span>تقرير المديونيات والمستحقات الشامل</span>
+                    <span className="text-[10px] opacity-70">تأخيرات</span>
                   </button>
                 </div>
               )}
             </div>
 
-            {/* 3. Residents Category */}
-            <div className="space-y-1">
-              <button 
-                onClick={() => onToggleSection('residents')}
-                className="w-full flex items-center justify-between py-2 px-3 bg-slate-50 dark:bg-slate-800 rounded-xl text-xs font-black text-blue-950 dark:text-white transition cursor-pointer"
-              >
-                <div className="flex items-center gap-2">
-                  <Users className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                  <span>قسم الوحدات والسكان</span>
-                </div>
-                <ChevronDown className={`w-3.5 h-3.5 transition-transform ${expandedSections.includes('residents') ? '' : '-rotate-90'}`} />
-              </button>
-              {expandedSections.includes('residents') && (
-                <div className="pr-3 flex flex-col gap-1 mt-1 border-r-2 border-blue-200 dark:border-blue-800 mr-2">
-                  <button
-                    onClick={() => { onNavigateTab('residents'); onClose(); }}
-                    className={`w-full py-2 px-3 rounded-lg text-xs font-bold text-right transition cursor-pointer ${activeTab === 'residents' ? 'bg-blue-900 text-white' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
-                  >
-                    كشف الوحدات وهيكل العمارة
-                  </button>
-                </div>
-              )}
-            </div>
+            {/* 3. Building & Residents */}
+            <button
+              onClick={() => { onNavigateTab('residents'); onClose(); }}
+              className={`flex items-center justify-between w-full py-3 px-3.5 rounded-2xl text-xs font-black transition cursor-pointer ${
+                activeTab === 'residents' ? 'bg-blue-900 text-white shadow-md' : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <Users className={`w-4 h-4 ${activeTab === 'residents' ? 'text-white' : 'text-blue-900 dark:text-blue-400'}`} />
+                <span>شقق وسكان العمارة</span>
+              </div>
+              <ChevronLeft className="w-4 h-4 opacity-70" />
+            </button>
 
-            {/* 4. Services & Communication Category */}
-            <div className="space-y-1">
-              <button 
+            {/* 4. Community & Services Category */}
+            <div className="bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-100 dark:border-slate-800 overflow-hidden">
+              <button
                 onClick={() => onToggleSection('services')}
-                className="w-full flex items-center justify-between py-2 px-3 bg-slate-50 dark:bg-slate-800 rounded-xl text-xs font-black text-blue-950 dark:text-white transition cursor-pointer"
+                className="w-full flex items-center justify-between p-3 text-xs font-black text-slate-800 dark:text-slate-100 hover:bg-slate-100/80 dark:hover:bg-slate-800 transition cursor-pointer"
               >
-                <div className="flex items-center gap-2">
-                  <MessageSquare className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-                  <span>الخدمات والتواصل</span>
+                <div className="flex items-center gap-2.5 text-indigo-900 dark:text-indigo-400 font-black">
+                  <MessageSquare className="w-4 h-4" />
+                  <span>الخدمات ومجتمع العمارة</span>
                 </div>
-                <ChevronDown className={`w-3.5 h-3.5 transition-transform ${expandedSections.includes('services') ? '' : '-rotate-90'}`} />
+                <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${expandedSections.includes('services') ? 'rotate-180' : ''}`} />
               </button>
+
               {expandedSections.includes('services') && (
-                <div className="pr-3 flex flex-col gap-1 mt-1 border-r-2 border-purple-200 dark:border-purple-800 mr-2">
-                  <button
-                    onClick={() => { onNavigateTab('chat'); onClose(); }}
-                    className={`w-full py-2 px-3 rounded-lg text-xs font-bold text-right transition cursor-pointer ${activeTab === 'chat' ? 'bg-blue-900 text-white' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
-                  >
-                    الدردشة والشكاوى العامة
-                  </button>
+                <div className="px-2 pb-2 space-y-1">
                   <button
                     onClick={() => { onNavigateTab('maintenance'); onClose(); }}
-                    className={`w-full py-2 px-3 rounded-lg text-xs font-bold text-right transition cursor-pointer ${activeTab === 'maintenance' ? 'bg-blue-900 text-white' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+                    className={`w-full py-2 px-3 rounded-xl text-xs font-bold text-right transition flex items-center justify-between cursor-pointer ${
+                      activeTab === 'maintenance' ? 'bg-indigo-900 text-white font-black' : 'text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700'
+                    }`}
                   >
-                    طلبات الصيانة وفنيي الصيانة
+                    <span>الصيانة ودليل الفنيين</span>
+                    <span className="text-[10px] opacity-70">صيانة</span>
                   </button>
                   <button
-                    onClick={() => { onNavigatePollsTab('polls'); onNavigateTab('polls'); onClose(); }}
-                    className={`w-full py-2 px-3 rounded-lg text-xs font-bold text-right transition cursor-pointer ${activeTab === 'polls' ? 'bg-blue-900 text-white' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+                    onClick={() => { onNavigateTab('chat'); onClose(); }}
+                    className={`w-full py-2 px-3 rounded-xl text-xs font-bold text-right transition flex items-center justify-between cursor-pointer ${
+                      activeTab === 'chat' ? 'bg-indigo-900 text-white font-black' : 'text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700'
+                    }`}
                   >
-                    القرارات والتصويت
+                    <span>غرفة دردشة ونقاشات الجيران</span>
+                    <span className="text-[10px] opacity-70">تواصل</span>
+                  </button>
+                  <button
+                    onClick={() => { onNavigateTab('polls'); onNavigatePollsTab('polls'); onClose(); }}
+                    className={`w-full py-2 px-3 rounded-xl text-xs font-bold text-right transition flex items-center justify-between cursor-pointer ${
+                      activeTab === 'polls' ? 'bg-indigo-900 text-white font-black' : 'text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    <span>القرارات الإدارية واستبيانات التصويت</span>
+                    <span className="text-[10px] opacity-70">تصويت</span>
                   </button>
                   <button
                     onClick={() => { onNavigateTab('calendar'); onClose(); }}
-                    className={`w-full py-2 px-3 rounded-lg text-xs font-bold text-right transition cursor-pointer ${activeTab === 'calendar' ? 'bg-blue-900 text-white' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+                    className={`w-full py-2 px-3 rounded-xl text-xs font-bold text-right transition flex items-center justify-between cursor-pointer ${
+                      activeTab === 'calendar' ? 'bg-indigo-900 text-white font-black' : 'text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700'
+                    }`}
                   >
-                    الأجندة والتقويم
+                    <span>التقويم ومواعيد الصيانة</span>
+                    <span className="text-[10px] opacity-70">جدول</span>
                   </button>
                 </div>
               )}
             </div>
 
-            {/* 5. System Settings & Rules */}
-            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 mt-1 space-y-1">
-              {role !== 'ASSISTANT' && (
-                <button
-                  onClick={() => { onNavigateTab('settings'); onClose(); }}
-                  className={`w-full py-2.5 px-3 rounded-xl text-xs font-bold text-right transition cursor-pointer flex items-center justify-between ${
-                    activeTab === 'settings' ? 'bg-blue-900 text-white' : 'text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800'
-                  }`}
-                >
-                  <span>إعدادات النظام</span>
-                  <Settings className="w-4 h-4" />
-                </button>
-              )}
+            {/* 5. System Settings (Admin only) */}
+            {role === 'ADMIN' && (
+              <button
+                onClick={() => { onNavigateTab('settings'); onClose(); }}
+                className={`flex items-center justify-between w-full py-3 px-3.5 rounded-2xl text-xs font-black transition cursor-pointer ${
+                  activeTab === 'settings' ? 'bg-slate-900 text-white shadow-md' : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <Settings className="w-4 h-4 text-slate-500 dark:text-slate-400" />
+                  <span>إعدادات النظام والاتحاد</span>
+                </div>
+                <ChevronLeft className="w-4 h-4 opacity-70" />
+              </button>
+            )}
+
+            {/* 6. Building Rules & Regulations Link */}
+            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 mt-1">
               <button
                 onClick={() => { onOpenRules(); onClose(); }}
                 className="w-full py-2.5 px-3 rounded-xl text-xs font-bold text-right transition text-slate-700 dark:text-slate-200 hover:bg-amber-50 dark:hover:bg-amber-950/40 flex items-center justify-between cursor-pointer"
@@ -313,55 +246,6 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
                 <span>تعليمات ونظام إدارة العمارة</span>
                 <BookOpen className="w-4 h-4 text-amber-700 dark:text-amber-400" />
               </button>
-            </div>
-
-            {/* Font Size Adjustment Section */}
-            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 mt-1">
-              <div className="bg-slate-50 dark:bg-slate-800/80 p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-700/80 space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 text-xs font-black text-slate-800 dark:text-slate-200">
-                    <Type className="w-4 h-4 text-blue-900 dark:text-blue-400" />
-                    <span>حجم خط التطبيق</span>
-                  </div>
-                  <span className="text-[11px] font-mono font-black text-blue-950 dark:text-blue-300 bg-white dark:bg-slate-900 px-2 py-0.5 rounded-md border border-slate-200 dark:border-slate-700">
-                    {fontScale}%
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-3 gap-1.5 pt-0.5">
-                  <button
-                    type="button"
-                    onClick={handleDecreaseFont}
-                    disabled={fontScale <= 76}
-                    className="py-1.5 px-2 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg text-xs font-black border border-slate-200 dark:border-slate-700 flex items-center justify-center gap-1 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs"
-                    title="تصغير حجم الخط بدرجة صغيرة (-3%)"
-                  >
-                    <ZoomOut className="w-3.5 h-3.5" />
-                    <span>تصغير A-</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleResetFont}
-                    className="py-1.5 px-2 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-lg text-xs font-bold border border-slate-200 dark:border-slate-700 flex items-center justify-center gap-1 transition cursor-pointer shadow-2xs"
-                    title="إعادة ضبط الحجم الافتراضي (100%)"
-                  >
-                    <RotateCcw className="w-3 h-3 text-slate-400" />
-                    <span>افتراضي</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleIncreaseFont}
-                    disabled={fontScale >= 130}
-                    className="py-1.5 px-2 bg-blue-900 hover:bg-blue-800 text-white rounded-lg text-xs font-black flex items-center justify-center gap-1 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs"
-                    title="تكبير حجم الخط بدرجة صغيرة (+3%)"
-                  >
-                    <ZoomIn className="w-3.5 h-3.5" />
-                    <span>تكبير A+</span>
-                  </button>
-                </div>
-              </div>
             </div>
           </div>
         </div>
