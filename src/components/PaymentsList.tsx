@@ -1277,8 +1277,20 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                         const tenantName = historical.tenantName !== undefined ? historical.tenantName : (resObj?.ownershipType === 'إيجار' ? resObj?.tenantName : '');
                         const hasTenant = Boolean(tenantName && tenantName.trim());
 
-                        const isUncollected = p.status === 'pending' || p.status === 'لم يتم التحصيل' || p.status === 'uncollected';
-                        const isCancelled = p.status === 'cancelled' || p.status === 'لاغي';
+                        const isUncollected = 
+                          p.status === 'pending' || 
+                          p.status === 'لم يتم التحصيل' || 
+                          p.status === 'uncollected' ||
+                          p.status === 'unpaid' ||
+                          p.status === 'غير مسدد' ||
+                          p.status === 'لم يسدد' ||
+                          p.status === 'معلق';
+                        const isCancelled = 
+                          p.status === 'cancelled' || 
+                          p.status === 'لاغي' || 
+                          p.status === 'VOID' || 
+                          p.status === 'ملغي' || 
+                          p.status === 'مرفوض';
                         const isAttention = isUncollected || isCancelled;
 
                         return (
@@ -1287,21 +1299,21 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                             onClick={() => setSelectedItemId(isSelected ? null : p.id)}
                             className={`group transition cursor-pointer ${
                               isSelected 
-                                ? 'bg-yellow-50/90 border-y border-yellow-400' 
+                                ? 'bg-yellow-200 hover:bg-yellow-200/90 border-y-2 border-yellow-400 font-semibold text-slate-900' 
                                 : isAttention
-                                  ? 'bg-rose-50/70 hover:bg-rose-100/60 border-y border-rose-200/80'
+                                  ? 'bg-red-100 hover:bg-red-200/80 border-y border-red-300 text-slate-900'
                                   : 'hover:bg-slate-50/50'
                             }`}
                           >
                             <td className={`w-12 sm:w-14 px-1 py-1.5 sticky right-0 z-5 border-l border-slate-100 shadow-xs transition text-center ${
                               isSelected 
-                                ? 'bg-yellow-50 text-amber-950' 
+                                ? 'bg-yellow-200 text-amber-950 font-black' 
                                 : isAttention
-                                  ? 'bg-rose-50/90 text-rose-950 group-hover:bg-rose-100/80'
+                                  ? 'bg-red-100 text-rose-950 group-hover:bg-red-200/80'
                                   : 'bg-white group-hover:bg-slate-50'
                             }`}>
                               <span className={`px-1 py-0.5 rounded text-[9px] font-black ${
-                                isAttention ? 'bg-rose-100 text-rose-900 border border-rose-200' : 'bg-blue-50 text-blue-700'
+                                isAttention ? 'bg-red-200/90 text-red-950 border border-red-300' : 'bg-blue-50 text-blue-700'
                               }`}>
                                 وحدة {p.flatNumber}
                               </span>
@@ -1478,8 +1490,20 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                     const tenantName = historical.tenantName !== undefined ? historical.tenantName : (resObj?.ownershipType === 'إيجار' ? resObj?.tenantName : '');
                     const hasTenant = Boolean(tenantName && tenantName.trim());
 
-                    const isUncollected = p.status === 'pending' || p.status === 'لم يتم التحصيل' || p.status === 'uncollected';
-                    const isCancelled = p.status === 'cancelled' || p.status === 'لاغي';
+                    const isUncollected = 
+                      p.status === 'pending' || 
+                      p.status === 'لم يتم التحصيل' || 
+                      p.status === 'uncollected' ||
+                      p.status === 'unpaid' ||
+                      p.status === 'غير مسدد' ||
+                      p.status === 'لم يسدد' ||
+                      p.status === 'معلق';
+                    const isCancelled = 
+                      p.status === 'cancelled' || 
+                      p.status === 'لاغي' || 
+                      p.status === 'VOID' || 
+                      p.status === 'ملغي' || 
+                      p.status === 'مرفوض';
                     const isAttention = isUncollected || isCancelled;
 
                     return (
@@ -1488,16 +1512,16 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                         onClick={() => setSelectedItemId(isSelected ? null : p.id)}
                         className={`rounded-2xl px-3.5 py-2.5 border shadow-sm flex flex-col justify-between transition duration-200 cursor-pointer ${
                           isSelected 
-                            ? 'bg-yellow-50/90 border-yellow-400 shadow-md ring-2 ring-yellow-400/20' 
+                            ? 'bg-yellow-200 border-2 border-yellow-400 shadow-md ring-2 ring-yellow-400 text-slate-900' 
                             : isAttention
-                              ? 'bg-rose-50/60 border-rose-200/80 hover:border-rose-300 hover:bg-rose-100/60 shadow-xs'
+                              ? 'bg-red-100 border-red-300 hover:border-red-400 hover:bg-red-200/70 shadow-xs'
                               : 'bg-white border-slate-100 hover:border-blue-100'
                         }`}
                       >
                       <div>
                         <div className="flex items-center justify-between mb-2">
                           <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black ${
-                            isAttention ? 'bg-rose-100 text-rose-900 border border-rose-200' : 'bg-blue-50 text-blue-700'
+                            isAttention ? 'bg-red-200/90 text-red-950 border border-red-300' : 'bg-blue-50 text-blue-700'
                           }`}>
                             وحدة {p.flatNumber}
                           </span>

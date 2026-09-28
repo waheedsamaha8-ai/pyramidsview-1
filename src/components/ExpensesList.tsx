@@ -514,7 +514,7 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({
                           onClick={() => setSelectedItemId(isSelected ? null : exp.id)}
                           className={`group transition cursor-pointer ${
                             isSelected 
-                              ? 'bg-yellow-50/90 border-y border-yellow-400' 
+                              ? 'bg-yellow-200 hover:bg-yellow-200/90 border-y-2 border-yellow-400 font-semibold text-slate-900' 
                               : 'hover:bg-slate-50/50'
                           }`}
                         >
@@ -602,7 +602,7 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({
                     onClick={() => setSelectedItemId(isSelected ? null : exp.id)}
                     className={`rounded-2xl px-3.5 py-2.5 border shadow-sm flex flex-col justify-between transition duration-200 cursor-pointer ${
                       isSelected 
-                        ? 'bg-yellow-50/90 border-yellow-400 shadow-md ring-2 ring-yellow-400/20' 
+                        ? 'bg-yellow-200 border-2 border-yellow-400 shadow-md ring-2 ring-yellow-400 text-slate-900' 
                         : 'bg-white border-slate-100 hover:border-red-100'
                     }`}
                   >

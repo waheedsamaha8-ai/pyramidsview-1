@@ -453,7 +453,7 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                         onClick={() => setSelectedItemId(isSelected ? null : res.id)}
                         className={`rounded-2xl p-3.5 sm:p-4 border shadow-xs flex flex-col justify-between relative group hover:shadow-md transition duration-200 cursor-pointer ${
                           isSelected 
-                            ? 'bg-yellow-50/90 border-yellow-400 shadow-md ring-2 ring-yellow-400/20' 
+                            ? 'bg-yellow-200 border-2 border-yellow-400 shadow-md ring-2 ring-yellow-400 text-slate-900' 
                             : 'bg-white border-slate-100 hover:border-blue-200'
                         }`}
                       >
@@ -743,7 +743,7 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                             onClick={() => setSelectedItemId(isSelected ? null : res.id)}
                             className={`group transition cursor-pointer ${
                               isSelected 
-                                ? 'bg-yellow-50/90 border-y border-yellow-400' 
+                                ? 'bg-yellow-200 hover:bg-yellow-200/90 border-y-2 border-yellow-400 font-semibold text-slate-900' 
                                 : 'hover:bg-slate-50/70'
                             }`}
                           >
@@ -751,7 +751,7 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                             {visibleColumns.flatNumber && (
                               <td className={`w-12 sm:w-14 px-1 py-1.5 font-black whitespace-nowrap sticky right-0 z-5 border-l border-slate-100 shadow-xs transition text-center ${
                                 isSelected 
-                                  ? 'bg-yellow-50 text-amber-950 font-black' 
+                                  ? 'bg-yellow-200 text-amber-950 font-black' 
                                   : 'bg-white text-blue-900 group-hover:bg-slate-50'
                               }`}>
                                 <span className="text-[10px] sm:text-xs">وحدة {res.flatNumber}</span>

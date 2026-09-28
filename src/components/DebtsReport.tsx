@@ -64,6 +64,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
   const [sortBy, setSortBy] = useState<'flat' | 'amount' | 'name'>('flat');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   
   // Year selector for multi-year accounting rollover
   const [selectedYearFilter, setSelectedYearFilter] = useState<'all' | number>('all');
@@ -951,10 +952,24 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                         const tenantName = historical.tenantName !== undefined ? historical.tenantName : (resident.ownershipType === 'إيجار' ? resident.tenantName : '');
                         const hasTenant = Boolean(tenantName && tenantName.trim());
 
+                        const isSelected = selectedItemId === resident.id;
+
                         return (
-                          <tr key={resident.id} className="group hover:bg-red-50/20 transition">
+                          <tr 
+                            key={resident.id} 
+                            onClick={() => setSelectedItemId(isSelected ? null : resident.id)}
+                            className={`group transition cursor-pointer ${
+                              isSelected 
+                                ? 'bg-yellow-200 hover:bg-yellow-200/90 border-y-2 border-yellow-400 font-semibold text-slate-900' 
+                                : 'hover:bg-red-50/20'
+                            }`}
+                          >
                             {/* Unit Number - Sticky */}
-                            <td className="w-12 sm:w-14 px-1 py-1.5 text-blue-900 font-black whitespace-nowrap sticky right-0 bg-white group-hover:bg-slate-50 z-5 border-l border-slate-100 shadow-xs text-center">
+                            <td className={`w-12 sm:w-14 px-1 py-1.5 font-black whitespace-nowrap sticky right-0 z-5 border-l border-slate-100 shadow-xs text-center transition ${
+                              isSelected 
+                                ? 'bg-yellow-200 text-amber-950 font-black' 
+                                : 'bg-white group-hover:bg-slate-50 text-blue-900'
+                            }`}>
                               <span className="text-[10px] sm:text-xs">وحدة {resident.flatNumber}</span>
                             </td>
 
@@ -1032,7 +1047,11 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                             </td>
 
                             {/* Net Remaining Debt in Red */}
-                            <td className="w-20 sm:w-22 px-1 py-1.5 text-center font-black text-rose-700 bg-rose-50/70 group-hover:bg-rose-100/80 transition-all text-xs whitespace-nowrap border-x border-rose-100">
+                            <td className={`w-20 sm:w-22 px-1 py-1.5 text-center font-black transition-all text-xs whitespace-nowrap border-x ${
+                              isSelected 
+                                ? 'bg-yellow-300/60 border-yellow-400 text-rose-950' 
+                                : 'text-rose-700 bg-rose-50/70 group-hover:bg-rose-100/80 border-rose-100'
+                            }`}>
                               <span dir="ltr">-{debtAmount.toLocaleString()} ج.م</span>
                               {financials.otherCollectionsDebt > 0 && (
                                 <span className="block text-[8.5px] text-rose-800 font-bold">
@@ -1216,10 +1235,17 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                     const debtAmount = Math.round(Math.abs(financials.netBalance));
                     const displayNotes = (resident.notes || '').includes('توليد تلقائي') ? '' : (resident.notes || '');
 
+                    const isSelected = selectedItemId === resident.id;
+
                     return (
                       <div
                         key={resident.id}
-                        className="bg-white border-2 border-red-100 hover:border-red-200 rounded-2xl p-4 shadow-xs space-y-3 transition flex flex-col justify-between"
+                        onClick={() => setSelectedItemId(isSelected ? null : resident.id)}
+                        className={`rounded-2xl p-4 shadow-xs space-y-3 transition flex flex-col justify-between cursor-pointer ${
+                          isSelected 
+                            ? 'bg-yellow-200 border-2 border-yellow-400 shadow-md ring-2 ring-yellow-400 text-slate-900' 
+                            : 'bg-white border-2 border-red-100 hover:border-red-200'
+                        }`}
                       >
                         <div className="space-y-2.5">
                           {/* Unit Number & Activity */}
