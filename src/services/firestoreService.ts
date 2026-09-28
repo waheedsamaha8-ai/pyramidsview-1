@@ -31,14 +31,22 @@ import * as offlineSync from './offlineSync';
 import { DEFAULT_BUILDING_ID } from './buildingStore';
 import { deduplicateResidents, isSameFlatNumber } from '../utils/buildingStructure';
 
-// Helper to sanitize undefined values before saving to Firestore
-function sanitizeForFirestore<T>(data: T): Record<string, any> {
+// Helper to recursively sanitize undefined values before saving to Firestore (handles arrays & nested objects)
+function sanitizeForFirestore(data: any): any {
+  if (data === undefined) return null;
+  if (data === null || typeof data !== 'object') return data;
+  if (data instanceof Date) return data;
+
+  if (Array.isArray(data)) {
+    return data
+      .filter(item => item !== undefined)
+      .map(item => sanitizeForFirestore(item));
+  }
+
   const result: Record<string, any> = {};
-  if (!data || typeof data !== 'object') return result;
-  
   for (const [key, value] of Object.entries(data)) {
     if (value !== undefined) {
-      result[key] = value;
+      result[key] = sanitizeForFirestore(value);
     }
   }
   return result;

@@ -1,3 +1,5 @@
+import { getHistoricalOccupantForDate } from './buildingStructure';
+
 /**
  * Utility functions for Egyptian and International mobile phone numbers normalization and formatting.
  * Supports:
@@ -389,6 +391,9 @@ export interface OccupantDataSources {
   tenantPhone?: string;
   occupancyType?: string;
   unitNumber?: number | string;
+  period?: string | number;
+  year?: string | number;
+  month?: string | number;
 }
 
 export interface OccupantStructuredInfo {
@@ -414,18 +419,27 @@ export function getOccupantStructuredInfo(
   data: OccupantDataSources,
   residentRecord?: any | null
 ): OccupantStructuredInfo {
+  const period = data.period || (data.year && data.month ? `${data.year}-${data.month}` : undefined);
+  const hist = residentRecord ? getHistoricalOccupantForDate(residentRecord, period) : null;
+
   // 1. Owner info
-  let rawOwnerName = (data.residentName || residentRecord?.name || '').trim();
+  let rawOwnerName = (hist?.ownerName || data.residentName || residentRecord?.name || '').trim();
   rawOwnerName = rawOwnerName.replace(/\s*-\s*(مالك|مستأجر|ساكن)\s*$/i, '').trim();
 
-  const rawOwnerPhone = data.phone || residentRecord?.phone || '';
+  const rawOwnerPhone = hist?.ownerPhone || data.phone || residentRecord?.phone || '';
   const ownerPhones = formatPhoneListForOccupant(rawOwnerPhone);
 
-  // 2. Tenant info
-  let rawTenantName = (data.tenantName || residentRecord?.tenantName || '').trim();
+  // 2. Tenant info - prioritize historical lookup whenever period/hist is evaluated
+  let rawTenantName = (
+    hist
+      ? (hist.tenantName !== undefined ? hist.tenantName : '')
+      : (data.tenantName !== undefined ? data.tenantName : residentRecord?.tenantName) || ''
+  ).trim();
   rawTenantName = rawTenantName.replace(/\s*-\s*(مالك|مستأجر|ساكن)\s*$/i, '').trim();
 
-  const rawTenantPhone = data.tenantPhone || residentRecord?.tenantPhone || '';
+  const rawTenantPhone = hist
+    ? (hist.tenantPhone || '')
+    : (data.tenantPhone || residentRecord?.tenantPhone || '');
   const tenantPhones = formatPhoneListForOccupant(rawTenantPhone);
 
   // 3. Ownership / Occupancy type

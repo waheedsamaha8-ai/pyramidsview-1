@@ -1,7 +1,7 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { Payment, Resident, UserRole, FloorConfig, AppConfig } from '../types';
 import { Search, Plus, Calendar, FileText, Image as ImageIcon, Camera, Trash2, Edit, AlertCircle, Eye, User, LayoutGrid, List, Building, ArrowUpDown, Upload, X, ZoomIn, Download, RefreshCw, Share2, CheckCircle2, Receipt, Printer } from 'lucide-react';
-import { deriveFloorConfigsFromResidents, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber } from '../utils/buildingStructure';
+import { deriveFloorConfigsFromResidents, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber, getHistoricalOccupantForDate, formatResidentOptionLabel } from '../utils/buildingStructure';
 import { getResidentMonthlyFee, calculateResidentFinancials } from '../utils/financialCalculations';
 import { generateElementImageBlob, GeneratedImageResult } from '../utils/imageExport';
 import { shareImageViaWhatsApp } from '../utils/shareImageViaWhatsApp';
@@ -79,6 +79,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
   // Form states
   const [residentId, setResidentId] = useState('');
   const [month, setMonth] = useState(actualCurrentMonth);
+  const [isAggregatedCollection, setIsAggregatedCollection] = useState<boolean>(false);
   const [additionalMonths, setAdditionalMonths] = useState<string[]>([]);
   const [showMultiMonthPicker, setShowMultiMonthPicker] = useState<boolean>(false);
   const [targetActivityType, setTargetActivityType] = useState<string>('سكني');
@@ -382,11 +383,16 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       y += 50;
     };
 
+    const subPeriod = `${payment.year}-${String(payment.month).padStart(2, '0')}`;
+    const historical = res ? getHistoricalOccupantForDate(res, subPeriod) : null;
+    const activeOwnerName = historical?.ownerName || payment.residentName;
+    const activeTenantName = historical?.tenantName !== undefined ? historical.tenantName : res?.tenantName;
+
     const resActivity = res?.activityType || 'سكني';
     drawRow('رقم الوحدة:', `( الوحدة ${payment.flatNumber} - ${resActivity} )`);
-    drawRow('اسم الساكن / الشاغل:', payment.residentName);
-    if (res?.ownershipType === 'إيجار' && res?.tenantName) {
-      drawRow('المستأجر الحالي:', res.tenantName);
+    drawRow('اسم المالك / الشاغل:', activeOwnerName);
+    if (activeTenantName) {
+      drawRow('المستأجر في هذه الفترة:', activeTenantName);
     }
     const monthName = monthNamesArabic[parseInt(payment.month, 10) - 1] || payment.month;
     drawRow('بيان الاشتراك المسدد:', `إيصال سداد شهر ${monthName} ${payment.year} - ${payment.paymentType || 'اشتراك شهري'}`);
@@ -433,13 +439,16 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
     const isUncollected = payment.status === 'pending' || payment.status === 'لم يتم التحصيل';
     const isCancelled = payment.status === 'cancelled' || payment.status === 'لاغي';
 
+    const subPeriod = `${payment.year}-${String(payment.month).padStart(2, '0')}`;
+    const historical = res ? getHistoricalOccupantForDate(res, subPeriod) : null;
+
     setReceiptModalData({
       type: isUncollected ? 'claim' : 'receipt',
       unitNumber: payment.flatNumber,
-      residentName: res?.name || payment.residentName,
-      tenantName: res?.tenantName,
-      phone: res?.phone,
-      tenantPhone: res?.tenantPhone,
+      residentName: historical?.ownerName || payment.residentName,
+      tenantName: historical?.tenantName !== undefined ? historical.tenantName : res?.tenantName,
+      phone: historical?.ownerPhone || res?.phone,
+      tenantPhone: historical?.tenantPhone || res?.tenantPhone,
       amount: isUncollected ? (unpaidMonthsDues + oldDebtAmount || payment.amount) : payment.amount,
       month: payment.month,
       year: payment.year,
@@ -678,6 +687,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
 
     setResidentId(initialResId);
     setMonth(defaultTargetMonth);
+    setIsAggregatedCollection(false);
     setAdditionalMonths([]);
     setShowMultiMonthPicker(false);
     setTargetActivityType(initialRes?.activityType || 'سكني');
@@ -697,6 +707,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
     setSelectedPayment(payment);
     setResidentId(payment.residentId);
     setMonth(payment.month);
+    setIsAggregatedCollection(Boolean(payment.isAggregatedCollection || payment.isDistributed));
     setAdditionalMonths([]);
     setShowMultiMonthPicker(false);
     const foundRes = residents.find(r => r.id === payment.residentId);
@@ -799,25 +810,37 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
     if (allTargetMonths.length > 1 && !selectedPayment) {
       const basePerMonth = Math.floor(numAmount / allTargetMonths.length);
       const remainder = numAmount - (basePerMonth * allTargetMonths.length);
-      const multiPayments: Payment[] = allTargetMonths.map((m, idx) => ({
-        id: `pay_${Date.now()}_${m}_${idx}`,
-        year: currentYear,
-        month: m,
-        residentId,
-        residentName: resident.name,
-        flatNumber: resident.flatNumber,
-        paymentType,
-        amount: basePerMonth + (idx === 0 ? remainder : 0),
-        receiptNumber: (receiptNumber || '').trim(),
-        notes: (notes || '').trim()
-          ? `${notes} (سداد مجمع ${allTargetMonths.length} شهور)`
-          : `سداد مجمع عن شهور: ${allTargetMonths.map(x => monthNamesArabic[parseInt(x, 10) - 1]).join('، ')}`,
-        fileId: base64Image ? '' : (existingFileUrl ? (selectedPayment?.fileId || '') : ''),
-        fileUrl: base64Image ? base64Image : (existingFileUrl || ''),
-        date: new Date().toISOString().split('T')[0],
-        isManuallyPaid: false,
-        status: paymentStatus,
-      }));
+      const masterId = `pay_${Date.now()}_${allTargetMonths[0]}_0`;
+      const otherIds = allTargetMonths.slice(1).map((m, idx) => `pay_${Date.now()}_${m}_${idx + 1}`);
+
+      const multiPayments: Payment[] = allTargetMonths.map((m, idx) => {
+        const hist = getHistoricalOccupantForDate(resident, `${currentYear}-${m}`);
+        const isMaster = idx === 0;
+        return {
+          id: isMaster ? masterId : otherIds[idx - 1],
+          year: currentYear,
+          month: m,
+          residentId,
+          residentName: hist.occupantName || resident.name,
+          flatNumber: resident.flatNumber,
+          paymentType,
+          amount: basePerMonth + (isMaster ? remainder : 0),
+          receiptNumber: (receiptNumber || '').trim(),
+          notes: (notes || '').trim()
+            ? `${notes} (سداد مجمع ${allTargetMonths.length} شهور)`
+            : `سداد مجمع عن شهور: ${allTargetMonths.map(x => monthNamesArabic[parseInt(x, 10) - 1]).join('، ')}`,
+          fileId: base64Image ? '' : (existingFileUrl ? (selectedPayment?.fileId || '') : ''),
+          fileUrl: base64Image ? base64Image : (existingFileUrl || ''),
+          date: new Date().toISOString().split('T')[0],
+          isManuallyPaid: false,
+          status: paymentStatus,
+          isAggregatedCollection: isMaster,
+          isDistributed: isMaster,
+          distributedPaymentIds: isMaster ? otherIds : undefined,
+          distributionSourceId: isMaster ? undefined : masterId,
+          originalAmountBeforeDistribution: isMaster ? numAmount : undefined,
+        };
+      });
 
       setConfirmData({
         type: 'add',
@@ -826,12 +849,13 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
         base64Image: base64Image || undefined
       });
     } else {
+      const hist = getHistoricalOccupantForDate(resident, `${currentYear}-${month}`);
       const paymentData: Payment = {
         id: selectedPayment ? selectedPayment.id : `pay_${Date.now()}`,
         year: currentYear,
         month,
         residentId,
-        residentName: resident.name,
+        residentName: hist.occupantName || resident.name,
         flatNumber: resident.flatNumber,
         paymentType,
         amount: numAmount,
@@ -842,6 +866,11 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
         date: selectedPayment ? selectedPayment.date : new Date().toISOString().split('T')[0],
         isManuallyPaid: false,
         status: paymentStatus,
+        isAggregatedCollection: isAggregatedCollection,
+        isDistributed: selectedPayment?.isDistributed || false,
+        distributionSourceId: selectedPayment?.distributionSourceId,
+        distributedPaymentIds: selectedPayment?.distributedPaymentIds,
+        originalAmountBeforeDistribution: selectedPayment?.originalAmountBeforeDistribution,
       };
 
       setConfirmData({
@@ -893,7 +922,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                 <optgroup key={idx} label={`📍 ${group.floorLabel}`}>
                   {group.residents.map((r) => (
                     <option key={r.id} value={r.id}>
-                      وحدة {r.flatNumber} - {r.name}{r.tenantName ? ` (المستأجر: ${r.tenantName})` : ''}
+                      {formatResidentOptionLabel(r, 'latest')}
                     </option>
                   ))}
                 </optgroup>
@@ -1073,9 +1102,10 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                   sortedFilteredPayments.map((p) => {
                     const isSelected = selectedItemId === p.id;
                     const resObj = residents.find(r => r.id === p.residentId || isSameFlatNumber(r.flatNumber, p.flatNumber));
-                    const ownerName = resObj?.name || p.residentName;
-                    const hasTenant = resObj?.ownershipType === 'إيجار' && Boolean(resObj?.tenantName && resObj.tenantName.trim());
-                    const tenantName = hasTenant ? resObj?.tenantName : '';
+                    const historical = resObj ? getHistoricalOccupantForDate(resObj, `${p.year}-${p.month}`) : { ownerName: p.residentName, tenantName: undefined };
+                    const ownerName = historical.ownerName || resObj?.name || p.residentName;
+                    const tenantName = historical.tenantName !== undefined ? historical.tenantName : (resObj?.ownershipType === 'إيجار' ? resObj?.tenantName : '');
+                    const hasTenant = Boolean(tenantName && tenantName.trim());
 
                     const isUncollected = p.status === 'pending' || p.status === 'لم يتم التحصيل' || p.status === 'uncollected';
                     const isCancelled = p.status === 'cancelled' || p.status === 'لاغي';
@@ -1242,9 +1272,10 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                       {group.payments.map((p) => {
                         const isSelected = selectedItemId === p.id;
                         const resObj = residents.find(r => r.id === p.residentId || isSameFlatNumber(r.flatNumber, p.flatNumber));
-                        const ownerName = resObj?.name || p.residentName;
-                        const hasTenant = resObj?.ownershipType === 'إيجار' && Boolean(resObj?.tenantName && resObj.tenantName.trim());
-                        const tenantName = hasTenant ? resObj?.tenantName : '';
+                        const historical = resObj ? getHistoricalOccupantForDate(resObj, `${p.year}-${p.month}`) : { ownerName: p.residentName, tenantName: undefined };
+                        const ownerName = historical.ownerName || resObj?.name || p.residentName;
+                        const tenantName = historical.tenantName !== undefined ? historical.tenantName : (resObj?.ownershipType === 'إيجار' ? resObj?.tenantName : '');
+                        const hasTenant = Boolean(tenantName && tenantName.trim());
 
                         const isUncollected = p.status === 'pending' || p.status === 'لم يتم التحصيل' || p.status === 'uncollected';
                         const isCancelled = p.status === 'cancelled' || p.status === 'لاغي';
@@ -1442,9 +1473,10 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                   {group.payments.map((p) => {
                     const isSelected = selectedItemId === p.id;
                     const resObj = residents.find(r => r.id === p.residentId || isSameFlatNumber(r.flatNumber, p.flatNumber));
-                    const ownerName = resObj?.name || p.residentName;
-                    const hasTenant = resObj?.ownershipType === 'إيجار' && Boolean(resObj?.tenantName && resObj.tenantName.trim());
-                    const tenantName = hasTenant ? resObj?.tenantName : '';
+                    const historical = resObj ? getHistoricalOccupantForDate(resObj, p.date || `${p.year}-${p.month}`) : { ownerName: p.residentName, tenantName: undefined };
+                    const ownerName = historical.ownerName || resObj?.name || p.residentName;
+                    const tenantName = historical.tenantName !== undefined ? historical.tenantName : (resObj?.ownershipType === 'إيجار' ? resObj?.tenantName : '');
+                    const hasTenant = Boolean(tenantName && tenantName.trim());
 
                     const isUncollected = p.status === 'pending' || p.status === 'لم يتم التحصيل' || p.status === 'uncollected';
                     const isCancelled = p.status === 'cancelled' || p.status === 'لاغي';
@@ -1646,7 +1678,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                     <optgroup key={idx} label={`📍 ${group.floorLabel}`}>
                       {group.residents.map((r) => (
                         <option key={r.id} value={r.id}>
-                          وحدة {r.flatNumber} - {r.name}{r.tenantName ? ` (المستأجر: ${r.tenantName})` : ''}
+                          {formatResidentOptionLabel(r, `${currentYear}-${month}`)}
                         </option>
                       ))}
                     </optgroup>
@@ -1656,19 +1688,44 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
 
               {/* Row 1: Target Month & Payment Type in EXACT SAME ROW */}
               <div className="grid grid-cols-2 gap-2 sm:gap-3 items-start">
-                {/* Target Month + Multi-Month selector */}
+                {/* Target Month + Multi-Month / Aggregated toggle */}
                 <div className="space-y-1">
                   <div className="flex items-center justify-between">
                     <label className="text-[11px] font-bold text-slate-500">الشهر المستهدف</label>
                     {!selectedPayment && (
                       <button
                         type="button"
-                        onClick={() => setShowMultiMonthPicker(!showMultiMonthPicker)}
-                        className="text-[10px] font-black text-blue-900 hover:text-blue-950 flex items-center gap-0.5 bg-blue-50 hover:bg-blue-100 px-1.5 py-0.5 rounded-md border border-blue-200 transition cursor-pointer"
-                        title="إضافة شهور أخرى مستهدفة بالسداد"
+                        onClick={() => {
+                          const nextState = !isAggregatedCollection;
+                          setIsAggregatedCollection(nextState);
+                          if (!nextState) {
+                            setAdditionalMonths([]);
+                            setShowMultiMonthPicker(false);
+                            const selectedRes = residents.find(r => r.id === residentId);
+                            if (selectedRes && (!paymentType || paymentType === 'اشتراك شهري' || paymentType.includes('اشتراك'))) {
+                              const fee = targetActivityType !== selectedRes.activityType
+                                ? getActivityDefaultFee(targetActivityType)
+                                : getResidentMonthlyFee(selectedRes, defaultMonthlyFee, activityDefaultFees);
+                              setAmount(fee);
+                            }
+                          } else {
+                            setShowMultiMonthPicker(true);
+                          }
+                        }}
+                        className={`text-[10px] sm:text-[10.5px] font-black flex items-center gap-1.5 px-2 py-0.5 rounded-md border transition cursor-pointer shadow-2xs active:scale-95 ${
+                          isAggregatedCollection
+                            ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 ring-2 ring-emerald-500/20 shadow-emerald-600/10'
+                            : 'bg-slate-100 hover:bg-slate-200 text-slate-600 border-slate-200'
+                        }`}
+                        title={isAggregatedCollection ? 'تحصيل مجمع مفعل (انقر لإلغاء التفعيل)' : 'انقر لتفعيل تحصيل مجمع'}
                       >
-                        <Plus className="w-2.5 h-2.5 text-blue-800" />
-                        <span>{additionalMonths.length > 0 ? `(${additionalMonths.length + 1})` : 'شهور أخرى +'}</span>
+                        <span className={`w-1.5 h-1.5 rounded-full ${isAggregatedCollection ? 'bg-white animate-pulse' : 'bg-slate-400'}`}></span>
+                        <span>تحصيل مجمع</span>
+                        {isAggregatedCollection && (
+                          <span className="text-[8.5px] bg-white/25 px-1 py-0.2 rounded-xs font-black">
+                            {additionalMonths.length > 0 ? `(${additionalMonths.length + 1} شهور)` : 'مفعل ✓'}
+                          </span>
+                        )}
                       </button>
                     )}
                   </div>
@@ -2203,8 +2260,10 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                     {group.payments.map((p) => {
                       rowCounter++;
                       const res = residents.find((r) => r.id === p.residentId) || residents.find((r) => isSameFlatNumber(r.flatNumber, p.flatNumber));
-                      const ownerName = res?.name || p.residentName;
-                      const tenantName = res?.tenantName && res.tenantName.trim();
+                      const subPeriod = `${p.year}-${p.month}`;
+                      const historical = res ? getHistoricalOccupantForDate(res, subPeriod) : { ownerName: p.residentName, tenantName: undefined };
+                      const ownerName = historical.ownerName || res?.name || p.residentName;
+                      const tenantName = historical.tenantName !== undefined ? historical.tenantName : (res?.ownershipType === 'إيجار' ? res?.tenantName : '');
 
                       return (
                         <tr key={p.id} className="border-b border-slate-200">

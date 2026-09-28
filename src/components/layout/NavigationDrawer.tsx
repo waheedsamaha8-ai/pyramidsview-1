@@ -131,15 +131,6 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
                     <span className="text-[10px] opacity-70">ملخصات</span>
                   </button>
                   <button
-                    onClick={() => { onNavigateTab('building-map'); onClose(); }}
-                    className={`w-full py-2 px-3 rounded-xl text-xs font-bold text-right transition flex items-center justify-between cursor-pointer ${
-                      activeTab === 'building-map' ? 'bg-emerald-700 text-white font-black' : 'text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700'
-                    }`}
-                  >
-                    <span>خريطة سداد العمارة</span>
-                    <span className="text-[10px] opacity-70">تفاعلي</span>
-                  </button>
-                  <button
                     onClick={() => { onNavigateTab('debts-report'); onClose(); }}
                     className={`w-full py-2 px-3 rounded-xl text-xs font-bold text-right transition flex items-center justify-between cursor-pointer ${
                       activeTab === 'debts-report' ? 'bg-emerald-700 text-white font-black' : 'text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700'

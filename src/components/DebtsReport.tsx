@@ -3,7 +3,7 @@ import { generateElementImage } from '../utils/imageExport';
 import { Resident, Payment, AppConfig, UserRole, FloorConfig } from '../types';
 import { ReceiptClaimModal, ReceiptClaimData } from './ReceiptClaimModal';
 import { useDebtsCalculations } from '../hooks/useDebtsCalculations';
-import { deriveFloorConfigsFromResidents, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber } from '../utils/buildingStructure';
+import { deriveFloorConfigsFromResidents, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber, getHistoricalOccupantForDate } from '../utils/buildingStructure';
 import { 
   calculateResidentFinancials, 
   getCarriedPreviousBalance, 
@@ -946,7 +946,10 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                       {group.debtors.map(({ resident, financials, carriedBalance }) => {
                         const debtAmount = Math.round(Math.abs(financials.netBalance));
                         const displayNotes = (resident.notes || '').includes('توليد تلقائي') ? '' : (resident.notes || '');
-                        const hasTenant = resident.ownershipType === 'إيجار' && Boolean(resident.tenantName && resident.tenantName.trim());
+                        const historical = getHistoricalOccupantForDate(resident, selectedYearFilter === 'all' ? currentYear : selectedYearFilter);
+                        const ownerName = historical.ownerName || resident.name;
+                        const tenantName = historical.tenantName !== undefined ? historical.tenantName : (resident.ownershipType === 'إيجار' ? resident.tenantName : '');
+                        const hasTenant = Boolean(tenantName && tenantName.trim());
 
                         return (
                           <tr key={resident.id} className="group hover:bg-red-50/20 transition">
@@ -959,12 +962,12 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                             <td className="min-w-[95px] max-w-[130px] px-1.5 py-1.5 whitespace-nowrap">
                               <div className="flex flex-col gap-0.5 justify-center">
                                 <div className="flex items-center gap-1">
-                                  <span className="font-bold text-slate-900 text-xs truncate max-w-[110px]">{resident.name}</span>
+                                  <span className="font-bold text-slate-900 text-xs truncate max-w-[110px]">{ownerName}</span>
                                 </div>
                                 {hasTenant && (
                                   <div className="flex items-center gap-1 text-amber-950 font-bold text-[9.5px] pt-0.5 border-t border-slate-100">
                                     <span className="text-[7.5px] font-black bg-amber-100 text-amber-900 px-1 py-0.2 rounded border border-amber-200/80">مستأجر</span>
-                                    <span className="truncate max-w-[95px]">{resident.tenantName}</span>
+                                    <span className="truncate max-w-[95px]">{tenantName}</span>
                                   </div>
                                 )}
                               </div>

@@ -31,6 +31,20 @@ export interface AdminResidentProfile {
   notes?: string;
 }
 
+export interface UnitHistoryRecord {
+  id: string;
+  ownerName: string;
+  ownerPhone?: string;
+  ownerFromDate?: string; // YYYY-MM-DD or YYYY-MM
+  ownerToDate?: string;   // YYYY-MM-DD or YYYY-MM or empty for 'حتى الآن'
+  tenantName?: string;
+  tenantPhone?: string;
+  tenantFromDate?: string;
+  tenantToDate?: string;
+  notes?: string;
+  createdAt?: string;
+}
+
 export interface Resident {
   id: string;
   buildingId?: string;
@@ -53,6 +67,7 @@ export interface Resident {
   tenantAccountStatus?: 'ACTIVE' | 'INVITED' | 'REVOKED';
   lastLoginAt?: string;
   tenantLastLoginAt?: string;
+  history?: UnitHistoryRecord[];
 }
 
 export interface Payment {
@@ -72,6 +87,11 @@ export interface Payment {
   date: string;
   isManuallyPaid: boolean;
   status?: 'collected' | 'pending' | 'cancelled' | string;
+  isAggregatedCollection?: boolean; // Marked as bulk/aggregated collection
+  isDistributed?: boolean; // Has been distributed across multiple months
+  distributionSourceId?: string; // ID of the parent payment from which this was distributed
+  distributedPaymentIds?: string[]; // IDs of payments created from distributing this payment
+  originalAmountBeforeDistribution?: number; // Total amount before distribution
   createdAt?: string;
 }
 

@@ -24,7 +24,7 @@ import {
   CheckCircle2,
   Download
 } from 'lucide-react';
-import { deriveFloorConfigsFromResidents, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber } from '../utils/buildingStructure';
+import { deriveFloorConfigsFromResidents, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber, getHistoricalOccupantForDate } from '../utils/buildingStructure';
 import { calculateResidentFinancials, getCarriedPreviousBalance } from '../utils/financialCalculations';
 import { formatMobileNumber, formatPhoneForDisplay, toWhatsAppNumber } from '../utils/phoneUtils';
 import { shareImageViaWhatsApp } from '../utils/shareImageViaWhatsApp';
@@ -73,6 +73,7 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [receiptModalData, setReceiptModalData] = useState<ReceiptClaimData | null>(null);
+  const [historyYearFilter, setHistoryYearFilter] = useState<'all' | 'current'>('all');
 
   const receiptCardRef = useRef<HTMLDivElement>(null);
   
@@ -136,8 +137,8 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
     const targetMonthNum = parseInt(selectedMonth, 10);
 
     const payment = payments.find(p => 
-      p.residentId === resident.id && 
-      p.year === currentYear && 
+      ((resident.id && String(p.residentId || '').trim() === String(resident.id).trim()) || isSameFlatNumber(p.flatNumber, resident.flatNumber)) && 
+      Number(p.year) === Number(currentYear) && 
       parseInt(p.month, 10) === targetMonthNum &&
       p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل' &&
       matchesPaymentType(p.paymentType, selectedPaymentType) &&
@@ -152,16 +153,25 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
     const resident = residents.find(r => isSameFlatNumber(r.flatNumber, flatNumber));
     if (!resident) return null;
 
-    const unitPayments = payments.filter(p => 
-      p.residentId === resident.id && 
-      p.year === currentYear &&
+    // Bulletproof matching of payments for this unit (by residentId or flatNumber)
+    const isUnitPayment = (p: Payment) => 
+      (resident.id && String(p.residentId || '').trim() === String(resident.id).trim()) ||
+      isSameFlatNumber(p.flatNumber, resident.flatNumber);
+
+    const allUnitPayments = payments.filter(isUnitPayment);
+
+    // Current year valid collected payments
+    const currentYearPayments = allUnitPayments.filter(p => 
+      Number(p.year) === Number(currentYear) &&
       p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل'
     );
-    const totalPaid = unitPayments.reduce((sum, p) => sum + p.amount, 0);
+    const totalPaid = currentYearPayments.reduce((sum, p) => sum + p.amount, 0);
     const targetMonthNum = parseInt(selectedMonth, 10);
-    const currentMonthPayment = unitPayments.find(p => 
+    const currentMonthPayment = allUnitPayments.find(p => 
+      Number(p.year) === Number(currentYear) &&
       parseInt(p.month, 10) === targetMonthNum && 
       matchesPaymentType(p.paymentType, selectedPaymentType) &&
+      p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل' &&
       (p.amount > 0 || p.isManuallyPaid)
     );
     
@@ -191,6 +201,17 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
     const oldDebtVal = carriedBal < 0 ? Math.abs(carriedBal) : 0;
     const oldSurplusVal = carriedBal > 0 ? carriedBal : 0;
 
+    // All payments sorted chronologically (newest first)
+    const sortedAllPayments = [...allUnitPayments].sort((a, b) => {
+      const yearDiff = (Number(b.year) || 0) - (Number(a.year) || 0);
+      if (yearDiff !== 0) return yearDiff;
+      const monthDiff = (parseInt(b.month, 10) || 0) - (parseInt(a.month, 10) || 0);
+      if (monthDiff !== 0) return monthDiff;
+      const dateA = a.date || '';
+      const dateB = b.date || '';
+      return dateB.localeCompare(dateA);
+    });
+
     return {
       resident,
       totalPaid,
@@ -204,7 +225,7 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
       periodExpectedDues: residentFin.periodExpectedDues,
       oldDebtVal: Math.round(oldDebtVal),
       oldSurplusVal: Math.round(oldSurplusVal),
-      allPayments: unitPayments.sort((a, b) => b.month.localeCompare(a.month))
+      allPayments: sortedAllPayments
     };
   };
 
@@ -346,16 +367,23 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
       }
     };
 
+    const subPeriod = `${currentYear}-${selectedMonth}`;
+    const historical = getHistoricalOccupantForDate(resident, subPeriod);
+    const activeOwnerName = historical.ownerName || resident.name;
+    const activeOwnerPhone = historical.ownerPhone || resident.phone;
+    const activeTenantName = historical.tenantName !== undefined ? historical.tenantName : resident.tenantName;
+    const activeTenantPhone = historical.tenantPhone || resident.tenantPhone;
+
     if (target === 'owner' || target === 'both') {
-      const text = generateText(resident.name, 'المالك');
-      const phone = resident.phone || resident.tenantPhone;
+      const text = generateText(activeOwnerName, 'المالك');
+      const phone = activeOwnerPhone || activeTenantPhone;
       if (phone) openWA(phone, text);
       else alert('رقم هاتف المالك غير مسجل');
     }
 
     if (target === 'tenant') {
-      const text = generateText(resident.tenantName || 'السيد المستأجر', 'المستأجر');
-      const phone = resident.tenantPhone || resident.phone;
+      const text = generateText(activeTenantName || 'السيد المستأجر', 'المستأجر');
+      const phone = activeTenantPhone || activeOwnerPhone;
       if (phone) openWA(phone, text);
       else alert('رقم هاتف المستأجر غير مسجل');
     }
@@ -468,7 +496,12 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
       y += 50;
     };
 
-    drawRow('اسم الشاغل / الساكن:', financials.resident.name);
+    const historicalCanvas = getHistoricalOccupantForDate(financials.resident, `${currentYear}-${selectedMonth}`);
+    const canvasOccupant = historicalCanvas.tenantName
+      ? `${historicalCanvas.ownerName} (${historicalCanvas.tenantName})`
+      : historicalCanvas.ownerName;
+
+    drawRow('اسم الشاغل / الساكن:', canvasOccupant);
     drawRow('رقم الوحدة ونشاطها:', `( الوحدة ${financials.resident.flatNumber} - ${financials.resident.activityType} )`);
     drawRow('بيان الإيصال:', `إيصال سداد شهر ${monthName} ${currentYear} - اشتراك شهري`);
     if (isPaid) {
@@ -580,13 +613,19 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
     const totalDue = financials.unpaidMonthsDues + financials.oldDebtVal;
     const payCategory = financials.currentMonthPayment?.paymentType || 'تحصيلات شهرية';
 
+    const historical = getHistoricalOccupantForDate(financials.resident, `${currentYear}-${selectedMonth}`);
+    const activeOwnerName = historical.ownerName || financials.resident.name;
+    const activeOwnerPhone = historical.ownerPhone || financials.resident.phone;
+    const activeTenantName = historical.tenantName !== undefined ? historical.tenantName : financials.resident.tenantName;
+    const activeTenantPhone = historical.tenantPhone || (activeTenantName ? financials.resident.tenantPhone : undefined);
+
     setReceiptModalData({
       type: isPaid ? 'receipt' : 'claim',
       unitNumber: financials.resident.flatNumber,
-      residentName: financials.resident.name,
-      tenantName: financials.resident.tenantName,
-      phone: target === 'tenant' ? (financials.resident.tenantPhone || financials.resident.phone) : financials.resident.phone,
-      tenantPhone: financials.resident.tenantPhone,
+      residentName: activeOwnerName,
+      tenantName: activeTenantName,
+      phone: target === 'tenant' ? (activeTenantPhone || activeOwnerPhone) : activeOwnerPhone,
+      tenantPhone: activeTenantPhone,
       amount: isPaid ? paidAmt : totalDue,
       month: selectedMonth,
       year: currentYear,
@@ -594,7 +633,7 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
       receiptNumber: financials.currentMonthPayment?.receiptNumber,
       paymentType: payCategory,
       activityType: financials.resident.activityType || 'سكني',
-      occupancyType: financials.resident.ownershipType || 'تمليك',
+      occupancyType: activeTenantName ? 'إيجار' : (financials.resident.ownershipType || 'تمليك'),
       monthlyFee: financials.monthlyFee,
       carriedBalance: financials.carriedBalance,
       oldDebtAmount: financials.oldDebtVal,
@@ -622,13 +661,19 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
     const totalDue = financials.unpaidMonthsDues + financials.oldDebtVal;
     const payCategory = financials.currentMonthPayment?.paymentType || 'تحصيلات شهرية';
 
+    const historical = getHistoricalOccupantForDate(financials.resident, `${currentYear}-${selectedMonth}`);
+    const activeOwnerName = historical.ownerName || financials.resident.name;
+    const activeOwnerPhone = historical.ownerPhone || financials.resident.phone;
+    const activeTenantName = historical.tenantName !== undefined ? historical.tenantName : financials.resident.tenantName;
+    const activeTenantPhone = historical.tenantPhone || (activeTenantName ? financials.resident.tenantPhone : undefined);
+
     const printData: ReceiptClaimData = {
       type: isPaid ? 'receipt' : 'claim',
       unitNumber: financials.resident.flatNumber,
-      residentName: financials.resident.name,
-      tenantName: financials.resident.tenantName,
-      phone: financials.resident.phone,
-      tenantPhone: financials.resident.tenantPhone,
+      residentName: activeOwnerName,
+      tenantName: activeTenantName,
+      phone: activeOwnerPhone,
+      tenantPhone: activeTenantPhone,
       amount: isPaid ? paidAmt : totalDue,
       month: selectedMonth,
       year: currentYear,
@@ -636,7 +681,7 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
       receiptNumber: financials.currentMonthPayment?.receiptNumber,
       paymentType: payCategory,
       activityType: financials.resident.activityType || 'سكني',
-      occupancyType: financials.resident.ownershipType || 'تمليك',
+      occupancyType: activeTenantName ? 'إيجار' : (financials.resident.ownershipType || 'تمليك'),
       monthlyFee: financials.monthlyFee,
       carriedBalance: financials.carriedBalance,
       oldDebtAmount: financials.oldDebtVal,
@@ -871,44 +916,58 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
                   )}
 
                   {/* Resident Info Card */}
-                  <div className="bg-blue-50/50 p-3.5 rounded-2xl border border-blue-100/60 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-7 h-7 bg-blue-100 rounded-lg flex items-center justify-center text-blue-900">
-                          <User className="w-3.5 h-3.5" />
-                        </div>
-                        <div>
-                          <div className="text-[9px] text-slate-500 font-bold">اسم الساكن / الشاغل</div>
-                          <div className="text-xs font-black text-slate-900">{financials.resident.name}</div>
-                        </div>
-                      </div>
-                      <span className="text-[9.5px] font-black px-2.5 py-0.5 rounded-md bg-blue-100 text-blue-900 border border-blue-200">
-                        {((financials.resident.tenantName || financials.resident.ownershipType === 'إيجار') ? 'إيجار' : (financials.resident.ownershipType || 'تمليك'))} / {financials.resident.activityType || 'سكني'}
-                      </span>
-                    </div>
-                    
-                    {(financials.resident.phone || financials.resident.tenantPhone) && (
-                      <div className="flex flex-col gap-1.5 pt-1.5 border-t border-blue-100/60 text-xs">
-                        {financials.resident.phone && (
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <Phone className="w-3.5 h-3.5 text-blue-900" />
-                              <span className="text-[10px] text-slate-500 font-bold">هاتف المالك:</span>
-                              <span className="font-black text-slate-800 tracking-wider font-mono inline-block phone-number-display" dir="ltr">{formatPhoneForDisplay(financials.resident.phone)}</span>
+                  {(() => {
+                    const historical = getHistoricalOccupantForDate(financials.resident, `${currentYear}-${selectedMonth}`);
+                    const activeOwnerName = historical.ownerName || financials.resident.name;
+                    const activeOwnerPhone = historical.ownerPhone || financials.resident.phone;
+                    const activeTenantName = historical.tenantName !== undefined ? historical.tenantName : financials.resident.tenantName;
+                    const activeTenantPhone = historical.tenantPhone || (activeTenantName ? financials.resident.tenantPhone : undefined);
+                    return (
+                      <div className="bg-blue-50/50 p-3.5 rounded-2xl border border-blue-100/60 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-7 h-7 bg-blue-100 rounded-lg flex items-center justify-center text-blue-900">
+                              <User className="w-3.5 h-3.5" />
+                            </div>
+                            <div>
+                              <div className="text-[9px] text-slate-500 font-bold">المالك / الشاغل</div>
+                              <div className="text-xs font-black text-slate-900">{activeOwnerName}</div>
+                              {activeTenantName && (
+                                <div className="text-[10px] font-bold text-amber-800">
+                                  المستأجر: {activeTenantName}
+                                </div>
+                              )}
                             </div>
                           </div>
-                        )}
-                        {financials.resident.ownershipType === 'إيجار' && financials.resident.tenantName && (
-                          <div className="flex items-center justify-between text-[10px] font-bold text-amber-900">
-                            <div>المستأجر: <span className="font-black">{financials.resident.tenantName}</span></div>
-                            {financials.resident.tenantPhone && (
-                              <div className="font-black tracking-wider text-slate-800 font-mono inline-block phone-number-display" dir="ltr">{formatPhoneForDisplay(financials.resident.tenantPhone)}</div>
+                          <span className="text-[9.5px] font-black px-2.5 py-0.5 rounded-md bg-blue-100 text-blue-900 border border-blue-200">
+                            {((activeTenantName || financials.resident.ownershipType === 'إيجار') ? 'إيجار' : (financials.resident.ownershipType || 'تمليك'))} / {financials.resident.activityType || 'سكني'}
+                          </span>
+                        </div>
+                        
+                        {(activeOwnerPhone || activeTenantPhone) && (
+                          <div className="flex flex-col gap-1.5 pt-1.5 border-t border-blue-100/60 text-xs">
+                            {activeOwnerPhone && (
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <Phone className="w-3.5 h-3.5 text-blue-900" />
+                                  <span className="text-[10px] text-slate-500 font-bold">هاتف المالك:</span>
+                                  <span className="font-black text-slate-800 tracking-wider font-mono inline-block phone-number-display" dir="ltr">{formatPhoneForDisplay(activeOwnerPhone)}</span>
+                                </div>
+                              </div>
+                            )}
+                            {activeTenantName && (
+                              <div className="flex items-center justify-between text-[10px] font-bold text-amber-900">
+                                <div>المستأجر: <span className="font-black">{activeTenantName}</span></div>
+                                {activeTenantPhone && (
+                                  <div className="font-black tracking-wider text-slate-800 font-mono inline-block phone-number-display" dir="ltr">{formatPhoneForDisplay(activeTenantPhone)}</div>
+                                )}
+                              </div>
                             )}
                           </div>
                         )}
                       </div>
-                    )}
-                  </div>
+                    );
+                  })()}
 
                   {/* Financial Status Summary */}
                   <div className="grid grid-cols-2 gap-2.5">
@@ -980,10 +1039,19 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
                       <div className="flex justify-between items-start bg-white p-2 rounded-xl border border-slate-100">
                         <span className="text-slate-500 shrink-0 ml-2 mt-0.5">اسم الشاغل:</span>
                         <div className="flex flex-col gap-0.5 text-left sm:text-right font-black">
-                          <span className="text-slate-900">{financials.resident.name}</span>
-                          {financials.resident.tenantName && (
-                            <span className="text-amber-900">{financials.resident.tenantName}</span>
-                          )}
+                          {(() => {
+                            const historical = getHistoricalOccupantForDate(financials.resident, `${currentYear}-${selectedMonth}`);
+                            const cardOwnerName = historical.ownerName || financials.resident.name;
+                            const cardTenantName = historical.tenantName !== undefined ? historical.tenantName : financials.resident.tenantName;
+                            return (
+                              <>
+                                <span className="text-slate-900">{cardOwnerName}</span>
+                                {cardTenantName && (
+                                  <span className="text-amber-900">{cardTenantName}</span>
+                                )}
+                              </>
+                            );
+                          })()}
                         </div>
                       </div>
 
@@ -1135,34 +1203,157 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
                     </div>
                   </div>
 
-                  {/* Payment History List */}
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-1.5 text-slate-900 font-black text-[11px] mb-1">
-                      <History className="w-3.5 h-3.5 text-blue-900" />
-                      <span>سجل المدفوعات المسجلة للوحدة ({currentYear})</span>
-                    </div>
-                    {financials.allPayments.length > 0 ? (
-                      <div className="space-y-1.5">
-                        {financials.allPayments.slice(0, 5).map(p => (
-                          <div key={p.id} className="flex items-center justify-between p-2.5 bg-slate-50/70 border border-slate-100 rounded-xl">
+                  {/* Complete Payment History Section */}
+                  <div className="space-y-2.5 pt-3 border-t border-slate-200">
+                    {(() => {
+                      const displayedPayments = historyYearFilter === 'current'
+                        ? financials.allPayments.filter(p => Number(p.year) === Number(currentYear))
+                        : financials.allPayments;
+
+                      const totalHistoryAmount = displayedPayments
+                        .filter(p => p.status !== 'cancelled' && p.status !== 'لاغي')
+                        .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+
+                      const currentYearCount = financials.allPayments.filter(p => Number(p.year) === Number(currentYear)).length;
+                      const allCount = financials.allPayments.length;
+
+                      return (
+                        <>
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                             <div className="flex items-center gap-2">
-                              <div className="w-6 h-6 bg-white rounded-lg flex items-center justify-center text-slate-500 border border-slate-100 shadow-2xs">
-                                <CreditCard className="w-3 h-3 text-blue-900" />
+                              <div className="w-7 h-7 bg-blue-100 rounded-lg flex items-center justify-center text-blue-900 shadow-2xs">
+                                <History className="w-4 h-4 text-blue-900" />
                               </div>
                               <div>
-                                <div className="text-[10px] font-black text-slate-900">{p.paymentType}</div>
-                                <div className="text-[8px] text-slate-500 font-bold">{monthNamesArabic[parseInt(p.month) - 1]} {p.year}</div>
+                                <div className="flex items-center gap-1.5">
+                                  <h4 className="text-xs sm:text-sm font-black text-slate-900">سجل المدفوعات المسجلة للوحدة بالكامل</h4>
+                                  <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-blue-50 text-blue-900 border border-blue-200">
+                                    {displayedPayments.length} دفعة
+                                  </span>
+                                </div>
+                                <p className="text-[10px] text-slate-500 font-bold">
+                                  إجمالي المبالغ المسددة: <span className="font-black text-emerald-700">{totalHistoryAmount.toLocaleString()} ج.م</span>
+                                </p>
                               </div>
                             </div>
-                            <div className="text-[10px] font-black text-emerald-600">+{p.amount} ج.م</div>
+
+                            {/* Filter: All Years vs Current Year */}
+                            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl text-[10.5px] font-bold self-start sm:self-center">
+                              <button
+                                type="button"
+                                onClick={() => setHistoryYearFilter('all')}
+                                className={`px-2.5 py-1 rounded-lg transition cursor-pointer font-black ${
+                                  historyYearFilter === 'all'
+                                    ? 'bg-white text-blue-950 shadow-2xs'
+                                    : 'text-slate-600 hover:text-slate-900'
+                                }`}
+                              >
+                                جميع السنوات ({allCount})
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setHistoryYearFilter('current')}
+                                className={`px-2.5 py-1 rounded-lg transition cursor-pointer font-black ${
+                                  historyYearFilter === 'current'
+                                    ? 'bg-white text-blue-950 shadow-2xs'
+                                    : 'text-slate-600 hover:text-slate-900'
+                                }`}
+                              >
+                                سنة {currentYear} ({currentYearCount})
+                              </button>
+                            </div>
                           </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="text-center py-3 bg-slate-50 rounded-xl text-slate-400 text-[10px] font-bold">
-                        لا توجد مدفوعات مسجلة لهذا العام حتى الآن.
-                      </div>
-                    )}
+
+                          {displayedPayments.length > 0 ? (
+                            <div className="max-h-80 overflow-y-auto space-y-2 pr-0.5">
+                              {displayedPayments.map((p) => {
+                                const mNum = parseInt(p.month, 10);
+                                const mName = !isNaN(mNum) && mNum >= 1 && mNum <= 12 ? monthNamesArabic[mNum - 1] : p.month;
+                                const isCancelled = p.status === 'cancelled' || p.status === 'لاغي';
+                                const isPending = p.status === 'pending' || p.status === 'لم يتم التحصيل';
+
+                                return (
+                                  <div 
+                                    key={p.id} 
+                                    className={`p-3 rounded-2xl border text-right transition flex flex-col gap-1.5 shadow-2xs ${
+                                      isCancelled
+                                        ? 'bg-rose-50/50 border-rose-200/80 text-rose-900 opacity-75'
+                                        : isPending
+                                        ? 'bg-amber-50/60 border-amber-200 text-amber-950'
+                                        : 'bg-white border-slate-200/80 hover:border-blue-300'
+                                    }`}
+                                  >
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex items-center gap-2.5">
+                                        <div className={`w-8 h-8 rounded-xl flex items-center justify-center border shadow-2xs shrink-0 ${
+                                          isCancelled
+                                            ? 'bg-rose-100 border-rose-200 text-rose-700'
+                                            : isPending
+                                            ? 'bg-amber-100 border-amber-200 text-amber-800'
+                                            : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                                        }`}>
+                                          <CreditCard className="w-4 h-4" />
+                                        </div>
+                                        <div>
+                                          <div className="text-xs font-black text-slate-900 flex items-center gap-1.5 flex-wrap">
+                                            <span>{p.paymentType || 'اشتراك شهري'}</span>
+                                            {p.receiptNumber && (
+                                              <span className="text-[9.5px] font-mono text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 font-bold">
+                                                #{p.receiptNumber}
+                                              </span>
+                                            )}
+                                          </div>
+                                          <div className="text-[10px] text-slate-500 font-bold flex items-center gap-1.5 flex-wrap pt-0.5">
+                                            <span className="flex items-center gap-1">
+                                              <Calendar className="w-3 h-3 text-slate-400" />
+                                              <span>عن شهر {mName} ({p.month}) لسنة {p.year}</span>
+                                            </span>
+                                            {p.date && (
+                                              <>
+                                                <span className="text-slate-300">•</span>
+                                                <span>بتاريخ: {p.date}</span>
+                                              </>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </div>
+
+                                      <div className="text-left flex flex-col items-end shrink-0">
+                                        <div className={`text-xs sm:text-sm font-black ${
+                                          isCancelled ? 'text-rose-600 line-through' : 'text-emerald-700'
+                                        }`}>
+                                          +{Number(p.amount).toLocaleString()} ج.م
+                                        </div>
+                                        <span className={`text-[9px] font-black px-2 py-0.5 rounded-full mt-0.5 ${
+                                          isCancelled
+                                            ? 'bg-rose-100 text-rose-800'
+                                            : isPending
+                                            ? 'bg-amber-100 text-amber-900 border border-amber-200'
+                                            : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                                        }`}>
+                                          {isCancelled ? 'ملغي ✕' : isPending ? 'قيد التحصيل ⏳' : 'مسدد ✓'}
+                                        </span>
+                                      </div>
+                                    </div>
+
+                                    {/* Additional notes or details if present */}
+                                    {p.notes && (
+                                      <div className="text-[9.5px] text-slate-600 bg-slate-50 p-2 rounded-xl border border-slate-100 font-bold leading-relaxed">
+                                        📝 {p.notes}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <div className="text-center py-6 bg-slate-50 rounded-2xl text-slate-400 text-xs font-bold border border-dashed border-slate-200">
+                              لا توجد أي مدفوعات مسجلة لهذه الوحدة ضمن الفلتر المختار.
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
                 </>
               ) : (

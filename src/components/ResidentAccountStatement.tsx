@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { generateElementImage, generateElementImageBlob, GeneratedImageResult } from '../utils/imageExport';
 import { Resident, Payment, AppConfig, FloorConfig } from '../types';
 import { calculateResidentFinancials, getCarriedPreviousBalance } from '../utils/financialCalculations';
-import { compareFlatNumbers, isSameFlatNumber, deriveFloorConfigsFromResidents, getUnitNumbersForFloor } from '../utils/buildingStructure';
+import { compareFlatNumbers, isSameFlatNumber, deriveFloorConfigsFromResidents, getUnitNumbersForFloor, getLatestOccupantFromHistory, formatResidentOptionLabel } from '../utils/buildingStructure';
 import { formatMobileNumber, formatPhoneForDisplay, toWhatsAppNumber } from '../utils/phoneUtils';
 import { 
   FileText, 
@@ -358,12 +358,29 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
     setGeneratedImageResult(null);
   }, [activeResident?.id, activeResident?.flatNumber, payments, effectiveCarriedBalance]);
 
+  const activeOccupant = useMemo(() => {
+    if (!activeResident) return { ownerName: '', tenantName: undefined, occupantName: '' };
+    return getLatestOccupantFromHistory(activeResident);
+  }, [activeResident]);
+
+  const hasHistory = Boolean(activeResident?.history && Array.isArray(activeResident.history) && activeResident.history.length > 0);
+  const activeOwnerName = activeOccupant.ownerName || activeResident?.name || '';
+  const activeOwnerPhone = hasHistory 
+    ? activeOccupant.ownerPhone 
+    : (activeOccupant.ownerPhone || activeResident?.phone);
+  const activeTenantName = hasHistory 
+    ? activeOccupant.tenantName 
+    : (activeOccupant.tenantName !== undefined ? activeOccupant.tenantName : activeResident?.tenantName);
+  const activeTenantPhone = activeTenantName 
+    ? (activeOccupant.tenantPhone || (hasHistory ? undefined : activeResident?.tenantPhone)) 
+    : undefined;
+
   // Builds beautifully formatted WhatsApp text summary
   const getWhatsAppSummaryText = (target: 'owner' | 'tenant' = 'owner') => {
     if (!activeResident) return '';
     const isDebt = financials.netBalance < 0;
     const isSurplus = financials.netBalance > 0;
-    const targetName = target === 'owner' ? activeResident.name : (activeResident.tenantName || 'السيد المستأجر');
+    const targetName = target === 'owner' ? activeOwnerName : (activeTenantName || 'السيد المستأجر');
     const targetRole = target === 'owner' ? 'المالك' : 'المستأجر';
     const todayStr = new Date().toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' });
 
@@ -372,8 +389,8 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
     text += `------------------------------------\n`;
     text += `🚪 *الوحدة:* ( الوحدة ${activeResident.flatNumber} - ${activeResident.activityType} )\n`;
     text += `👤 *الاسم (${targetRole}):* ${targetName}\n`;
-    if (target === 'owner' && activeResident.ownershipType === 'إيجار' && activeResident.tenantName) {
-      text += `🏠 *المستأجر الحالي:* ${activeResident.tenantName}\n`;
+    if (target === 'owner' && activeTenantName) {
+      text += `🏠 *المستأجر:* ${activeTenantName}\n`;
     }
     text += `💵 *قيمة الاشتراك الشهري:* ${financials.monthlyFee.toLocaleString()} ج.م\n`;
     text += `📅 *تاريخ بدء المحاسبة:* ${accountingStartDate}\n`;
@@ -417,11 +434,11 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
   // Instant direct formatted text WhatsApp sharing for account statement
   const handleSendWhatsAppText = (target: 'owner' | 'tenant') => {
     if (!activeResident) return;
-    const phoneToUse = target === 'owner' ? (activeResident.phone || '') : (activeResident.tenantPhone || '');
+    const phoneToUse = target === 'owner' ? (activeOwnerPhone || '') : (activeTenantPhone || '');
     let cleanPhone = toWhatsAppNumber(phoneToUse);
 
     if (!cleanPhone) {
-      const name = target === 'owner' ? activeResident.name : (activeResident.tenantName || 'المستأجر');
+      const name = target === 'owner' ? activeOwnerName : (activeTenantName || 'المستأجر');
       const userEntered = window.prompt(`رقم هاتف (${name}) غير مسجل بالنظام.\nيرجى إدخال رقم الواتساب لإرسال كشف الحساب إليه مباشرة:`);
       if (userEntered && userEntered.trim()) {
         cleanPhone = toWhatsAppNumber(userEntered.trim());
@@ -457,7 +474,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
     if (!activeResident) return null;
     setIsGeneratingImage(true);
     try {
-      const cleanName = activeResident.name.trim().replace(/\s+/g, '_');
+      const cleanName = (activeOwnerName || activeResident.name).trim().replace(/\s+/g, '_');
       const fileName = `كشف_حساب_وحدة_${activeResident.flatNumber}_${cleanName}.png`;
       const res = await generateElementImageBlob('statement-printable-area', fileName);
       setGeneratedImageResult(res);
@@ -485,9 +502,9 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
   // Direct WhatsApp sharing with Image support
   const handleShareWhatsApp = async (target: 'owner' | 'tenant', withImage: boolean = true) => {
     if (!activeResident) return;
-    const phoneToUse = target === 'owner' ? (activeResident.phone || '') : (activeResident.tenantPhone || '');
+    const phoneToUse = target === 'owner' ? (activeOwnerPhone || '') : (activeTenantPhone || '');
     const cleanPhone = toWhatsAppNumber(phoneToUse);
-    const targetLabel = target === 'owner' ? `المالك (${activeResident.name})` : `المستأجر (${activeResident.tenantName})`;
+    const targetLabel = target === 'owner' ? `المالك (${activeOwnerName})` : `المستأجر (${activeTenantName || 'المستأجر'})`;
     const text = getWhatsAppSummaryText(target);
 
     if (!withImage) {
@@ -693,7 +710,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                   <optgroup key={idx} label={`📍 ${group.floorLabel}`}>
                     {group.residents.map(r => (
                       <option key={r.id} value={r.id}>
-                        وحدة {r.flatNumber} — {r.name}{r.tenantName ? ` (المستأجر: ${r.tenantName})` : ''}
+                        {formatResidentOptionLabel(r, 'latest')}
                       </option>
                     ))}
                   </optgroup>
@@ -732,7 +749,23 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
               </div>
               <div>
                 <span className="text-xs font-black text-slate-800 block">اختر رقم الوحدة واسم الساكن لعرض كشف الحساب:</span>
-                <span className="text-[8px] text-slate-400 font-bold">يمكنك اختيار أي وحدة لعرض كامل تفاصيل اشتراكاتها ومدفوعاتها ومشاركتها</span>
+                {activeResident ? (
+                  <div className="flex items-center gap-1.5 flex-wrap text-[11px] font-bold text-slate-600 mt-0.5">
+                    <span className="text-blue-900 font-black">وحدة {activeResident.flatNumber}:</span>
+                    <span className="text-slate-800 font-extrabold">المالك: {activeOwnerName}</span>
+                    {activeTenantName ? (
+                      <span className="text-amber-800 font-black bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 text-[10px]">
+                        المستأجر الحالي: {activeTenantName}
+                      </span>
+                    ) : (
+                      <span className="text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 text-[10px]">
+                        الشاغل: المالك (بدون مستأجر خلال الشهر الحالي)
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <span className="text-[8px] text-slate-400 font-bold">يمكنك اختيار أي وحدة لعرض كامل تفاصيل اشتراكاتها ومدفوعاتها ومشاركتها</span>
+                )}
               </div>
             </div>
             
@@ -757,7 +790,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                   <optgroup key={idx} label={`📍 ${group.floorLabel}`}>
                     {group.residents.map(r => (
                       <option key={r.id} value={r.id}>
-                        وحدة {r.flatNumber} — {r.name}{r.tenantName ? ` (المستأجر: ${r.tenantName})` : ''}
+                        {formatResidentOptionLabel(r, 'latest')}
                       </option>
                     ))}
                   </optgroup>
@@ -794,18 +827,21 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
               <span className="px-2.5 py-1 bg-slate-100 text-slate-700 rounded-xl text-xs font-bold">
                 {activeResident.activityType}
               </span>
-              {activeResident.phone && (
+              {activeOwnerPhone && (
                 <span className="px-2.5 py-1 bg-slate-100 text-slate-800 rounded-xl text-xs font-mono font-bold inline-flex items-center gap-1 phone-number-display" dir="ltr">
                   <Phone className="w-3 h-3 text-slate-500 shrink-0" />
-                  <span dir="ltr">{formatPhoneForDisplay(activeResident.phone)}</span>
+                  <span dir="ltr">{formatPhoneForDisplay(activeOwnerPhone)}</span>
                 </span>
               )}
             </div>
             <h2 className="text-lg sm:text-xl font-black text-slate-950 flex items-center gap-2 mt-1">
-              <span>{activeResident.name}</span>
-              {activeResident.ownershipType === 'إيجار' && activeResident.tenantName && (
-                <span className="text-xs font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-lg border border-amber-200">
-                  المستأجر: {activeResident.tenantName}
+              <span>{activeOwnerName}</span>
+              {activeTenantName && (
+                <span className="text-xs font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-lg border border-amber-200 inline-flex items-center gap-1">
+                  <span>المستأجر: {activeTenantName}</span>
+                  {activeTenantPhone && (
+                    <span dir="ltr" className="font-mono text-[10px] text-amber-900 font-bold phone-number-display">({formatPhoneForDisplay(activeTenantPhone)})</span>
+                  )}
                 </span>
               )}
             </h2>
@@ -818,8 +854,8 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
           {!isResidentOnly && (
             <div className="w-full pt-2 space-y-2">
               {/* Action Buttons in 1 Row */}
-              <div className={`grid ${activeResident.ownershipType === 'إيجار' && activeResident.tenantPhone ? 'grid-cols-4' : 'grid-cols-3'} gap-2 w-full`}>
-                {activeResident.ownershipType === 'إيجار' && activeResident.tenantPhone ? (
+              <div className={`grid ${activeTenantName && activeTenantPhone ? 'grid-cols-4' : 'grid-cols-3'} gap-2 w-full`}>
+                {activeTenantName && activeTenantPhone ? (
                   <>
                     <button
                       type="button"
@@ -1499,12 +1535,12 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
             </h2>
             <div className="grid grid-cols-2 gap-y-2 gap-x-4">
               <div><span className="font-bold text-slate-500">رقم الوحدة:</span> <strong className="text-slate-900">( الوحدة {activeResident.flatNumber} - {activeResident.activityType} )</strong></div>
-              <div><span className="font-bold text-slate-500">اسم المالك:</span> <strong className="text-slate-900">{activeResident.name}</strong></div>
+              <div><span className="font-bold text-slate-500">اسم المالك:</span> <strong className="text-slate-900">{activeOwnerName}</strong></div>
               <div><span className="font-bold text-slate-500">نوع النشاط:</span> <strong className="text-slate-900">{activeResident.activityType}</strong></div>
-              <div><span className="font-bold text-slate-500">رقم هاتف المالك:</span> <strong className="text-slate-900 font-mono phone-number-display" dir="ltr">{activeResident.phone ? formatPhoneForDisplay(activeResident.phone) : '—'}</strong></div>
-              <div><span className="font-bold text-slate-500">نوع الملكية:</span> <strong className="text-slate-900">{activeResident.ownershipType || 'تمليك'}</strong></div>
-              {activeResident.tenantName && (
-                <div><span className="font-bold text-slate-500">اسم المستأجر:</span> <strong className="text-slate-900">{activeResident.tenantName} {activeResident.tenantPhone ? <span dir="ltr" className="font-mono text-slate-700 font-bold phone-number-display">({formatPhoneForDisplay(activeResident.tenantPhone)})</span> : ''}</strong></div>
+              <div><span className="font-bold text-slate-500">رقم هاتف المالك:</span> <strong className="text-slate-900 font-mono phone-number-display" dir="ltr">{activeOwnerPhone ? formatPhoneForDisplay(activeOwnerPhone) : '—'}</strong></div>
+              <div><span className="font-bold text-slate-500">نوع الملكية:</span> <strong className="text-slate-900">{activeTenantName ? 'إيجار' : (hasHistory ? 'تمليك' : (activeResident.ownershipType || 'تمليك'))}</strong></div>
+              {activeTenantName && (
+                <div><span className="font-bold text-slate-500">اسم المستأجر:</span> <strong className="text-slate-900">{activeTenantName} {activeTenantPhone ? <span dir="ltr" className="font-mono text-slate-700 font-bold phone-number-display">({formatPhoneForDisplay(activeTenantPhone)})</span> : ''}</strong></div>
               )}
             </div>
           </div>
@@ -1841,7 +1877,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                     صورة كشف حساب واشتراكات الوحدة ({activeResident.flatNumber})
                   </h3>
                   <p className="text-xs text-slate-500 font-semibold">
-                    المالك: {activeResident.name} | التقرير متزامن ومطابق تماماً لبيانات الوحدة
+                    المالك: {activeOwnerName} {activeTenantName ? `| المستأجر: ${activeTenantName}` : ''} | التقرير متزامن ومطابق تماماً لبيانات الوحدة
                   </p>
                 </div>
               </div>

@@ -1,8 +1,8 @@
 import React, { useMemo, useState, useRef } from 'react';
 import { Resident, Payment, Expense, UserRole, FloorConfig, AppConfig } from '../types';
-import { Calendar, Check, AlertCircle, RefreshCw, X, ExternalLink, Trash2, PlusCircle, CreditCard, Clock, Layers, Receipt, Edit, Save, Minus } from 'lucide-react';
+import { Calendar, Check, AlertCircle, RefreshCw, X, ExternalLink, Trash2, PlusCircle, CreditCard, Clock, Layers, Receipt, Edit, Save, Minus, Sparkles, RotateCcw } from 'lucide-react';
 import { BuildingMap } from './BuildingMap';
-import { deriveFloorConfigsFromResidents, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber } from '../utils/buildingStructure';
+import { deriveFloorConfigsFromResidents, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber, getHistoricalOccupantForDate } from '../utils/buildingStructure';
 
 interface SummariesProps {
   residents: Resident[];
@@ -14,6 +14,7 @@ interface SummariesProps {
   floorConfigs: FloorConfig[];
   expenseTypes?: string[];
   onEditPayment?: (payment: Payment, base64Image?: string) => void;
+  onDistributePayment?: (originalPaymentId: string, distributedPayments: Payment[], deletedPaymentIds?: string[]) => void;
   onDeletePayment?: (id: string) => void;
   onAddPayment?: (payment: Payment, base64Image?: string) => void;
   activityDefaultFees?: Record<string, number>;
@@ -34,6 +35,7 @@ export const Summaries: React.FC<SummariesProps> = ({
   floorConfigs,
   expenseTypes,
   onEditPayment,
+  onDistributePayment,
   onDeletePayment,
   onAddPayment,
   activityDefaultFees,
@@ -58,6 +60,12 @@ export const Summaries: React.FC<SummariesProps> = ({
   const [editPaymentStatus, setEditPaymentStatus] = useState<string>('collected');
   const [editReceiptNumber, setEditReceiptNumber] = useState<string>('');
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
+
+  // States for aggregated payment distribution across months
+  const [isDistributing, setIsDistributing] = useState<boolean>(false);
+  const [selectedMonths, setSelectedMonths] = useState<string[]>([]);
+  const [editNotes, setEditNotes] = useState<string>('');
 
   // Synchronized horizontal scroll for the 3 summary tables
   const table1Ref = useRef<HTMLDivElement>(null);
@@ -228,6 +236,37 @@ export const Summaries: React.FC<SummariesProps> = ({
     });
   }, [categoryList, expenses, currentYear, months]);
 
+  const isChildDistributedPayment = (pay: Payment): boolean => {
+    if (pay.distributionSourceId && String(pay.distributionSourceId) !== String(pay.id)) return true;
+    if (payments.some(p => String(p.id) !== String(pay.id) && p.distributedPaymentIds && p.distributedPaymentIds.map(String).includes(String(pay.id)))) {
+      return true;
+    }
+    return false;
+  };
+
+  const isMasterDistributionPayment = (pay: Payment): boolean => {
+    if (isChildDistributedPayment(pay)) return false;
+    if (pay.isDistributed) return true;
+    if (pay.distributedPaymentIds && pay.distributedPaymentIds.length > 0) return true;
+    if (payments.some(p => String(p.id) !== String(pay.id) && String(p.distributionSourceId || '') === String(pay.id))) return true;
+    return false;
+  };
+
+  const isOriginalAggregatedPayment = (pay: Payment): boolean => {
+    if (isChildDistributedPayment(pay)) return false;
+    return Boolean(pay.isAggregatedCollection || isMasterDistributionPayment(pay));
+  };
+
+  const findMasterPayment = (pay: Payment): Payment => {
+    if (pay.distributionSourceId) {
+      const found = payments.find(p => String(p.id) === String(pay.distributionSourceId));
+      if (found) return found;
+    }
+    const foundByChildId = payments.find(p => p.distributedPaymentIds && p.distributedPaymentIds.map(String).includes(String(pay.id)));
+    if (foundByChildId) return foundByChildId;
+    return pay;
+  };
+
   // 4. Map and aggregate all payments for grid display in that month
   const getSubscriptionStatus = (residentId: string, month: string) => {
     const matchingPayments = payments.filter(
@@ -250,13 +289,285 @@ export const Summaries: React.FC<SummariesProps> = ({
     const isPending = !isPaid && pendingPayments.length > 0;
     const pendingAmount = pendingPayments.reduce((sum, p) => sum + p.amount, 0);
 
+    const isAggregated = validCollectedPayments.some(p => isOriginalAggregatedPayment(p));
+    const isDistributed = validCollectedPayments.some(p => isMasterDistributionPayment(p));
+
     return {
       paid: isPaid,
       pending: isPending,
       pendingAmount: pendingAmount,
       amount: totalAmount,
       paymentsList: matchingPayments,
+      isAggregated,
+      isDistributed,
     };
+  };
+
+  const handleStartEdit = (pay: Payment, forceDistribute = false) => {
+    setEditingPaymentId(pay.id);
+    setEditPaymentType(pay.paymentType || 'اشتراك شهري');
+    setEditPaymentStatus(pay.status || 'collected');
+    setEditReceiptNumber(pay.receiptNumber || '');
+    setEditNotes(pay.notes || '');
+    setConfirmCancelId(null);
+
+    const fee = selectedCell ? getDefaultFeeForResident(selectedCell.resident) : 400;
+    const currentMonthNum = parseInt(pay.month, 10) || 1;
+    const normalizedMonth = String(currentMonthNum).padStart(2, '0');
+
+    const isDist = isMasterDistributionPayment(pay);
+    const masterPay = findMasterPayment(pay);
+
+    if (isDist) {
+      // Find all distributed child payments from this source
+      const masterId = String(masterPay.id);
+      const childPayments = payments.filter(p => 
+        String(p.id) !== masterId && (
+          String(p.distributionSourceId || '') === masterId ||
+          (masterPay.distributedPaymentIds && masterPay.distributedPaymentIds.map(String).includes(String(p.id)))
+        )
+      );
+      const totalAmount = masterPay.originalAmountBeforeDistribution || (masterPay.amount + childPayments.reduce((s, c) => s + (Number(c.amount) || 0), 0));
+      setEditAmount(String(totalAmount));
+
+      const allDistributedMonths = Array.from(new Set([masterPay.month, ...childPayments.map(c => c.month)]))
+        .sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
+      setSelectedMonths(allDistributedMonths.length > 0 ? allDistributedMonths : [normalizedMonth]);
+      setIsDistributing(true);
+    } else {
+      setEditAmount(String(pay.amount));
+      const coveredMonthsCount = fee > 0 ? Math.max(1, Math.round(pay.amount / fee)) : 1;
+      const shouldDistribute = forceDistribute || coveredMonthsCount > 1;
+      setIsDistributing(shouldDistribute);
+
+      if (shouldDistribute) {
+        const initialMonths: string[] = [];
+        for (let i = 0; i < coveredMonthsCount; i++) {
+          const mNum = currentMonthNum + i;
+          if (mNum <= 12) {
+            initialMonths.push(String(mNum).padStart(2, '0'));
+          }
+        }
+        setSelectedMonths(initialMonths.length > 0 ? initialMonths : [normalizedMonth]);
+      } else {
+        setSelectedMonths([normalizedMonth]);
+      }
+    }
+  };
+
+  const handleCancelDistribution = (targetPay: Payment) => {
+    const masterPay = findMasterPayment(targetPay);
+    const masterId = String(masterPay.id);
+
+    // Find ALL child payments belonging to this master payment
+    const relatedChildPayments = payments.filter((p) => {
+      if (String(p.id) === masterId) return false;
+      if (String(p.distributionSourceId || '') === masterId) return true;
+      if (
+        masterPay.distributedPaymentIds &&
+        masterPay.distributedPaymentIds.map(String).includes(String(p.id))
+      ) {
+        return true;
+      }
+      // Also match if same resident, same year, same receipt number and notes mentions distribution
+      const sameResident = p.residentId === masterPay.residentId;
+      const sameYear = Number(p.year) === Number(masterPay.year);
+      const sameReceipt = Boolean(
+        masterPay.receiptNumber &&
+          p.receiptNumber &&
+          masterPay.receiptNumber.trim() === p.receiptNumber.trim()
+      );
+      const hasDistributedNote = Boolean(
+        (p.notes && p.notes.includes('سداد مجمع')) ||
+          (masterPay.notes && masterPay.notes.includes('سداد مجمع'))
+      );
+      if (sameResident && sameYear && sameReceipt && hasDistributedNote) return true;
+      return false;
+    });
+
+    const childIdsToDelete = relatedChildPayments.map((c) => String(c.id));
+    const childrenTotal = relatedChildPayments.reduce(
+      (sum, c) => sum + (Number(c.amount) || 0),
+      0
+    );
+
+    const restoredAmount =
+      masterPay.originalAmountBeforeDistribution &&
+      masterPay.originalAmountBeforeDistribution > masterPay.amount
+        ? masterPay.originalAmountBeforeDistribution
+        : (Number(masterPay.amount) || 0) + childrenTotal;
+
+    const cleanNotes = (masterPay.notes || '')
+      .replace(/\(سداد مجمع موزع على \d+ شهور.*?\)/g, '')
+      .replace(/\(سداد مجمع \d+ شهور.*?\)/g, '')
+      .trim();
+
+    const restoredPayment: Payment = {
+      ...masterPay,
+      amount: restoredAmount,
+      isAggregatedCollection: true,
+      isDistributed: false,
+      distributedPaymentIds: [],
+      originalAmountBeforeDistribution: undefined,
+      distributionSourceId: undefined,
+      notes: cleanNotes || undefined,
+    };
+
+    if (onDistributePayment) {
+      onDistributePayment(masterPay.id, [restoredPayment], childIdsToDelete);
+    } else {
+      if (onEditPayment) onEditPayment(restoredPayment);
+      if (onDeletePayment) {
+        childIdsToDelete.forEach((cid) => onDeletePayment(cid));
+      }
+    }
+
+    setEditingPaymentId(null);
+    setIsDistributing(false);
+    setConfirmCancelId(null);
+  };
+
+  const toggleMonthSelection = (m: string) => {
+    setSelectedMonths((prev) => {
+      if (prev.includes(m)) {
+        if (prev.length <= 1) return prev; // Keep at least one selected month
+        return prev.filter((x) => x !== m);
+      } else {
+        return [...prev, m].sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
+      }
+    });
+  };
+
+  const selectAutoCoveredMonths = (payMonth: string, amount: number, fee: number) => {
+    const count = fee > 0 ? Math.max(1, Math.round(amount / fee)) : 1;
+    const startM = parseInt(payMonth, 10) || 1;
+    const list: string[] = [];
+    for (let i = 0; i < count; i++) {
+      const mNum = startM + i;
+      if (mNum <= 12) {
+        list.push(String(mNum).padStart(2, '0'));
+      }
+    }
+    setSelectedMonths(list.length > 0 ? list : [String(startM).padStart(2, '0')]);
+  };
+
+  const selectUnpaidMonths = (residentId: string, currentPayMonth: string) => {
+    const unpaid = months.filter((m) => {
+      if (m === currentPayMonth) return true;
+      const status = getSubscriptionStatus(residentId, m);
+      return !status.paid;
+    });
+    setSelectedMonths(unpaid.length > 0 ? unpaid : [currentPayMonth]);
+  };
+
+  const handleSavePayment = (pay: Payment) => {
+    const parsedAmount = parseFloat(editAmount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      alert('يرجى إدخال مبلغ صحيح أكبر من الصفر.');
+      return;
+    }
+
+    if (isDistributing && selectedMonths.length > 1) {
+      const count = selectedMonths.length;
+      const basePerMonth = Math.floor(parsedAmount / count);
+      const remainder = parsedAmount - basePerMonth * count;
+
+      const sortedMonths = [...selectedMonths].sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
+      const masterMonth = sortedMonths.includes(pay.month) ? pay.month : sortedMonths[0];
+
+      const childIds: string[] = [];
+      const distributedPayments: Payment[] = sortedMonths.map((m, idx) => {
+        const isMaster = (m === masterMonth);
+        const hist = selectedCell ? getHistoricalOccupantForDate(selectedCell.resident, `${currentYear}-${m}`) : null;
+        const occupant = hist?.occupantName || selectedCell?.resident.name || pay.residentName;
+
+        const useOriginalId = isMaster;
+        const newId = useOriginalId ? pay.id : `pay_${Date.now()}_${m}_${idx}_${Math.random().toString(36).substr(2, 4)}`;
+        if (!isMaster) {
+          childIds.push(newId);
+        }
+
+        const isRemainderMonth = (idx === 0);
+        const monthAmount = isRemainderMonth ? (basePerMonth + remainder) : basePerMonth;
+
+        return {
+          id: newId,
+          year: currentYear,
+          month: m,
+          residentId: pay.residentId,
+          residentName: occupant,
+          flatNumber: pay.flatNumber,
+          paymentType: editPaymentType || pay.paymentType || 'اشتراك شهري',
+          amount: monthAmount,
+          receiptNumber: (editReceiptNumber || pay.receiptNumber || '').trim(),
+          notes: (editNotes || '').trim()
+            ? `${editNotes} (سداد مجمع موزع على ${count} شهور)`
+            : `سداد مجمع موزع على شهور: ${sortedMonths.map((x) => monthNamesArabic[parseInt(x, 10) - 1]).join('، ')}`,
+          fileId: pay.fileId || '',
+          fileUrl: pay.fileUrl || '',
+          date: pay.date || new Date().toISOString().split('T')[0],
+          isManuallyPaid: false,
+          status: (editPaymentStatus as any) || 'collected',
+          isAggregatedCollection: isMaster,
+          isDistributed: isMaster,
+          distributedPaymentIds: isMaster ? childIds : undefined,
+          distributionSourceId: isMaster ? undefined : pay.id,
+          originalAmountBeforeDistribution: isMaster ? parsedAmount : undefined,
+        };
+      });
+
+      if (onDistributePayment) {
+        onDistributePayment(pay.id, distributedPayments);
+      } else {
+        if (onEditPayment) onEditPayment(distributedPayments[0]);
+        if (onAddPayment) {
+          for (let i = 1; i < distributedPayments.length; i++) {
+            onAddPayment(distributedPayments[i]);
+          }
+        }
+      }
+
+      // Update the currently viewed modal cell with any payments remaining in it
+      const thisMonthPayments = distributedPayments.filter((p) => p.month === selectedCell?.month);
+      setSelectedCell((prev) =>
+        prev
+          ? {
+              ...prev,
+              payments: [
+                ...prev.payments.filter((p) => p.id !== pay.id && p.distributionSourceId !== pay.id),
+                ...thisMonthPayments,
+              ],
+            }
+          : null
+      );
+
+      setEditingPaymentId(null);
+      setIsDistributing(false);
+    } else {
+      const updatedPayment: Payment = {
+        ...pay,
+        amount: parsedAmount,
+        paymentType: editPaymentType,
+        status: (editPaymentStatus as any) || 'collected',
+        receiptNumber: (editReceiptNumber || '').trim(),
+        notes: (editNotes || '').trim(),
+      };
+
+      if (onEditPayment) {
+        onEditPayment(updatedPayment);
+      }
+      setSelectedCell((prev) =>
+        prev
+          ? {
+              ...prev,
+              payments: prev.payments.map((p) => (p.id === pay.id ? updatedPayment : p)),
+            }
+          : null
+      );
+
+      setEditingPaymentId(null);
+      setIsDistributing(false);
+    }
   };
 
   const isReadOnly = role === 'RESIDENT';
@@ -625,6 +936,8 @@ export const Summaries: React.FC<SummariesProps> = ({
 
                   {/* Residents of this floor */}
                   {group.residents.map((res) => {
+                    const historical = getHistoricalOccupantForDate(res, `${currentYear}`);
+                    const occupantName = historical.tenantName || historical.ownerName || res.name;
                     const residentYearTotal = payments
                       .filter((p) => p.residentId === res.id && p.year === currentYear && p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل')
                       .reduce((s, p) => s + p.amount, 0);
@@ -634,8 +947,8 @@ export const Summaries: React.FC<SummariesProps> = ({
                         <td className="px-0.5 sm:px-2 py-1.5 sm:py-2 sticky right-0 bg-white shadow-xs z-10 text-center sm:text-right border-l border-slate-100">
                           <div className="flex flex-col leading-tight items-center sm:items-start justify-center">
                             <span className="font-black text-blue-900 text-[10px] sm:text-xs">وحدة {res.flatNumber}</span>
-                            <span className="text-slate-500 truncate max-w-[54px] sm:max-w-[95px] text-[8.5px] sm:text-[10.5px]" title={res.name}>
-                              {res.name.split(' ')[0]}
+                            <span className="text-slate-500 truncate max-w-[54px] sm:max-w-[95px] text-[8.5px] sm:text-[10.5px]" title={occupantName}>
+                              {occupantName.split(' ')[0]}
                             </span>
                           </div>
                         </td>
@@ -686,6 +999,14 @@ export const Summaries: React.FC<SummariesProps> = ({
                                   <>
                                     <div className="flex items-center gap-0.5">
                                       <Check className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-700 stroke-[3.5]" />
+                                      {status.isDistributed && (
+                                        <span className="w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-emerald-300 animate-pulse" title="تم التوزيع من هذه الدفعة" />
+                                      )}
+                                      {!status.isDistributed && status.isAggregated && (
+                                        <span className="text-[7px] sm:text-[7.5px] font-black px-1 py-0.2 bg-amber-200 text-amber-950 rounded-xs" title="تحصيل مجمع">
+                                          مجمع ⚡
+                                        </span>
+                                      )}
                                       {isMulti && (
                                         <span className="text-[7.5px] sm:text-[9px] font-black px-0.5 py-0.2 bg-blue-200 text-blue-900 rounded-xs">
                                           {status.paymentsList.length}
@@ -744,57 +1065,65 @@ export const Summaries: React.FC<SummariesProps> = ({
       </section>
 
       {/* Aggregated Collections Details Overlay Modal */}
-      {selectedCell && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto" dir="rtl">
-          <div className="w-full max-w-lg bg-white rounded-xl sm:rounded-2xl border border-slate-100 shadow-xl animate-scale-up text-right flex flex-col max-h-[88vh] overflow-hidden my-auto">
-            {/* Header */}
-            <div className="px-3.5 py-2 border-b border-slate-100 flex items-center justify-between bg-slate-50/80 shrink-0">
-              <div className="flex items-center gap-1.5">
-                <CreditCard className="w-4 h-4 text-blue-900" />
-                <h3 className="text-xs font-black text-slate-900">
-                  تفاصيل متحصلات وحدة {selectedCell.resident.flatNumber} لشهر {selectedCell.monthName} {currentYear}
-                </h3>
-              </div>
-              <button 
-                onClick={() => setSelectedCell(null)} 
-                className="p-1 hover:bg-slate-200/60 rounded-lg transition"
-                title="إغلاق"
-              >
-                <X className="w-4 h-4 text-slate-400" />
-              </button>
-            </div>
+      {selectedCell && (() => {
+        const activeCellPayments = payments.filter(
+          (p) =>
+            p.residentId === selectedCell.resident.id &&
+            p.month === selectedCell.month &&
+            p.year === currentYear
+        );
 
-            {/* Content Body */}
-            <div className="p-3 space-y-2 overflow-y-auto flex-1 min-h-0">
-              {/* Resident Summary Bar */}
-              <div className="bg-blue-50/50 px-3 py-1.5 rounded-lg border border-blue-100/60 flex items-center justify-between gap-2 shrink-0">
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto" dir="rtl">
+            <div className="w-full max-w-lg bg-white rounded-xl sm:rounded-2xl border border-slate-100 shadow-xl animate-scale-up text-right flex flex-col max-h-[88vh] overflow-hidden my-auto">
+              {/* Header */}
+              <div className="px-3.5 py-2 border-b border-slate-100 flex items-center justify-between bg-slate-50/80 shrink-0">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[10px] text-slate-500 font-bold">الساكن:</span>
-                  <span className="text-xs font-black text-slate-800">{selectedCell.resident.name}</span>
+                  <CreditCard className="w-4 h-4 text-blue-900" />
+                  <h3 className="text-xs font-black text-slate-900">
+                    تفاصيل متحصلات وحدة {selectedCell.resident.flatNumber} لشهر {selectedCell.monthName} {currentYear}
+                  </h3>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[10px] text-slate-500 font-bold">الإجمالي:</span>
-                  <span className="text-xs font-black text-emerald-600 bg-emerald-50/80 px-2 py-0.5 rounded">
-                    {selectedCell.payments.reduce((sum, p) => sum + p.amount, 0)} ج.م
-                  </span>
-                </div>
+                <button 
+                  onClick={() => setSelectedCell(null)} 
+                  className="p-1 hover:bg-slate-200/60 rounded-lg transition"
+                  title="إغلاق"
+                >
+                  <X className="w-4 h-4 text-slate-400" />
+                </button>
               </div>
 
-              {/* Payments List */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-[10px] font-black text-slate-500">الدفعات المسجلة ({selectedCell.payments.length}):</h4>
-                </div>
-                
-                {selectedCell.payments.length === 0 ? (
-                  <div className="text-center py-4 border border-dashed border-slate-200 rounded-lg flex flex-col items-center justify-center gap-1 bg-slate-50/30">
-                    <Clock className="w-5 h-5 text-slate-300" />
-                    <p className="text-[10.5px] text-slate-400 font-bold">لا توجد دفعات مسجلة لهذا الشهر حالياً.</p>
+              {/* Content Body */}
+              <div className="p-3 space-y-2 overflow-y-auto flex-1 min-h-0">
+                {/* Resident Summary Bar */}
+                <div className="bg-blue-50/50 px-3 py-1.5 rounded-lg border border-blue-100/60 flex items-center justify-between gap-2 shrink-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] text-slate-500 font-bold">الساكن:</span>
+                    <span className="text-xs font-black text-slate-800">{selectedCell.resident.name}</span>
                   </div>
-                ) : (
-                  <div className="space-y-1.5 max-h-[36vh] overflow-y-auto pr-0.5">
-                    {selectedCell.payments.map((pay) => {
-                      const isEditing = editingPaymentId === pay.id;
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] text-slate-500 font-bold">الإجمالي:</span>
+                    <span className="text-xs font-black text-emerald-600 bg-emerald-50/80 px-2 py-0.5 rounded">
+                      {activeCellPayments.reduce((sum, p) => sum + p.amount, 0)} ج.م
+                    </span>
+                  </div>
+                </div>
+
+                {/* Payments List */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-[10px] font-black text-slate-500">الدفعات المسجلة ({activeCellPayments.length}):</h4>
+                  </div>
+                      
+                      {activeCellPayments.length === 0 ? (
+                        <div className="text-center py-4 border border-dashed border-slate-200 rounded-lg flex flex-col items-center justify-center gap-1 bg-slate-50/30">
+                          <Clock className="w-5 h-5 text-slate-300" />
+                          <p className="text-[10.5px] text-slate-400 font-bold">لا توجد دفعات مسجلة لهذا الشهر حالياً.</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-1.5 max-h-[36vh] overflow-y-auto pr-0.5">
+                          {activeCellPayments.map((pay) => {
+                            const isEditing = editingPaymentId === pay.id;
                       const isCancelled = pay.status === 'cancelled' || pay.status === 'لاغي';
                       const isPending = !isCancelled && (pay.status === 'pending' || pay.status === 'لم يتم التحصيل');
                       const isCollected = !isCancelled && !isPending;
@@ -831,25 +1160,36 @@ export const Summaries: React.FC<SummariesProps> = ({
                           className={`px-2.5 py-1.5 border rounded-lg shadow-2xs transition ${cardThemeClass}`}
                         >
                           {isEditing ? (
-                            /* Inline Edit Form */
-                            <div className="space-y-1.5 w-full text-right bg-white p-2 rounded-lg border border-slate-200" dir="rtl">
-                              <h5 className="text-[9.5px] font-black text-blue-900 border-b border-slate-200 pb-0.5">تعديل الدفعة:</h5>
-                              <div className="grid grid-cols-3 gap-1.5">
+                            /* Inline Edit & Distribution Form */
+                            <div className="space-y-2.5 w-full text-right bg-white p-2.5 sm:p-3 rounded-xl border border-slate-200 shadow-sm" dir="rtl">
+                              <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                                <h5 className="text-[11px] font-black text-blue-950 flex items-center gap-1.5">
+                                  <Edit className="w-3.5 h-3.5 text-blue-900" />
+                                  <span>تعديل بيانات الدفعة:</span>
+                                </h5>
+                                <span className="text-[9.5px] font-bold text-slate-500">
+                                  شهر {pay.month} ({monthNamesArabic[parseInt(pay.month, 10) - 1]})
+                                </span>
+                              </div>
+
+                              {/* Basic Inputs */}
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                                 <div className="space-y-0.5">
-                                  <label className="text-[8.5px] font-bold text-slate-500 block">المبلغ (ج.م)</label>
+                                  <label className="text-[9px] font-black text-slate-600 block">المبلغ الإجمالي (ج.م) *</label>
                                   <input
                                     type="number"
+                                    min="1"
                                     value={editAmount}
                                     onChange={(e) => setEditAmount(e.target.value)}
-                                    className="w-full px-2 py-1 bg-white border border-slate-200 rounded text-xs text-right font-bold focus:border-blue-500 outline-none"
+                                    className="w-full px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs text-right font-black focus:border-blue-500 outline-none"
                                   />
                                 </div>
                                 <div className="space-y-0.5">
-                                  <label className="text-[8.5px] font-bold text-slate-500 block">نوع الدفعة</label>
+                                  <label className="text-[9px] font-bold text-slate-600 block">نوع الدفعة</label>
                                   <select
                                     value={editPaymentType}
                                     onChange={(e) => setEditPaymentType(e.target.value)}
-                                    className="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs text-right font-bold focus:border-blue-500 outline-none"
+                                    className="w-full px-1.5 py-1 bg-white border border-slate-200 rounded-lg text-xs text-right font-bold focus:border-blue-500 outline-none cursor-pointer"
                                   >
                                     {(paymentTypes && paymentTypes.length > 0 ? paymentTypes : ['اشتراك شهري', 'صيانة طارئة', 'تحصيلات اخرى']).map(type => (
                                       <option key={type} value={type}>{type}</option>
@@ -857,55 +1197,245 @@ export const Summaries: React.FC<SummariesProps> = ({
                                   </select>
                                 </div>
                                 <div className="space-y-0.5">
-                                  <label className="text-[8.5px] font-bold text-slate-500 block">حالة الدفعة</label>
+                                  <label className="text-[9px] font-bold text-slate-600 block">حالة الدفعة</label>
                                   <select
                                     value={editPaymentStatus}
                                     onChange={(e) => setEditPaymentStatus(e.target.value)}
-                                    className="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs text-right font-bold focus:border-blue-500 outline-none"
+                                    className="w-full px-1.5 py-1 bg-white border border-slate-200 rounded-lg text-xs text-right font-bold focus:border-blue-500 outline-none cursor-pointer"
                                   >
                                     <option value="collected">مسدد</option>
                                     <option value="pending">لم يحصل</option>
                                     <option value="cancelled">لاغي</option>
                                   </select>
                                 </div>
+                                <div className="space-y-0.5">
+                                  <label className="text-[9px] font-bold text-slate-600 block">رقم الإيصال</label>
+                                  <input
+                                    type="text"
+                                    placeholder="اختياري"
+                                    value={editReceiptNumber}
+                                    onChange={(e) => setEditReceiptNumber(e.target.value)}
+                                    className="w-full px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs text-right font-bold focus:border-blue-500 outline-none font-mono"
+                                  />
+                                </div>
                               </div>
 
-                              <div className="flex justify-end gap-1.5 pt-1 border-t border-slate-100">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const parsedAmount = parseFloat(editAmount);
-                                    if (isNaN(parsedAmount) || parsedAmount <= 0) {
-                                      alert('يرجى إدخال مبلغ صحيح أكبر من الصفر.');
-                                      return;
-                                    }
-                                    if (onEditPayment) {
-                                      const updatedPayment: Payment = {
-                                        ...pay,
-                                        amount: parsedAmount,
-                                        paymentType: editPaymentType,
-                                        status: (editPaymentStatus as 'collected' | 'pending' | 'cancelled') || 'collected',
-                                      };
-                                      onEditPayment(updatedPayment);
-                                      setSelectedCell(prev => prev ? {
-                                        ...prev,
-                                        payments: prev.payments.map(p => p.id === pay.id ? updatedPayment : p)
-                                      } : null);
-                                    }
-                                    setEditingPaymentId(null);
-                                  }}
-                                  className="px-2 py-0.5 bg-blue-900 hover:bg-blue-950 text-white font-bold text-[9.5px] rounded flex items-center gap-1 shadow-2xs cursor-pointer"
-                                >
-                                  <Save className="w-2.5 h-2.5" />
-                                  <span>حفظ</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setEditingPaymentId(null)}
-                                  className="px-2 py-0.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-[9.5px] rounded cursor-pointer"
-                                >
-                                  إلغاء
-                                </button>
+                              {/* Multi-Month Aggregated Distribution Section */}
+                              {(() => {
+                                const fee = selectedCell ? getDefaultFeeForResident(selectedCell.resident) : 400;
+                                const parsedAmt = parseFloat(editAmount) || pay.amount;
+                                const coveredCount = fee > 0 ? Math.max(1, Math.round(parsedAmt / fee)) : 1;
+
+                                const count = selectedMonths.length || 1;
+                                const basePerMonth = Math.floor(parsedAmt / count);
+                                const remainder = parsedAmt - (basePerMonth * count);
+                                const sortedSelected = [...selectedMonths].sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
+
+                                return (
+                                  <div className="space-y-2 pt-1 border-t border-slate-100">
+                                    {/* Toggle Distribution Button */}
+                                    <button
+                                      type="button"
+                                      onClick={() => setIsDistributing(!isDistributing)}
+                                      className={`w-full py-1.5 px-3 rounded-xl font-black text-xs flex items-center justify-between border transition shadow-xs cursor-pointer ${
+                                        isDistributing
+                                          ? 'bg-blue-900 text-white border-blue-900 shadow-blue-900/10'
+                                          : 'bg-blue-50/80 text-blue-900 border-blue-200 hover:bg-blue-100/70'
+                                      }`}
+                                    >
+                                      <span className="flex items-center gap-1.5">
+                                        <Calendar className="w-3.5 h-3.5 shrink-0" />
+                                        <span>توزيع هذا المبلغ المجمع على شهور السنة ({currentYear})</span>
+                                      </span>
+                                      <span className={`px-2 py-0.5 rounded-md text-[10px] font-black ${
+                                        isDistributing ? 'bg-white text-blue-900' : 'bg-blue-200 text-blue-950'
+                                      }`}>
+                                        {isDistributing ? `مفعل (${selectedMonths.length} شهور)` : 'انقر لتوزيع المبلغ ⚡'}
+                                      </span>
+                                    </button>
+
+                                    {/* Interactive Month Selection Grid */}
+                                    {isDistributing && (
+                                      <div className="p-3 bg-gradient-to-b from-blue-50/90 to-slate-50 border border-blue-200/80 rounded-xl space-y-2.5">
+                                        {/* Status & Advice Header */}
+                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-white p-2.5 rounded-lg border border-blue-100 shadow-2xs">
+                                          <div className="space-y-0.5 text-right">
+                                            <div className="font-black text-blue-950 text-xs flex items-center gap-1.5">
+                                              <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                                              <span>اشتراك الوحدة: <span className="text-emerald-700">{fee} ج.م/شهر</span></span>
+                                              <span className="text-slate-300">|</span>
+                                              <span>المبلغ المراد توزيعه: <span className="text-blue-900">{parsedAmt} ج.م</span></span>
+                                            </div>
+                                            <p className="text-[10px] text-slate-500 font-bold">
+                                              هذا المبلغ يغطي <span className="font-black text-blue-900 underline">{coveredCount} شهور</span> بالكامل. اختر الشهور المراد تحويلها إلى مسددة:
+                                            </p>
+                                          </div>
+
+                                          {/* Quick Selection Buttons */}
+                                          <div className="flex items-center gap-1 flex-wrap shrink-0">
+                                            <button
+                                              type="button"
+                                              onClick={() => selectAutoCoveredMonths(pay.month, parsedAmt, fee)}
+                                              className="px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-900 rounded-md text-[9.5px] font-black cursor-pointer transition shadow-2xs"
+                                              title={`تحديد ${coveredCount} شهور تلقائياً`}
+                                            >
+                                              تلقائي ({coveredCount} شهور)
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => selectUnpaidMonths(selectedCell.resident.id, pay.month)}
+                                              className="px-2 py-1 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-md text-[9.5px] font-black cursor-pointer transition shadow-2xs"
+                                              title="تحديد كل الشهور غير المسددة"
+                                            >
+                                              الشهور غير المسددة
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => setSelectedMonths([...months])}
+                                              className="px-2 py-1 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-md text-[9.5px] font-black cursor-pointer transition shadow-2xs"
+                                            >
+                                              كامل السنة (12)
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => setSelectedMonths([pay.month])}
+                                              className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-md text-[9.5px] font-bold cursor-pointer transition"
+                                            >
+                                              شهر واحد
+                                            </button>
+                                          </div>
+                                        </div>
+
+                                        {/* 12 Months Grid */}
+                                        <div className="grid grid-cols-2 min-[400px]:grid-cols-3 sm:grid-cols-4 gap-1.5">
+                                          {months.map((m, idx) => {
+                                            const isChecked = selectedMonths.includes(m);
+                                            const status = getSubscriptionStatus(selectedCell.resident.id, m);
+                                            const isCurrentPayMonth = (m === pay.month);
+                                            const hasOtherPayment = status.paid && !isCurrentPayMonth;
+
+                                            const isFirstInSorted = (sortedSelected.length > 0 && m === sortedSelected[0]);
+                                            const monthAllocated = isFirstInSorted ? (basePerMonth + remainder) : basePerMonth;
+
+                                            return (
+                                              <div
+                                                key={m}
+                                                onClick={() => toggleMonthSelection(m)}
+                                                className={`p-2 rounded-lg border text-right transition cursor-pointer select-none flex flex-col justify-between gap-1 shadow-2xs ${
+                                                  isChecked
+                                                    ? 'bg-emerald-50/95 border-emerald-400 ring-2 ring-emerald-500/20 text-emerald-950'
+                                                    : hasOtherPayment
+                                                    ? 'bg-slate-50/80 border-slate-200 text-slate-500 opacity-80'
+                                                    : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300'
+                                                }`}
+                                              >
+                                                <div className="flex items-center justify-between">
+                                                  <span className="text-[11px] font-black truncate">
+                                                    {m} - {monthNamesArabic[idx]}
+                                                  </span>
+                                                  <div className={`w-4 h-4 rounded flex items-center justify-center border transition shrink-0 ${
+                                                    isChecked ? 'bg-emerald-600 border-emerald-600 text-white' : 'border-slate-300 bg-white'
+                                                  }`}>
+                                                    {isChecked && <Check className="w-3 h-3 stroke-[3.5]" />}
+                                                  </div>
+                                                </div>
+
+                                                <div className="flex items-center justify-between text-[9px] pt-1 border-t border-slate-100">
+                                                  {isChecked ? (
+                                                    <span className="font-black text-emerald-800">
+                                                      نصيب: {monthAllocated} ج.م
+                                                    </span>
+                                                  ) : hasOtherPayment ? (
+                                                    <span className="font-bold text-blue-700 bg-blue-50 px-1 rounded text-[8px]">
+                                                      مسدد سابقاً ✓
+                                                    </span>
+                                                  ) : (
+                                                    <span className="font-bold text-red-700 bg-red-50 px-1 rounded text-[8px]">
+                                                      غير مسدد ⚠️
+                                                    </span>
+                                                  )}
+                                                </div>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+
+                                        {/* Summary & Live Preview */}
+                                        {selectedMonths.length > 0 && (
+                                          <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-2.5 text-xs text-emerald-950 space-y-1">
+                                            <div className="flex items-center justify-between font-black">
+                                              <span>عدد الشهور المختارة: <span className="underline">{selectedMonths.length} شهور</span></span>
+                                              <span>نصيب كل شهر: <span className="underline">{basePerMonth} ج.م</span> {remainder > 0 && `(+${remainder} ج.م للشهر الأول)`}</span>
+                                            </div>
+                                            <p className="text-[10px] text-emerald-800 font-bold leading-relaxed">
+                                              ✓ ستتحول الشهور المحددة فوراً إلى <span className="font-black text-emerald-950 underline">مسددة باللون الأخضر</span> في جدول كشف التحصيل وخريطة السداد التفاعلية.
+                                            </p>
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })()}
+
+                              {/* Edit Action Buttons */}
+                              <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100 flex-wrap">
+                                {isMasterDistributionPayment(pay) && (
+                                  confirmCancelId === pay.id ? (
+                                    <div className="flex items-center gap-1.5 bg-rose-50 border border-rose-300 p-1.5 rounded-lg">
+                                      <span className="text-[10px] font-black text-rose-900">تأكيد استعادة كامل المبلغ وإلغاء التوزيع؟</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleCancelDistribution(pay)}
+                                        className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white font-black text-xs rounded cursor-pointer transition shadow-2xs"
+                                      >
+                                        تأكيد الإلغاء ↩️
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setConfirmCancelId(null)}
+                                        className="px-2 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs rounded cursor-pointer transition"
+                                      >
+                                        تراجع
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => setConfirmCancelId(pay.id)}
+                                      className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-850 border border-rose-200 rounded-lg text-xs font-black cursor-pointer transition flex items-center gap-1.5 active:scale-95 shadow-2xs"
+                                      title="إلغاء توزيع هذا السداد وحذف الدفعات التابعة وإرجاع كامل المبلغ لهذا الشهر"
+                                    >
+                                      <RotateCcw className="w-3.5 h-3.5 text-rose-700" />
+                                      <span>إلغاء التوزيع واستعادة المبلغ ↩️</span>
+                                    </button>
+                                  )
+                                )}
+                                <div className="flex items-center gap-2 mr-auto">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSavePayment(pay)}
+                                    className="px-3 py-1.5 bg-blue-900 hover:bg-blue-950 active:scale-95 text-white font-black text-xs rounded-lg flex items-center gap-1.5 shadow-xs cursor-pointer transition"
+                                  >
+                                    <Save className="w-3.5 h-3.5" />
+                                    <span>
+                                      {isDistributing && selectedMonths.length > 1
+                                        ? `تطبيق وتوزيع المبلغ على (${selectedMonths.length}) شهور (حفظ) 💾`
+                                        : 'حفظ التعديل'}
+                                    </span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingPaymentId(null);
+                                      setIsDistributing(false);
+                                      setConfirmCancelId(null);
+                                    }}
+                                    className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs rounded-lg cursor-pointer transition"
+                                  >
+                                    إلغاء
+                                  </button>
+                                </div>
                               </div>
                             </div>
                           ) : (
@@ -919,11 +1449,39 @@ export const Summaries: React.FC<SummariesProps> = ({
                                 <span className="text-xs font-black text-slate-900">
                                   {pay.amount} ج.م
                                 </span>
+                                {(() => {
+                                  const isMaster = isMasterDistributionPayment(pay);
+                                  const isChild = isChildDistributedPayment(pay);
+                                  if (isMaster) {
+                                    return (
+                                      <span className="px-1.5 py-0.2 bg-emerald-100 text-emerald-900 border border-emerald-300 rounded text-[8px] font-black flex items-center gap-1">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                                        <span>تم التوزيع منه</span>
+                                      </span>
+                                    );
+                                  }
+                                  if (isChild) {
+                                    return (
+                                      <span className="px-1.5 py-0.2 bg-slate-100 text-slate-700 border border-slate-200 rounded text-[8px] font-bold">
+                                        <span>موزع من سداد مجمع</span>
+                                      </span>
+                                    );
+                                  }
+                                  if (isOriginalAggregatedPayment(pay)) {
+                                    return (
+                                      <span className="px-1.5 py-0.2 bg-amber-100 text-amber-900 border border-amber-300 rounded text-[8px] font-black flex items-center gap-0.5">
+                                        <Sparkles className="w-2.5 h-2.5 text-amber-600" />
+                                        <span>تحصيل مجمع</span>
+                                      </span>
+                                    );
+                                  }
+                                  return null;
+                                })()}
                                 <span className="text-[9px] text-slate-500 font-semibold">
                                   {pay.date}
                                 </span>
                                 {pay.receiptNumber && (
-                                  <span className="text-[8.5px] text-slate-600 font-bold bg-white/90 px-1.5 py-0.5 rounded border border-slate-200/60">
+                                  <span className="text-[8.5px] text-slate-600 font-bold bg-white/90 px-1.5 py-0.5 rounded border border-slate-200/60 font-mono">
                                     #{pay.receiptNumber}
                                   </span>
                                 )}
@@ -942,16 +1500,69 @@ export const Summaries: React.FC<SummariesProps> = ({
                                   </a>
                                 )}
 
-                                 {!isReadOnly && role !== 'ASSISTANT' && (
+                                {!isReadOnly && role !== 'ASSISTANT' && (
                                   <>
+                                    {/* Dedicated Multi-Month Distribute Button: ONLY for original aggregated collection or master payment */}
+                                    {isOriginalAggregatedPayment(pay) && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleStartEdit(pay, true)}
+                                        className={`px-2 py-1 rounded-md transition cursor-pointer flex items-center gap-1.5 text-[9.5px] font-black shadow-2xs active:scale-95 border ${
+                                          isMasterDistributionPayment(pay)
+                                            ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-950 border-emerald-400 ring-2 ring-emerald-500/20'
+                                            : 'bg-blue-100 hover:bg-blue-200 text-blue-900 border-blue-200'
+                                        }`}
+                                        title={
+                                          isMasterDistributionPayment(pay)
+                                            ? 'تم التوزيع من هذه الدفعة - انقر لتعديل التوزيع'
+                                            : 'تحصيل مجمع - انقر لتوزيع المبلغ على شهور السنة'
+                                        }
+                                      >
+                                        {/* Green dot on the original button that distributed the payment */}
+                                        {isMasterDistributionPayment(pay) && (
+                                          <span className="w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-emerald-300 animate-pulse shrink-0" />
+                                        )}
+                                        <Calendar className={`w-3 h-3 shrink-0 ${isMasterDistributionPayment(pay) ? 'text-emerald-700' : 'text-blue-700'}`} />
+                                        <span>{isMasterDistributionPayment(pay) ? 'توزيع مجمع (موزع)' : 'توزيع مجمع'}</span>
+                                      </button>
+                                    )}
+
+                                    {/* Dedicated Direct Cancel Distribution Button: ONLY on original master payment with green dot */}
+                                    {isMasterDistributionPayment(pay) && (
+                                      confirmCancelId === pay.id ? (
+                                        <div className="flex items-center gap-1 bg-rose-50 border border-rose-300 px-1.5 py-0.5 rounded-lg animate-in fade-in">
+                                          <span className="text-[9px] font-black text-rose-900">تأكيد؟</span>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleCancelDistribution(pay)}
+                                            className="px-2 py-0.5 bg-rose-600 hover:bg-rose-700 text-white rounded text-[9px] font-black cursor-pointer transition shadow-2xs"
+                                          >
+                                            نعم، استعادة ↩️
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => setConfirmCancelId(null)}
+                                            className="px-1.5 py-0.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded text-[9px] font-bold cursor-pointer transition"
+                                          >
+                                            تراجع
+                                          </button>
+                                        </div>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={() => setConfirmCancelId(pay.id)}
+                                          className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 rounded-md transition cursor-pointer flex items-center gap-1 text-[9.5px] font-black shadow-2xs active:scale-95"
+                                          title="إلغاء توزيع هذا السداد واستعادة المبلغ بالكامل في هذا الشهر الأصلي"
+                                        >
+                                          <RotateCcw className="w-3 h-3 text-rose-700 shrink-0" />
+                                          <span>إلغاء التوزيع ↩️</span>
+                                        </button>
+                                      )
+                                    )}
+
+                                    {/* Edit Button */}
                                     <button
-                                      onClick={() => {
-                                        setEditingPaymentId(pay.id);
-                                        setEditAmount(String(pay.amount));
-                                        setEditPaymentType(pay.paymentType || 'اشتراك شهري');
-                                        setEditPaymentStatus(pay.status || 'collected');
-                                        setEditReceiptNumber(pay.receiptNumber || '');
-                                      }}
+                                      onClick={() => handleStartEdit(pay, false)}
                                       className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-white/80 rounded transition cursor-pointer"
                                       title="تعديل"
                                     >
@@ -1114,7 +1725,8 @@ export const Summaries: React.FC<SummariesProps> = ({
             </div>
           </div>
         </div>
-      )}
+      );
+    })()}
     </div>
   );
 };

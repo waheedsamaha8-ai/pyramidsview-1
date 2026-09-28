@@ -1,5 +1,6 @@
 import { ReceiptClaimData } from '../components/ReceiptClaimModal';
 import { Resident } from '../types';
+import { getHistoricalOccupantForDate } from './buildingStructure';
 import { 
   formatMobileNumber, 
   formatPhoneForDisplay, 
@@ -48,7 +49,13 @@ export function getReceiptClaimMetadata(data: ReceiptClaimData, residents: Resid
   })();
 
   const residentRecord = residents.find(r => String(r.flatNumber) === String(data.unitNumber)) || null;
-  const rawPhone = data.phone || residentRecord?.phone || '';
+  const historicalOccupant = residentRecord ? getHistoricalOccupantForDate(residentRecord, `${data.year}-${data.month}`) : null;
+  const resolvedOwnerName = historicalOccupant?.ownerName || data.residentName;
+  const resolvedOwnerPhone = historicalOccupant?.ownerPhone || data.phone;
+  const resolvedTenantName = historicalOccupant?.tenantName !== undefined ? historicalOccupant.tenantName : data.tenantName;
+  const resolvedTenantPhone = historicalOccupant?.tenantPhone || data.tenantPhone;
+
+  const rawPhone = resolvedOwnerPhone || data.phone || residentRecord?.phone || '';
   const formattedPhone = rawPhone ? formatMobileNumber(rawPhone) : '';
 
   const activityType = data.activityType || residentRecord?.activityType || 'سكني';
@@ -67,12 +74,15 @@ export function getReceiptClaimMetadata(data: ReceiptClaimData, residents: Resid
 
   const occupantInfo = getOccupantStructuredInfo(
     {
-      residentName: data.residentName,
-      tenantName: data.tenantName,
-      phone: data.phone,
-      tenantPhone: data.tenantPhone,
+      residentName: resolvedOwnerName,
+      tenantName: resolvedTenantName,
+      phone: resolvedOwnerPhone,
+      tenantPhone: resolvedTenantPhone,
       occupancyType: occupancyType,
-      unitNumber: data.unitNumber
+      unitNumber: data.unitNumber,
+      period: `${data.year}-${data.month}`,
+      year: data.year,
+      month: data.month
     },
     residentRecord
   );

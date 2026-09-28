@@ -3,7 +3,7 @@ import { Resident } from '../types';
 import { shareImageViaWhatsApp } from '../utils/shareImageViaWhatsApp';
 import { generateElementImageBlob } from '../utils/imageExport';
 import { generateReceiptClaimFast, printReceiptClaim } from '../utils/receiptClaimGenerator';
-import { groupResidentsByFloor, formatResidentOptionLabel } from '../utils/buildingStructure';
+import { groupResidentsByFloor, formatResidentOptionLabel, getHistoricalOccupantForDate } from '../utils/buildingStructure';
 import { 
   formatMobileNumber, 
   formatPhoneForDisplay, 
@@ -140,19 +140,32 @@ const ReceiptClaimModalContent: React.FC<{
 
   const showCarriedDebt = carriedDebt > 0;
 
+  const historicalOccupant = useMemo(() => {
+    if (!residentRecord) return null;
+    return getHistoricalOccupantForDate(residentRecord, `${data.year}-${data.month}`);
+  }, [residentRecord, data.year, data.month]);
+
+  const resolvedOwnerName = historicalOccupant?.ownerName || data.residentName;
+  const resolvedOwnerPhone = historicalOccupant?.ownerPhone || data.phone;
+  const resolvedTenantName = historicalOccupant?.tenantName !== undefined ? historicalOccupant.tenantName : data.tenantName;
+  const resolvedTenantPhone = historicalOccupant?.tenantPhone || data.tenantPhone;
+
   const occupantInfo = useMemo(() => {
     return getOccupantStructuredInfo(
       {
-        residentName: data.residentName,
-        tenantName: data.tenantName,
-        phone: data.phone,
-        tenantPhone: data.tenantPhone,
+        residentName: resolvedOwnerName,
+        tenantName: resolvedTenantName,
+        phone: resolvedOwnerPhone,
+        tenantPhone: resolvedTenantPhone,
         occupancyType: occupancyType,
-        unitNumber: data.unitNumber
+        unitNumber: data.unitNumber,
+        period: `${data.year}-${data.month}`,
+        year: data.year,
+        month: data.month
       },
       residentRecord
     );
-  }, [data, occupancyType, residentRecord]);
+  }, [data, resolvedOwnerName, resolvedTenantName, resolvedOwnerPhone, resolvedTenantPhone, occupancyType, residentRecord]);
 
   const occupantDisplay = occupantInfo.singleLine;
 
@@ -207,20 +220,20 @@ const ReceiptClaimModalContent: React.FC<{
   }, [selectedOtherResidentId, residents]);
 
   const activePhone = useMemo(() => {
-    if (recipientChoice === 'owner') return data.phone || '';
-    if (recipientChoice === 'tenant') return data.tenantPhone || '';
+    if (recipientChoice === 'owner') return resolvedOwnerPhone || data.phone || '';
+    if (recipientChoice === 'tenant') return resolvedTenantPhone || data.tenantPhone || '';
     if (recipientChoice === 'other') return selectedOtherResident?.phone || selectedOtherResident?.tenantPhone || '';
     return customPhone;
-  }, [recipientChoice, data.phone, data.tenantPhone, selectedOtherResident, customPhone]);
+  }, [recipientChoice, data.phone, data.tenantPhone, resolvedOwnerPhone, resolvedTenantPhone, selectedOtherResident, customPhone]);
 
   const activeRecipientName = useMemo(() => {
-    if (recipientChoice === 'owner') return `وحدة ${data.unitNumber} (${data.residentName})`;
-    if (recipientChoice === 'tenant') return `مستأجر وحدة ${data.unitNumber} (${data.tenantName || 'المستأجر'})`;
+    if (recipientChoice === 'owner') return `وحدة ${data.unitNumber} (${resolvedOwnerName})`;
+    if (recipientChoice === 'tenant') return `مستأجر وحدة ${data.unitNumber} (${resolvedTenantName || 'المستأجر'})`;
     if (recipientChoice === 'other') {
       return selectedOtherResident ? `وحدة ${selectedOtherResident.flatNumber} (${selectedOtherResident.name})` : 'وحدة أخرى';
     }
     return customRecipientName || `وحدة ${data.unitNumber}`;
-  }, [recipientChoice, data, selectedOtherResident, customRecipientName]);
+  }, [recipientChoice, data.unitNumber, resolvedOwnerName, resolvedTenantName, selectedOtherResident, customRecipientName]);
 
   const fileName = isReceipt
     ? `إيصال_سداد_وحدة_${data.unitNumber}_شهر_${monthName}_${data.year}.png`
@@ -499,7 +512,7 @@ const ReceiptClaimModalContent: React.FC<{
                 }`}
               >
                 <User className="w-3.5 h-3.5 shrink-0" />
-                <span className="truncate">المالك ({data.residentName.split(' ')[0]})</span>
+                <span className="truncate">المالك ({resolvedOwnerName.split(' ')[0]})</span>
               </button>
 
               {hasTenant ? (
@@ -513,7 +526,7 @@ const ReceiptClaimModalContent: React.FC<{
                   }`}
                 >
                   <Building2 className="w-3.5 h-3.5 shrink-0" />
-                  <span className="truncate">المستأجر ({data.tenantName ? data.tenantName.split(' ')[0] : 'الشاغل'})</span>
+                  <span className="truncate">المستأجر ({resolvedTenantName ? resolvedTenantName.split(' ')[0] : 'الشاغل'})</span>
                 </button>
               ) : (
                 <button
@@ -562,18 +575,18 @@ const ReceiptClaimModalContent: React.FC<{
             {/* Dynamic Recipient Details / Inputs */}
             {recipientChoice === 'owner' && (
               <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between text-xs">
-                <span className="font-bold text-slate-600">اسم المالك: {data.residentName}</span>
+                <span className="font-bold text-slate-600">اسم المالك: {resolvedOwnerName}</span>
                 <span className="font-mono font-black text-emerald-800" dir="ltr">
-                  {data.phone ? formatPhoneForDisplay(data.phone) : 'لا يوجد رقم مسجل للمالك'}
+                  {resolvedOwnerPhone ? formatPhoneForDisplay(resolvedOwnerPhone) : 'لا يوجد رقم مسجل للمالك'}
                 </span>
               </div>
             )}
 
             {recipientChoice === 'tenant' && (
               <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between text-xs">
-                <span className="font-bold text-slate-600">اسم المستأجر: {data.tenantName || 'غير محدد'}</span>
+                <span className="font-bold text-slate-600">اسم المستأجر: {resolvedTenantName || 'غير محدد'}</span>
                 <span className="font-mono font-black text-emerald-800" dir="ltr">
-                  {data.tenantPhone ? formatPhoneForDisplay(data.tenantPhone) : 'لا يوجد رقم مسجل للمستأجر'}
+                  {resolvedTenantPhone ? formatPhoneForDisplay(resolvedTenantPhone) : 'لا يوجد رقم مسجل للمستأجر'}
                 </span>
               </div>
             )}

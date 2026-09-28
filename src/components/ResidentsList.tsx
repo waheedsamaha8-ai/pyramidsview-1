@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Resident, UserRole, FloorConfig, Payment, AppConfig, JoinRequest } from '../types';
-import { Search, Phone, Edit, Trash2, Home, AlertCircle, LayoutGrid, List, Settings2, Plus, X, Building2, Save, User, KeyRound, Wallet, ArrowDownRight, ArrowUpRight, CheckCircle2, UserCheck, UserX, Clock, Share2, RefreshCw, ShieldCheck, SlidersHorizontal, Contact } from 'lucide-react';
-import { deriveFloorConfigsFromResidents, floorTypeLabels, getFloorName, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber, parseFlatNumber } from '../utils/buildingStructure';
+import { Search, Phone, Edit, Trash2, Home, AlertCircle, LayoutGrid, List, Settings2, Plus, X, Building2, Save, User, KeyRound, Wallet, ArrowDownRight, ArrowUpRight, CheckCircle2, UserCheck, UserX, Clock, Share2, RefreshCw, ShieldCheck, SlidersHorizontal, Contact, History } from 'lucide-react';
+import { deriveFloorConfigsFromResidents, floorTypeLabels, getFloorName, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber, parseFlatNumber, getLatestOccupantFromHistory } from '../utils/buildingStructure';
 import * as googleApi from '../services/googleApi';
 import { 
   fetchAllJoinRequests, 
@@ -12,6 +12,7 @@ import { ConfirmModal } from './ConfirmModal';
 import { ResidentInviteModal } from './ResidentInviteModal';
 import { AddEditResidentModal } from './modals/AddEditResidentModal';
 import { BuildingStructureModal } from './modals/BuildingStructureModal';
+import { UnitHistoryModal } from './modals/UnitHistoryModal';
 import { useResidentsData } from '../hooks/useResidentsData';
 import { 
   calculateResidentFinancials, 
@@ -39,6 +40,7 @@ const columnLabels: Record<string, string> = {
   activityType: "نوع النشاط",
   notes: "ملاحظات",
   actions: "الإجراءات",
+  unitHistory: "سجل الوحدة",
   membership: "دعوات الواتس",
 };
 
@@ -65,6 +67,7 @@ const DEFAULT_VISIBLE_COLUMNS: Record<string, boolean> = {
   activityType: true,
   notes: true,
   actions: true,
+  unitHistory: true,
   membership: true,
 };
 
@@ -125,6 +128,7 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
   const [requestToDelete, setRequestToDelete] = useState<JoinRequest | null>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [inviteResidentTarget, setInviteResidentTarget] = useState<Resident | null>(null);
+  const [historyModalResident, setHistoryModalResident] = useState<Resident | null>(null);
 
   const {
     searchTerm,
@@ -436,6 +440,12 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                     const isSurplus = fin.netBalance > 0;
 
                     const isSelected = selectedItemId === res.id;
+                    const occ = res.history && res.history.length > 0 ? getLatestOccupantFromHistory(res) : null;
+                    const displayOwnerName = occ ? (occ.ownerName || res.name) : res.name;
+                    const displayOwnerPhone = occ ? occ.ownerPhone : res.phone;
+                    const displayTenantName = occ ? occ.tenantName : (res.ownershipType === 'إيجار' ? res.tenantName : undefined);
+                    const displayTenantPhone = occ ? occ.tenantPhone : (displayTenantName ? res.tenantPhone : undefined);
+                    const isRented = Boolean(displayTenantName && displayTenantName.trim());
 
                     return (
                       <div
@@ -456,7 +466,7 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                             </span>
                             
                             <div className="flex items-center gap-1">
-                              {res.ownershipType === 'إيجار' ? (
+                              {isRented ? (
                                 <span className="px-2 py-0.5 bg-amber-50 text-amber-800 border border-amber-200/60 rounded-md text-[9px] font-extrabold flex items-center gap-0.5">
                                   <KeyRound className="w-2.5 h-2.5" />
                                   <span>مستأجرة</span>
@@ -476,12 +486,12 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                           {/* Owner / Resident Name */}
                           <div>
                             <div className="text-[10px] text-slate-400 font-bold">المالك / الشاغل الأساسي:</div>
-                            <h4 className="text-xs sm:text-sm font-black text-slate-900 leading-tight">{res.name}</h4>
+                            <h4 className="text-xs sm:text-sm font-black text-slate-900 leading-tight">{displayOwnerName}</h4>
                           </div>
 
-                          {res.phone && (
+                          {displayOwnerPhone && (
                             <div className="flex flex-col items-start gap-1 font-mono text-[10px]" dir="ltr">
-                              {res.phone.split(/[,/;|\n]+/).map((part, pIdx) => {
+                              {displayOwnerPhone.split(/[,/;|\n]+/).map((part, pIdx) => {
                                 const cleanPhone = formatMobileNumber(part);
                                 if (!cleanPhone) return null;
                                 return (
@@ -490,7 +500,7 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                                     href={`tel:${cleanPhone}`}
                                     onClick={(e) => e.stopPropagation()}
                                     className="inline-flex items-center gap-1.5 text-blue-900 hover:text-blue-700 hover:underline font-bold font-mono transition px-2 py-1 bg-blue-50/70 hover:bg-blue-100/70 rounded-lg phone-number-display"
-                                    title={`اتصال هاتفي بالمالك ${res.name}: ${cleanPhone}`}
+                                    title={`اتصال هاتفي بالمالك ${displayOwnerName}: ${cleanPhone}`}
                                     dir="ltr"
                                   >
                                     <Phone className="w-3 h-3 text-blue-900 shrink-0" />
@@ -501,18 +511,18 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                             </div>
                           )}
 
-                          {/* Tenant Info if Rented */}
-                          {res.ownershipType === 'إيجار' && res.tenantName && (
+                          {/* Tenant Info if Rented in current period */}
+                          {isRented && displayTenantName && (
                             <div className="p-2.5 bg-amber-50/60 rounded-xl border border-amber-200/60 space-y-1.5">
                               <div className="flex items-center justify-between text-[10px]">
                                 <span className="text-amber-900 font-black flex items-center gap-1">
                                   <User className="w-3 h-3 text-amber-700" />
-                                  <span>المستأجر: {res.tenantName}</span>
+                                  <span>المستأجر: {displayTenantName}</span>
                                 </span>
                               </div>
-                              {res.tenantPhone && (
+                              {displayTenantPhone && (
                                 <div className="flex flex-col items-start gap-1 font-mono text-[10px]" dir="ltr">
-                                  {res.tenantPhone.split(/[,/;|\n]+/).map((part, pIdx) => {
+                                  {displayTenantPhone.split(/[,/;|\n]+/).map((part, pIdx) => {
                                     const cleanPhone = formatMobileNumber(part);
                                     if (!cleanPhone) return null;
                                     return (
@@ -521,7 +531,7 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                                         href={`tel:${cleanPhone}`}
                                         onClick={(e) => e.stopPropagation()}
                                         className="inline-flex items-center gap-1 text-amber-800 hover:text-amber-950 hover:underline font-bold font-mono transition px-1.5 py-0.5 bg-amber-100/60 hover:bg-amber-200/60 rounded-md phone-number-display"
-                                        title={`اتصال هاتفي بالمستأجر ${res.tenantName}: ${cleanPhone}`}
+                                        title={`اتصال هاتفي بالمستأجر ${displayTenantName}: ${cleanPhone}`}
                                         dir="ltr"
                                       >
                                         <Phone className="w-2.5 h-2.5 text-amber-700 shrink-0" />
@@ -570,17 +580,25 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
 
                         {/* Admin Action Buttons */}
                         {!isReadOnly && role !== 'ASSISTANT' && (
-                          <div className="flex items-center gap-2 border-t border-slate-100/80 pt-2.5 mt-3">
+                          <div className="flex flex-wrap items-center gap-2 border-t border-slate-100/80 pt-2.5 mt-3">
+                            <button
+                              onClick={() => setHistoryModalResident(res)}
+                              className="flex-1 min-w-[90px] flex items-center justify-center gap-1.5 px-3 py-2 border border-purple-200 bg-purple-50/60 text-purple-900 rounded-xl text-[11px] font-black hover:bg-purple-100 transition transform hover:scale-105 active:scale-95 cursor-pointer shadow-2xs"
+                              title="سجل الملكية والتغييرات الزمنية للوحدة"
+                            >
+                              <History className="w-4 h-4 text-purple-700" />
+                              <span>سجل الوحدة</span>
+                            </button>
                             <button
                               onClick={() => openEditModal(res)}
-                              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 border border-slate-200 text-slate-700 rounded-xl text-[11px] font-black hover:bg-slate-50 transition transform hover:scale-105 active:scale-95 cursor-pointer shadow-2xs"
+                              className="flex-1 min-w-[70px] flex items-center justify-center gap-1.5 px-3 py-2 border border-slate-200 text-slate-700 rounded-xl text-[11px] font-black hover:bg-slate-50 transition transform hover:scale-105 active:scale-95 cursor-pointer shadow-2xs"
                             >
                               <Edit className="w-4 h-4 text-blue-900" />
                               <span>تعديل</span>
                             </button>
                             <button
                               onClick={() => handleDelete(res.id, res.name)}
-                              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 border border-rose-200 bg-rose-50/50 text-rose-600 rounded-xl text-[11px] font-black hover:bg-rose-100 transition transform hover:scale-105 active:scale-95 cursor-pointer shadow-2xs"
+                              className="flex-1 min-w-[70px] flex items-center justify-center gap-1.5 px-3 py-2 border border-rose-200 bg-rose-50/50 text-rose-600 rounded-xl text-[11px] font-black hover:bg-rose-100 transition transform hover:scale-105 active:scale-95 cursor-pointer shadow-2xs"
                             >
                               <Trash2 className="w-4 h-4" />
                               <span>حذف</span>
@@ -634,6 +652,9 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                       )}
                       {!isReadOnly && role !== 'ASSISTANT' && visibleColumns.actions && (
                         <th className="w-16 sm:w-20 px-1 py-1.5 text-center whitespace-nowrap">الإجراءات</th>
+                      )}
+                      {visibleColumns.unitHistory && (
+                        <th className="w-20 sm:w-24 px-1 py-1.5 text-center whitespace-nowrap">سجل الوحدة</th>
                       )}
                       {role === 'ADMIN' && visibleColumns.membership && (
                         <th className="w-14 sm:w-16 px-0.5 py-1 text-center whitespace-nowrap">دعوات الواتس</th>
@@ -709,7 +730,12 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                         const isSelected = selectedItemId === res.id;
                         const status = res.accountStatus || 'ACTIVE';
 
-                        const hasTenant = res.ownershipType === 'إيجار' && Boolean(res.tenantName && res.tenantName.trim());
+                        const occ = res.history && res.history.length > 0 ? getLatestOccupantFromHistory(res) : null;
+                        const displayOwnerName = occ ? (occ.ownerName || res.name) : res.name;
+                        const displayOwnerPhone = occ ? occ.ownerPhone : res.phone;
+                        const displayTenantName = occ ? occ.tenantName : (res.ownershipType === 'إيجار' ? res.tenantName : undefined);
+                        const displayTenantPhone = occ ? occ.tenantPhone : (displayTenantName ? res.tenantPhone : undefined);
+                        const hasTenant = Boolean(displayTenantName && displayTenantName.trim());
 
                         return (
                           <tr 
@@ -738,7 +764,7 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                                 <div className="flex flex-col gap-0.5 justify-center">
                                   {/* Owner Name */}
                                   <div className="flex items-center gap-1">
-                                    <span className="font-bold text-slate-900 text-xs truncate max-w-[110px]">{res.name}</span>
+                                    <span className="font-bold text-slate-900 text-xs truncate max-w-[110px]">{displayOwnerName}</span>
                                     {hasTenant && (
                                       <span className="text-[8px] font-bold text-slate-500 bg-slate-100 px-1 py-0.2 rounded">مالك</span>
                                     )}
@@ -748,7 +774,7 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                                   {hasTenant && (
                                     <div className="flex items-center gap-1 text-amber-950 font-black text-[9.5px] pt-0.5 border-t border-slate-100">
                                       <span className="text-[7.5px] font-extrabold bg-amber-100 text-amber-900 px-1 py-0.2 rounded border border-amber-200/80">مستأجر</span>
-                                      <span className="truncate max-w-[95px]">{res.tenantName}</span>
+                                      <span className="truncate max-w-[95px]">{displayTenantName}</span>
                                     </div>
                                   )}
                                 </div>
@@ -760,9 +786,9 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                               <td className="min-w-[90px] max-w-[125px] px-1.5 py-1.5 text-slate-600 whitespace-nowrap" dir="ltr">
                                 <div className="flex flex-col gap-0.5 items-start justify-center">
                                   {/* Owner Phone */}
-                                  {res.phone ? (
+                                  {displayOwnerPhone ? (
                                     <div className="flex flex-wrap items-center gap-0.5">
-                                      {res.phone.split(/[,/;|\n]+/).map((part, pIdx) => {
+                                      {displayOwnerPhone.split(/[,/;|\n]+/).map((part, pIdx) => {
                                         const cleanPhone = formatMobileNumber(part);
                                         if (!cleanPhone) return null;
                                         return (
@@ -771,7 +797,7 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                                             href={`tel:${cleanPhone}`}
                                             onClick={(e) => e.stopPropagation()}
                                             className="inline-flex items-center gap-0.5 text-blue-900 hover:text-blue-700 hover:underline font-bold font-mono transition px-1 py-0.2 rounded hover:bg-blue-50 phone-number-display text-[10.5px]"
-                                            title={`اتصال هاتفياً بالمالك ${res.name}: ${cleanPhone}`}
+                                            title={`اتصال هاتفياً بالمالك ${displayOwnerName}: ${cleanPhone}`}
                                             dir="ltr"
                                           >
                                             <Phone className="w-2.5 h-2.5 text-blue-900 shrink-0" />
@@ -786,9 +812,9 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
 
                                   {/* Tenant Phone if exists */}
                                   {hasTenant && (
-                                    res.tenantPhone ? (
+                                    displayTenantPhone ? (
                                       <div className="flex flex-wrap items-center gap-0.5 pt-0.5 border-t border-slate-100 w-full">
-                                        {res.tenantPhone.split(/[,/;|\n]+/).map((part, pIdx) => {
+                                        {displayTenantPhone.split(/[,/;|\n]+/).map((part, pIdx) => {
                                           const cleanPhone = formatMobileNumber(part);
                                           if (!cleanPhone) return null;
                                           return (
@@ -797,7 +823,7 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                                               href={`tel:${cleanPhone}`}
                                               onClick={(e) => e.stopPropagation()}
                                               className="inline-flex items-center gap-0.5 text-amber-800 hover:text-amber-950 hover:underline font-bold font-mono transition px-1 py-0.2 rounded hover:bg-amber-50 phone-number-display text-[10px]"
-                                              title={`اتصال هاتفياً بالمستأجر ${res.tenantName}: ${cleanPhone}`}
+                                              title={`اتصال هاتفياً بالمستأجر ${displayTenantName}: ${cleanPhone}`}
                                               dir="ltr"
                                             >
                                               <Phone className="w-2.5 h-2.5 text-amber-800 shrink-0" />
@@ -883,6 +909,21 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                                     <Trash2 className="w-4 h-4" />
                                   </button>
                                 </div>
+                              </td>
+                            )}
+
+                            {/* Unit History Record */}
+                            {visibleColumns.unitHistory && (
+                              <td className="w-20 sm:w-24 px-1 py-1.5 whitespace-nowrap text-center">
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); setHistoryModalResident(res); }}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 text-[10.5px] font-black text-purple-900 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-lg transition transform hover:scale-105 active:scale-95 cursor-pointer shadow-2xs"
+                                  title="تسلسل الملاك والمستأجرين عبر الزمن للوحدة"
+                                >
+                                  <History className="w-3.5 h-3.5 text-purple-700 shrink-0" />
+                                  <span>سجل الوحدة</span>
+                                </button>
                               </td>
                             )}
 
@@ -1319,6 +1360,17 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
         }}
         residents={residents}
         initialResident={inviteResidentTarget}
+      />
+
+      {/* Unit Ownership & Occupancy History Modal */}
+      <UnitHistoryModal
+        isOpen={historyModalResident !== null}
+        resident={historyModalResident}
+        onClose={() => setHistoryModalResident(null)}
+        onUpdateResident={(updatedResident) => {
+          setHistoryModalResident(updatedResident);
+          onEdit(updatedResident);
+        }}
       />
     </div>
   );

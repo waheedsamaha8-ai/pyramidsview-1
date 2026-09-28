@@ -96,7 +96,7 @@ import { ImagePreviewModal } from './components/modals/ImagePreviewModal';
 import { BuildingRulesModal } from './components/modals/BuildingRulesModal';
 import { ActivityUnitsModal } from './components/modals/ActivityUnitsModal';
 import { calculateResidentFinancials } from './utils/financialCalculations';
-import { removeUnitFromBuildingLayout, addUnitToBuildingLayout, compareFlatNumbers, isSameFlatNumber, parseFlatNumber, getUnitNumbersForFloor, deriveFloorConfigsFromResidents, deduplicateResidents } from './utils/buildingStructure';
+import { removeUnitFromBuildingLayout, addUnitToBuildingLayout, compareFlatNumbers, isSameFlatNumber, parseFlatNumber, getUnitNumbersForFloor, deriveFloorConfigsFromResidents, deduplicateResidents, syncResidentCurrentOccupant } from './utils/buildingStructure';
 import { formatMobileNumber, formatPhoneForDisplay } from './utils/phoneUtils';
 import { 
   canDeleteChatMessage, 
@@ -230,7 +230,7 @@ export default function App() {
       if (raw && Array.isArray(raw)) {
         return raw
           .filter(r => r && r.id && (!['1', '2', '3'].includes(String(r.id)) || (r.name !== 'محمد أحمد' && r.name !== 'خالد مصطفى' && r.name !== 'سمير عبد الله')))
-          .map(r => ({
+          .map(r => syncResidentCurrentOccupant({
             ...r,
             notes: (r.notes || '').includes('توليد تلقائي') ? '' : (r.notes || '')
           }));
@@ -804,7 +804,7 @@ export default function App() {
       }
       if (!detailKey || detailKey.includes('residents')) {
         const raw = offlineSync.getCachedData<Resident[]>('residents');
-        if (raw && Array.isArray(raw)) setResidents(raw);
+        if (raw && Array.isArray(raw)) setResidents(raw.map(syncResidentCurrentOccupant));
       }
       if (!detailKey || detailKey.includes('payments')) {
         const raw = offlineSync.getCachedData<Payment[]>('payments');
@@ -1246,7 +1246,7 @@ export default function App() {
 
   const setAllResidents = async (newResidents: Resident[]) => {
     if (role === 'RESIDENT') return;
-    const cleanResidents = deduplicateResidents(newResidents);
+    const cleanResidents = deduplicateResidents(newResidents).map(syncResidentCurrentOccupant);
     setResidents(cleanResidents);
     offlineSync.saveCachedData('residents', cleanResidents);
     
@@ -1292,8 +1292,9 @@ export default function App() {
     const existing = residents.find(r => r.id === resident.id);
     const oldFlatNumber = existing ? existing.flatNumber : resident.flatNumber;
 
+    const syncedResident = syncResidentCurrentOccupant(resident);
     // Immediately persist in local state and offline cache
-    const updatedResidents = residents.map((r) => (r.id === resident.id || isSameFlatNumber(r.flatNumber, resident.flatNumber)) ? resident : r);
+    const updatedResidents = residents.map((r) => (r.id === syncedResident.id || isSameFlatNumber(r.flatNumber, syncedResident.flatNumber)) ? syncedResident : r);
     setResidents(updatedResidents);
     offlineSync.saveCachedData('residents', updatedResidents);
 
@@ -1424,6 +1425,50 @@ export default function App() {
         offlineSync.enqueueAction('EDIT_PAYMENT', payload);
         addNotification('حفظ محلي (قيد المزامنة)', `تم تحديث الدفعة محلياً وسيتم رفعها لفايربيز تلقائياً.`, 'info', 'services');
       });
+  };
+
+  const distributePayment = (originalPaymentId: string, distributedPayments: Payment[], deletedPaymentIds?: string[]) => {
+    const cleanOrigId = String(originalPaymentId);
+    offlineSync.purgeEntityFromQueue(cleanOrigId);
+
+    // Find any previous child payments linked via distributionSourceId or explicit list
+    const linkedChildIds = payments
+      .filter(p => String(p.distributionSourceId || '') === cleanOrigId)
+      .map(p => String(p.id));
+
+    const allIdsToRemove = new Set<string>([
+      cleanOrigId,
+      ...linkedChildIds,
+      ...(deletedPaymentIds ? deletedPaymentIds.map(String) : [])
+    ]);
+
+    allIdsToRemove.forEach(id => {
+      if (!distributedPayments.some(dp => String(dp.id) === id)) {
+        offlineSync.purgeEntityFromQueue(id);
+        firestoreService.deletePaymentFromFirestore(id).catch(() => {});
+      }
+    });
+
+    // 1. Remove original payment and any removed child payments, then insert new distributed payments
+    const filteredPayments = payments.filter((p) => !allIdsToRemove.has(String(p.id)));
+    const updatedPayments = [...filteredPayments, ...distributedPayments];
+    setPayments(updatedPayments);
+    offlineSync.saveCachedData('payments', updatedPayments);
+
+    // 2. Save each distributed payment to Firestore
+    distributedPayments.forEach(p => {
+      firestoreService.savePaymentToFirestore(p).catch(err => {
+        logError(err, 'distributePayment');
+        offlineSync.enqueueAction('ADD_PAYMENT', p);
+      });
+    });
+
+    const flatNum = distributedPayments[0]?.flatNumber || '';
+    if (distributedPayments.length === 1 && !distributedPayments[0].isDistributed) {
+      addNotification('إلغاء التوزيع', `تم إلغاء التوزيع بنجاح واستعادة كامل المبلغ (${distributedPayments[0].amount} ج.م) في شهر ${distributedPayments[0].month} للوحدة ${flatNum}.`, 'success', 'services');
+    } else {
+      addNotification('توزيع سداد مجمع', `تم توزيع الاشتراك المجمع بنجاح على ${distributedPayments.length} شهور للوحدة ${flatNum}.`, 'success', 'services');
+    }
   };
 
   const deletePayment = async (id: string) => {
@@ -2956,6 +3001,7 @@ export default function App() {
             role={role}
             onCellClick={handleSummaryCellClick}
             onAddPayment={addPayment}
+            onDistributePayment={distributePayment}
             floorConfigs={buildingLayout}
             expenseTypes={config.expenseTypes}
             onEditPayment={editPayment}
