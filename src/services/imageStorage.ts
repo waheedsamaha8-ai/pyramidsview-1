@@ -17,22 +17,41 @@ function getDB(): Promise<IDBDatabase> {
 
   if (!dbPromise) {
     dbPromise = new Promise((resolve, reject) => {
-      const request = window.indexedDB.open(DB_NAME, DB_VERSION);
+      try {
+        const timeoutId = setTimeout(() => {
+          dbPromise = null;
+          reject(new Error('IndexedDB open timed out'));
+        }, 2000);
 
-      request.onupgradeneeded = (event) => {
-        const db = (event.target as IDBOpenDBRequest).result;
-        if (!db.objectStoreNames.contains(STORE_NAME)) {
-          db.createObjectStore(STORE_NAME, { keyPath: 'id' });
-        }
-      };
+        const request = window.indexedDB.open(DB_NAME, DB_VERSION);
 
-      request.onsuccess = (event) => {
-        resolve((event.target as IDBOpenDBRequest).result);
-      };
+        request.onupgradeneeded = (event) => {
+          const db = (event.target as IDBOpenDBRequest).result;
+          if (!db.objectStoreNames.contains(STORE_NAME)) {
+            db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+          }
+        };
 
-      request.onerror = (event) => {
-        reject((event.target as IDBOpenDBRequest).error);
-      };
+        request.onsuccess = (event) => {
+          clearTimeout(timeoutId);
+          resolve((event.target as IDBOpenDBRequest).result);
+        };
+
+        request.onerror = (event) => {
+          clearTimeout(timeoutId);
+          dbPromise = null;
+          reject((event.target as IDBOpenDBRequest).error);
+        };
+
+        request.onblocked = () => {
+          clearTimeout(timeoutId);
+          dbPromise = null;
+          reject(new Error('IndexedDB blocked'));
+        };
+      } catch (err) {
+        dbPromise = null;
+        reject(err);
+      }
     });
   }
 
@@ -43,17 +62,21 @@ export async function saveImageToIndexedDB(id: string, base64Data: string): Prom
   if (!id || !base64Data) return;
   try {
     const db = await getDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, 'readwrite');
-      const store = tx.objectStore(STORE_NAME);
-      const record = {
-        id: String(id),
-        data: base64Data,
-        updatedAt: Date.now()
-      };
-      const req = store.put(record);
-      req.onsuccess = () => resolve();
-      req.onerror = () => reject(req.error);
+    await new Promise<void>((resolve) => {
+      try {
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        const record = {
+          id: String(id),
+          data: base64Data,
+          updatedAt: Date.now()
+        };
+        const req = store.put(record);
+        req.onsuccess = () => resolve();
+        req.onerror = () => resolve();
+      } catch {
+        resolve();
+      }
     });
   } catch (err) {
     console.warn('[IndexedDB Image Store] Save failed:', err);
@@ -64,15 +87,19 @@ export async function getImageFromIndexedDB(id: string): Promise<string | null> 
   if (!id) return null;
   try {
     const db = await getDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, 'readonly');
-      const store = tx.objectStore(STORE_NAME);
-      const req = store.get(String(id));
-      req.onsuccess = () => {
-        const result = req.result;
-        resolve(result && result.data ? result.data : null);
-      };
-      req.onerror = () => reject(req.error);
+    return await new Promise<string | null>((resolve) => {
+      try {
+        const tx = db.transaction(STORE_NAME, 'readonly');
+        const store = tx.objectStore(STORE_NAME);
+        const req = store.get(String(id));
+        req.onsuccess = () => {
+          const result = req.result;
+          resolve(result && result.data ? result.data : null);
+        };
+        req.onerror = () => resolve(null);
+      } catch {
+        resolve(null);
+      }
     });
   } catch {
     return null;
@@ -83,12 +110,16 @@ export async function deleteImageFromIndexedDB(id: string): Promise<void> {
   if (!id) return;
   try {
     const db = await getDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, 'readwrite');
-      const store = tx.objectStore(STORE_NAME);
-      const req = store.delete(String(id));
-      req.onsuccess = () => resolve();
-      req.onerror = () => reject(req.error);
+    await new Promise<void>((resolve) => {
+      try {
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        const req = store.delete(String(id));
+        req.onsuccess = () => resolve();
+        req.onerror = () => resolve();
+      } catch {
+        resolve();
+      }
     });
   } catch (err) {
     console.warn('[IndexedDB Image Store] Delete failed:', err);

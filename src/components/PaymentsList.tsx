@@ -706,81 +706,121 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
     setShowModal(true);
   };
 
-  const openEditModal = async (payment: Payment) => {
-    setSelectedPayment(payment);
-    setResidentId(payment.residentId);
-    
-    // Find master payment if this was a child distributed payment
-    const cleanPaymentId = String(payment.id);
-    const sourceId = payment.distributionSourceId ? String(payment.distributionSourceId) : null;
-    const masterPayment = sourceId 
-      ? (payments.find(p => String(p.id) === sourceId) || payment)
-      : payment;
+  const openEditModal = (payment: Payment) => {
+    try {
+      setSelectedPayment(payment);
 
-    const targetMasterId = String(masterPayment.id);
+      const foundRes = residents.find(r => r.id === payment.residentId)
+        || residents.find(r => isSameFlatNumber(r.flatNumber, payment.flatNumber));
 
-    // Find all linked child payments for this aggregated collection
-    const linkedChildren = payments.filter(p => 
-      String(p.id) !== targetMasterId && (
-        String(p.distributionSourceId || '') === targetMasterId ||
-        (masterPayment.distributedPaymentIds && masterPayment.distributedPaymentIds.map(String).includes(String(p.id)))
-      )
-    );
-
-    const isAggregated = Boolean(
-      payment.isAggregatedCollection || 
-      masterPayment.isAggregatedCollection || 
-      payment.isDistributed ||
-      masterPayment.isDistributed ||
-      (masterPayment.distributedPaymentIds && masterPayment.distributedPaymentIds.length > 0) ||
-      sourceId ||
-      linkedChildren.length > 0
-    );
-
-    setIsAggregatedCollection(isAggregated);
-
-    // Collect all other months involved in this collection
-    const otherMonths = linkedChildren
-      .map(p => p.month)
-      .filter(m => m !== masterPayment.month)
-      .sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
-
-    setAdditionalMonths(otherMonths);
-    setShowMultiMonthPicker(isAggregated && otherMonths.length > 0);
-
-    // Calculate total collection amount
-    let initialTotalAmount: number | '' = payment.amount;
-    if (isAggregated) {
-      if (masterPayment.originalAmountBeforeDistribution && masterPayment.originalAmountBeforeDistribution > 0) {
-        initialTotalAmount = masterPayment.originalAmountBeforeDistribution;
-      } else if (linkedChildren.length > 0) {
-        initialTotalAmount = masterPayment.amount + linkedChildren.reduce((s, cp) => s + cp.amount, 0);
+      if (foundRes) {
+        setResidentId(foundRes.id);
+        setTargetActivityType(foundRes.activityType || 'سكني');
+      } else {
+        setResidentId(payment.residentId);
+        setTargetActivityType('سكني');
       }
+
+      // Find master payment if this was a child distributed payment
+      const cleanPaymentId = String(payment.id);
+      const sourceId = payment.distributionSourceId ? String(payment.distributionSourceId) : null;
+      const masterPayment = sourceId 
+        ? (payments.find(p => String(p.id) === sourceId) || payment)
+        : payment;
+
+      const targetMasterId = String(masterPayment.id);
+
+      // Find all linked child payments for this aggregated collection
+      const linkedChildren = payments.filter(p => 
+        String(p.id) !== targetMasterId && (
+          String(p.distributionSourceId || '') === targetMasterId ||
+          (Array.isArray(masterPayment.distributedPaymentIds) && masterPayment.distributedPaymentIds.map(String).includes(String(p.id)))
+        )
+      );
+
+      const isAggregated = Boolean(
+        payment.isAggregatedCollection || 
+        masterPayment.isAggregatedCollection || 
+        payment.isDistributed ||
+        masterPayment.isDistributed ||
+        (Array.isArray(masterPayment.distributedPaymentIds) && masterPayment.distributedPaymentIds.length > 0) ||
+        sourceId ||
+        linkedChildren.length > 0
+      );
+
+      setIsAggregatedCollection(isAggregated);
+
+      // Collect all other months involved in this collection
+      const otherMonths = linkedChildren
+        .map(p => p.month)
+        .filter(m => m !== masterPayment.month)
+        .sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
+
+      setAdditionalMonths(otherMonths);
+      setShowMultiMonthPicker(isAggregated && otherMonths.length > 0);
+
+      // Calculate total collection amount
+      let initialTotalAmount: number | '' = payment.amount;
+      if (isAggregated) {
+        if (masterPayment.originalAmountBeforeDistribution && masterPayment.originalAmountBeforeDistribution > 0) {
+          initialTotalAmount = masterPayment.originalAmountBeforeDistribution;
+        } else if (linkedChildren.length > 0) {
+          initialTotalAmount = masterPayment.amount + linkedChildren.reduce((s, cp) => s + (Number(cp.amount) || 0), 0);
+        }
+      }
+      setAmount(initialTotalAmount);
+
+      // Set month to master payment's month
+      setMonth(masterPayment.month || payment.month);
+
+      setPaymentType(payment.paymentType);
+      setReceiptNumber(payment.receiptNumber || masterPayment.receiptNumber || '');
+      setPaymentStatus(((payment.status || masterPayment.status) as any) || 'collected');
+      setNotes(payment.notes || masterPayment.notes || '');
+
+      const immediateUrl = payment.fileUrl || masterPayment.fileUrl || '';
+      setImageName(immediateUrl || payment.fileId ? 'صورة إيصال مرفوعة مسبقاً' : '');
+      setExistingFileUrl(immediateUrl);
+      setBase64Image('');
+      setError(null);
+      setShowModal(true);
+
+      // Asynchronously fetch image from IndexedDB in the background if not present on payment object
+      if (!immediateUrl) {
+        (async () => {
+          try {
+            const timeoutPromise = new Promise<null>(r => setTimeout(() => r(null), 1200));
+            const dbUrl = await Promise.race([
+              (async () => {
+                const u1 = await getImageFromIndexedDB(String(payment.id));
+                if (u1) return u1;
+                const u2 = await getImageFromIndexedDB(`${payment.id}_fileUrl`);
+                if (u2) return u2;
+                return await getImageFromIndexedDB(`${payment.id}_receiptImage`);
+              })(),
+              timeoutPromise
+            ]);
+            if (dbUrl) {
+              setExistingFileUrl(dbUrl);
+              setImageName('صورة إيصال مرفوعة مسبقاً');
+            }
+          } catch (err) {
+            console.warn('Background image lookup error:', err);
+          }
+        })();
+      }
+    } catch (err) {
+      console.error('Error in openEditModal:', err);
+      // Fallback: still show modal so user can always edit
+      setSelectedPayment(payment);
+      setResidentId(payment.residentId);
+      setAmount(payment.amount);
+      setMonth(payment.month);
+      setPaymentType(payment.paymentType);
+      setNotes(payment.notes || '');
+      setError(null);
+      setShowModal(true);
     }
-    setAmount(initialTotalAmount);
-
-    // Set month to master payment's month
-    setMonth(masterPayment.month || payment.month);
-
-    const foundRes = residents.find(r => r.id === payment.residentId);
-    setTargetActivityType(foundRes?.activityType || 'سكني');
-    setPaymentType(payment.paymentType);
-    setReceiptNumber(payment.receiptNumber || masterPayment.receiptNumber || '');
-    setPaymentStatus(((payment.status || masterPayment.status) as any) || 'collected');
-    setNotes(payment.notes || masterPayment.notes || '');
-
-    const resolvedUrl = payment.fileUrl 
-      || masterPayment.fileUrl
-      || await getImageFromIndexedDB(String(payment.id))
-      || await getImageFromIndexedDB(`${payment.id}_fileUrl`)
-      || await getImageFromIndexedDB(`${payment.id}_receiptImage`)
-      || '';
-
-    setImageName(resolvedUrl || payment.fileId ? 'صورة إيصال مرفوعة مسبقاً' : '');
-    setExistingFileUrl(resolvedUrl);
-    setBase64Image('');
-    setError(null);
-    setShowModal(true);
   };
 
   const handleRemoveImage = () => {
@@ -848,7 +888,8 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       return;
     }
 
-    const resident = residents.find((r) => r.id === residentId);
+    const resident = residents.find((r) => r.id === residentId)
+      || (selectedPayment ? residents.find(r => isSameFlatNumber(r.flatNumber, selectedPayment.flatNumber)) : undefined);
     if (!resident) {
       setError('الساكن المختار غير موجود.');
       return;
@@ -1257,14 +1298,14 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                     </div>
                   </th>
                   <th className="min-w-[70px] max-w-[100px] px-1 py-1.5 whitespace-nowrap">الملاحظات</th>
-                  {!isReadOnly && role !== 'ASSISTANT' && <th className="w-16 sm:w-20 px-1 py-1.5 text-center whitespace-nowrap">الإجراءات</th>}
+                  {!isReadOnly && <th className="w-16 sm:w-20 px-1 py-1.5 text-center whitespace-nowrap">الإجراءات</th>}
                   <th className="w-20 sm:w-22 px-0.5 py-1 text-center whitespace-nowrap">الإيصال الصادر</th>
                 </tr>
               </thead>
                <tbody className="divide-y divide-slate-100 text-xs font-bold text-slate-800">
                 {filteredPayments.length === 0 ? (
                   <tr>
-                    <td colSpan={!isReadOnly && role !== 'ASSISTANT' ? 8 : 7} className="px-3 py-8 text-center text-slate-400 font-bold">
+                    <td colSpan={!isReadOnly ? 8 : 7} className="px-3 py-8 text-center text-slate-400 font-bold">
                       <div className="flex flex-col items-center gap-1.5">
                         <FileText className="w-7 h-7 stroke-[1.5]" />
                         <span>لا توجد عمليات تحصيل مسجلة تطابق هذه الشروط في {currentYear}</span>
@@ -1371,23 +1412,25 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                         </td>
 
                         {/* Actions */}
-                        {!isReadOnly && role !== 'ASSISTANT' && (
+                        {!isReadOnly && (
                           <td className="w-16 sm:w-20 px-1 py-1.5 whitespace-nowrap text-center">
                             <div className="flex items-center justify-center gap-1.5">
                               <button
                                 onClick={(e) => { e.stopPropagation(); openEditModal(p); }}
                                 className="p-1.5 text-slate-600 hover:text-blue-900 hover:bg-blue-50 border border-slate-200/80 rounded-lg transition transform hover:scale-110 active:scale-95 cursor-pointer shadow-2xs"
-                                title="تعديل"
+                                title={role === 'ASSISTANT' ? 'تعديل الملاحظات' : 'تعديل'}
                               >
                                 <Edit className="w-4 h-4" />
                               </button>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); handleDelete(p.id); }}
-                                className="p-1.5 text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-rose-200 rounded-lg transition transform hover:scale-110 active:scale-95 cursor-pointer shadow-2xs"
-                                title="حذف"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                              {role !== 'ASSISTANT' && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleDelete(p.id); }}
+                                  className="p-1.5 text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-rose-200 rounded-lg transition transform hover:scale-110 active:scale-95 cursor-pointer shadow-2xs"
+                                  title="حذف"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
                             </div>
                           </td>
                         )}
@@ -1425,7 +1468,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                     <React.Fragment key={group.floor.id}>
                       {/* Floor Separator Row */}
                       <tr className="bg-slate-100/90 border-y border-slate-200">
-                        <td colSpan={!isReadOnly && role !== 'ASSISTANT' ? 8 : 7} className="py-2 px-3 text-right border-r-4 border-r-blue-800 sticky right-0 z-5 bg-slate-100/95 shadow-xs">
+                        <td colSpan={!isReadOnly ? 8 : 7} className="py-2 px-3 text-right border-r-4 border-r-blue-800 sticky right-0 z-5 bg-slate-100/95 shadow-xs">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                               <Building className="w-4 h-4 text-blue-900" />
@@ -1558,23 +1601,25 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                             </td>
 
                             {/* Actions */}
-                            {!isReadOnly && role !== 'ASSISTANT' && (
+                            {!isReadOnly && (
                               <td className="w-16 sm:w-20 px-1 py-1.5 whitespace-nowrap text-center">
                                 <div className="flex items-center justify-center gap-1.5">
                                   <button
                                     onClick={(e) => { e.stopPropagation(); openEditModal(p); }}
                                     className="p-1.5 text-slate-600 hover:text-blue-900 hover:bg-blue-50 border border-slate-200/80 rounded-lg transition transform hover:scale-110 active:scale-95 cursor-pointer shadow-2xs"
-                                    title="تعديل"
+                                    title={role === 'ASSISTANT' ? 'تعديل الملاحظات' : 'تعديل'}
                                   >
                                     <Edit className="w-4 h-4" />
                                   </button>
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); handleDelete(p.id); }}
-                                    className="p-1.5 text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-rose-200 rounded-lg transition transform hover:scale-110 active:scale-95 cursor-pointer shadow-2xs"
-                                    title="حذف"
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </button>
+                                  {role !== 'ASSISTANT' && (
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); handleDelete(p.id); }}
+                                      className="p-1.5 text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-rose-200 rounded-lg transition transform hover:scale-110 active:scale-95 cursor-pointer shadow-2xs"
+                                      title="حذف"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  )}
                                 </div>
                               </td>
                             )}
@@ -1623,7 +1668,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                     <td className="px-1 py-2 text-center text-slate-400 font-bold whitespace-nowrap">—</td>
                     <td className="px-1 py-2 text-center text-slate-400 font-bold whitespace-nowrap">—</td>
                     <td className="px-1 py-2 text-center text-slate-400 font-bold whitespace-nowrap">—</td>
-                    {!isReadOnly && role !== 'ASSISTANT' && (
+                    {!isReadOnly && (
                       <td className="px-0.5 py-2 text-center text-slate-400 font-bold whitespace-nowrap">—</td>
                     )}
                     <td className="px-0.5 py-2 text-center text-slate-400 font-bold whitespace-nowrap">—</td>
@@ -1809,22 +1854,24 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                           <span className="text-[10px] text-slate-300 font-bold py-1.5 px-1">بدون مرفق</span>
                         )}
 
-                        {!isReadOnly && role !== 'ASSISTANT' && (
+                        {!isReadOnly && (
                           <div className="flex items-center gap-2">
                             <button
                               onClick={(e) => { e.stopPropagation(); openEditModal(p); }}
                               className="p-2 text-slate-600 hover:text-blue-900 hover:bg-blue-50 border border-slate-200 rounded-xl transition transform hover:scale-110 active:scale-95 cursor-pointer shadow-2xs"
-                              title="تعديل"
+                              title={role === 'ASSISTANT' ? 'تعديل الملاحظات' : 'تعديل'}
                             >
                               <Edit className="w-4 h-4" />
                             </button>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); handleDelete(p.id); }}
-                              className="p-2 text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-rose-200 rounded-xl transition transform hover:scale-110 active:scale-95 cursor-pointer shadow-2xs"
-                              title="حذف"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            {role !== 'ASSISTANT' && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleDelete(p.id); }}
+                                className="p-2 text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-rose-200 rounded-xl transition transform hover:scale-110 active:scale-95 cursor-pointer shadow-2xs"
+                                title="حذف"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         )}
                       </div>

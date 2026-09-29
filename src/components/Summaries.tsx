@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useRef } from 'react';
 import { Resident, Payment, Expense, UserRole, FloorConfig, AppConfig } from '../types';
-import { Calendar, Check, AlertCircle, RefreshCw, X, ExternalLink, Trash2, PlusCircle, CreditCard, Clock, Layers, Receipt, Edit, Save, Minus, Sparkles, RotateCcw } from 'lucide-react';
+import { Calendar, Check, AlertCircle, RefreshCw, X, ExternalLink, Trash2, PlusCircle, CreditCard, Clock, Layers, Receipt, Edit, Save, Minus, Sparkles, RotateCcw, FileText } from 'lucide-react';
 import { BuildingMap } from './BuildingMap';
 import { deriveFloorConfigsFromResidents, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber, getHistoricalOccupantForDate, getHistoricalActivityForDate } from '../utils/buildingStructure';
 
@@ -238,7 +238,7 @@ export const Summaries: React.FC<SummariesProps> = ({
 
   const isChildDistributedPayment = (pay: Payment): boolean => {
     if (pay.distributionSourceId && String(pay.distributionSourceId) !== String(pay.id)) return true;
-    if (payments.some(p => String(p.id) !== String(pay.id) && p.distributedPaymentIds && p.distributedPaymentIds.map(String).includes(String(pay.id)))) {
+    if (payments.some(p => String(p.id) !== String(pay.id) && Array.isArray(p.distributedPaymentIds) && p.distributedPaymentIds.map(String).includes(String(pay.id)))) {
       return true;
     }
     return false;
@@ -247,7 +247,7 @@ export const Summaries: React.FC<SummariesProps> = ({
   const isMasterDistributionPayment = (pay: Payment): boolean => {
     if (isChildDistributedPayment(pay)) return false;
     if (pay.isDistributed) return true;
-    if (pay.distributedPaymentIds && pay.distributedPaymentIds.length > 0) return true;
+    if (Array.isArray(pay.distributedPaymentIds) && pay.distributedPaymentIds.length > 0) return true;
     if (payments.some(p => String(p.id) !== String(pay.id) && String(p.distributionSourceId || '') === String(pay.id))) return true;
     return false;
   };
@@ -262,7 +262,7 @@ export const Summaries: React.FC<SummariesProps> = ({
       const found = payments.find(p => String(p.id) === String(pay.distributionSourceId));
       if (found) return found;
     }
-    const foundByChildId = payments.find(p => p.distributedPaymentIds && p.distributedPaymentIds.map(String).includes(String(pay.id)));
+    const foundByChildId = payments.find(p => Array.isArray(p.distributedPaymentIds) && p.distributedPaymentIds.map(String).includes(String(pay.id)));
     if (foundByChildId) return foundByChildId;
     return pay;
   };
@@ -328,7 +328,7 @@ export const Summaries: React.FC<SummariesProps> = ({
       const childPayments = payments.filter(p => 
         String(p.id) !== masterId && (
           String(p.distributionSourceId || '') === masterId ||
-          (masterPay.distributedPaymentIds && masterPay.distributedPaymentIds.map(String).includes(String(p.id)))
+          (Array.isArray(masterPay.distributedPaymentIds) && masterPay.distributedPaymentIds.map(String).includes(String(p.id)))
         )
       );
       const totalAmount = masterPay.originalAmountBeforeDistribution || (masterPay.amount + childPayments.reduce((s, c) => s + (Number(c.amount) || 0), 0));
@@ -363,7 +363,7 @@ export const Summaries: React.FC<SummariesProps> = ({
     const masterPay = findMasterPayment(targetPay);
     const masterId = String(masterPay.id);
 
-    // Find ALL child payments belonging to this master payment
+    // Find ALL child payments belonging strictly to this master payment
     const relatedChildPayments = payments.filter((p) => {
       if (String(p.id) === masterId) return false;
       if (String(p.distributionSourceId || '') === masterId) return true;
@@ -373,19 +373,6 @@ export const Summaries: React.FC<SummariesProps> = ({
       ) {
         return true;
       }
-      // Also match if same resident, same year, same receipt number and notes mentions distribution
-      const sameResident = p.residentId === masterPay.residentId;
-      const sameYear = Number(p.year) === Number(masterPay.year);
-      const sameReceipt = Boolean(
-        masterPay.receiptNumber &&
-          p.receiptNumber &&
-          masterPay.receiptNumber.trim() === p.receiptNumber.trim()
-      );
-      const hasDistributedNote = Boolean(
-        (p.notes && p.notes.includes('سداد مجمع')) ||
-          (masterPay.notes && masterPay.notes.includes('سداد مجمع'))
-      );
-      if (sameResident && sameYear && sameReceipt && hasDistributedNote) return true;
       return false;
     });
 
@@ -395,14 +382,17 @@ export const Summaries: React.FC<SummariesProps> = ({
       0
     );
 
+    // Exact restored amount: use originalAmountBeforeDistribution if set and positive,
+    // otherwise master amount + children total. This prevents any inflation or duplication!
     const restoredAmount =
       masterPay.originalAmountBeforeDistribution &&
-      masterPay.originalAmountBeforeDistribution > masterPay.amount
+      masterPay.originalAmountBeforeDistribution > 0
         ? masterPay.originalAmountBeforeDistribution
         : (Number(masterPay.amount) || 0) + childrenTotal;
 
     const cleanNotes = (masterPay.notes || '')
       .replace(/\(سداد مجمع موزع على \d+ شهور.*?\)/g, '')
+      .replace(/سداد مجمع موزع على شهور:.*?(?=$|\n)/g, '')
       .replace(/\(سداد مجمع \d+ شهور.*?\)/g, '')
       .trim();
 
@@ -425,6 +415,21 @@ export const Summaries: React.FC<SummariesProps> = ({
         childIdsToDelete.forEach((cid) => onDeletePayment(cid));
       }
     }
+
+    // Immediately update local modal view without waiting for re-render
+    setSelectedCell((prev) => {
+      if (!prev) return null;
+      const remaining = prev.payments.filter(
+        (p) => !childIdsToDelete.includes(String(p.id)) && String(p.id) !== masterId
+      );
+      if (prev.month === masterPay.month) {
+        remaining.push(restoredPayment);
+      }
+      return {
+        ...prev,
+        payments: remaining,
+      };
+    });
 
     setEditingPaymentId(null);
     setIsDistributing(false);
@@ -471,22 +476,35 @@ export const Summaries: React.FC<SummariesProps> = ({
       return;
     }
 
+    const masterPay = findMasterPayment(pay);
+    const masterId = String(masterPay.id);
+
+    // Identify any existing child payments from previous distribution
+    const existingChildPayments = payments.filter((p) =>
+      String(p.id) !== masterId && (
+        String(p.distributionSourceId || '') === masterId ||
+        (masterPay.distributedPaymentIds && masterPay.distributedPaymentIds.map(String).includes(String(p.id)))
+      )
+    );
+    const existingChildIds = existingChildPayments.map((p) => String(p.id));
+
     if (isDistributing && selectedMonths.length > 1) {
       const count = selectedMonths.length;
       const basePerMonth = Math.floor(parsedAmount / count);
       const remainder = parsedAmount - basePerMonth * count;
 
       const sortedMonths = [...selectedMonths].sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
-      const masterMonth = sortedMonths.includes(pay.month) ? pay.month : sortedMonths[0];
+      // Anchor master to the original master payment month if included, or first month
+      const masterMonth = sortedMonths.includes(masterPay.month) ? masterPay.month : sortedMonths[0];
 
       const childIds: string[] = [];
       const distributedPayments: Payment[] = sortedMonths.map((m, idx) => {
         const isMaster = (m === masterMonth);
         const hist = selectedCell ? getHistoricalOccupantForDate(selectedCell.resident, `${currentYear}-${m}`) : null;
-        const occupant = hist?.occupantName || selectedCell?.resident.name || pay.residentName;
+        const occupant = hist?.occupantName || selectedCell?.resident.name || masterPay.residentName;
 
         const useOriginalId = isMaster;
-        const newId = useOriginalId ? pay.id : `pay_${Date.now()}_${m}_${idx}_${Math.random().toString(36).substr(2, 4)}`;
+        const newId = useOriginalId ? masterPay.id : `pay_${Date.now()}_${m}_${idx}_${Math.random().toString(36).substr(2, 4)}`;
         if (!isMaster) {
           childIds.push(newId);
         }
@@ -494,34 +512,41 @@ export const Summaries: React.FC<SummariesProps> = ({
         const isRemainderMonth = (idx === 0);
         const monthAmount = isRemainderMonth ? (basePerMonth + remainder) : basePerMonth;
 
+        const cleanCustomNote = (editNotes || '').trim();
+        const distributionSuffix = `(سداد مجمع موزع على ${count} شهور)`;
+        const finalNote = cleanCustomNote
+          ? (cleanCustomNote.includes('سداد مجمع') ? cleanCustomNote : `${cleanCustomNote} ${distributionSuffix}`)
+          : `سداد مجمع موزع على شهور: ${sortedMonths.map((x) => monthNamesArabic[parseInt(x, 10) - 1]).join('، ')}`;
+
         return {
           id: newId,
           year: currentYear,
           month: m,
-          residentId: pay.residentId,
+          residentId: masterPay.residentId,
           residentName: occupant,
-          flatNumber: pay.flatNumber,
-          paymentType: editPaymentType || pay.paymentType || 'اشتراك شهري',
+          flatNumber: masterPay.flatNumber,
+          paymentType: editPaymentType || masterPay.paymentType || 'اشتراك شهري',
           amount: monthAmount,
-          receiptNumber: (editReceiptNumber || pay.receiptNumber || '').trim(),
-          notes: (editNotes || '').trim()
-            ? `${editNotes} (سداد مجمع موزع على ${count} شهور)`
-            : `سداد مجمع موزع على شهور: ${sortedMonths.map((x) => monthNamesArabic[parseInt(x, 10) - 1]).join('، ')}`,
-          fileId: pay.fileId || '',
-          fileUrl: pay.fileUrl || '',
-          date: pay.date || new Date().toISOString().split('T')[0],
+          receiptNumber: (editReceiptNumber || masterPay.receiptNumber || '').trim(),
+          notes: finalNote,
+          fileId: masterPay.fileId || '',
+          fileUrl: masterPay.fileUrl || '',
+          date: masterPay.date || new Date().toISOString().split('T')[0],
           isManuallyPaid: false,
           status: (editPaymentStatus as any) || 'collected',
           isAggregatedCollection: isMaster,
           isDistributed: isMaster,
           distributedPaymentIds: isMaster ? childIds : undefined,
-          distributionSourceId: isMaster ? undefined : pay.id,
+          distributionSourceId: isMaster ? undefined : masterPay.id,
           originalAmountBeforeDistribution: isMaster ? parsedAmount : undefined,
         };
       });
 
+      // Child IDs that are no longer needed
+      const childIdsToDelete = existingChildIds.filter((cid) => !childIds.includes(cid));
+
       if (onDistributePayment) {
-        onDistributePayment(pay.id, distributedPayments);
+        onDistributePayment(masterPay.id, distributedPayments, childIdsToDelete);
       } else {
         if (onEditPayment) onEditPayment(distributedPayments[0]);
         if (onAddPayment) {
@@ -529,16 +554,19 @@ export const Summaries: React.FC<SummariesProps> = ({
             onAddPayment(distributedPayments[i]);
           }
         }
+        if (onDeletePayment) {
+          childIdsToDelete.forEach((cid) => onDeletePayment(cid));
+        }
       }
 
-      // Update the currently viewed modal cell with any payments remaining in it
+      // Update the currently viewed modal cell immediately
       const thisMonthPayments = distributedPayments.filter((p) => p.month === selectedCell?.month);
       setSelectedCell((prev) =>
         prev
           ? {
               ...prev,
               payments: [
-                ...prev.payments.filter((p) => p.id !== pay.id && p.distributionSourceId !== pay.id),
+                ...prev.payments.filter((p) => String(p.id) !== masterId && !existingChildIds.includes(String(p.id))),
                 ...thisMonthPayments,
               ],
             }
@@ -548,23 +576,39 @@ export const Summaries: React.FC<SummariesProps> = ({
       setEditingPaymentId(null);
       setIsDistributing(false);
     } else {
+      // Single payment update (or undistributed single payment)
+      const cleanCustomNote = (editNotes || '').trim();
       const updatedPayment: Payment = {
         ...pay,
         amount: parsedAmount,
         paymentType: editPaymentType,
         status: (editPaymentStatus as any) || 'collected',
         receiptNumber: (editReceiptNumber || '').trim(),
-        notes: (editNotes || '').trim(),
+        notes: cleanCustomNote || undefined,
+        isDistributed: false,
+        distributedPaymentIds: [],
+        originalAmountBeforeDistribution: undefined,
       };
 
-      if (onEditPayment) {
-        onEditPayment(updatedPayment);
+      if (existingChildIds.length > 0 && onDistributePayment) {
+        // If it was previously distributed and now saved as single month, delete old child payments
+        onDistributePayment(masterPay.id, [updatedPayment], existingChildIds);
+      } else {
+        if (onEditPayment) {
+          onEditPayment(updatedPayment);
+        }
+        if (existingChildIds.length > 0 && onDeletePayment) {
+          existingChildIds.forEach((cid) => onDeletePayment(cid));
+        }
       }
+
       setSelectedCell((prev) =>
         prev
           ? {
               ...prev,
-              payments: prev.payments.map((p) => (p.id === pay.id ? updatedPayment : p)),
+              payments: prev.payments
+                .filter((p) => !existingChildIds.includes(String(p.id)))
+                .map((p) => (p.id === pay.id ? updatedPayment : p)),
             }
           : null
       );
@@ -1248,6 +1292,21 @@ export const Summaries: React.FC<SummariesProps> = ({
                                 </div>
                               </div>
 
+                              {/* Notes Input Field */}
+                              <div className="space-y-0.5 pt-0.5">
+                                <label className="text-[9.5px] font-black text-slate-700 flex items-center gap-1">
+                                  <FileText className="w-3.5 h-3.5 text-blue-900" />
+                                  <span>الملاحظات</span>
+                                </label>
+                                <textarea
+                                  rows={2}
+                                  placeholder="أضف أو عدّل أي ملاحظات خاصة بهذه الدفعة (مثال: سداد نقدي، تحويل بنكي، فودافون كاش)..."
+                                  value={editNotes}
+                                  onChange={(e) => setEditNotes(e.target.value)}
+                                  className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-right font-medium focus:border-blue-500 outline-none leading-relaxed placeholder:text-slate-400"
+                                />
+                              </div>
+
                               {/* Multi-Month Aggregated Distribution Section */}
                               {(() => {
                                 const fee = selectedCell ? getDefaultFeeForResident(selectedCell.resident) : 400;
@@ -1408,7 +1467,7 @@ export const Summaries: React.FC<SummariesProps> = ({
 
                               {/* Edit Action Buttons */}
                               <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100 flex-wrap">
-                                {isMasterDistributionPayment(pay) && (
+                                {(isMasterDistributionPayment(pay) || isChildDistributedPayment(pay)) && (
                                   confirmCancelId === pay.id ? (
                                     <div className="flex items-center gap-1.5 bg-rose-50 border border-rose-300 p-1.5 rounded-lg">
                                       <span className="text-[10px] font-black text-rose-900">تأكيد استعادة كامل المبلغ وإلغاء التوزيع؟</span>
@@ -1467,138 +1526,138 @@ export const Summaries: React.FC<SummariesProps> = ({
                               </div>
                             </div>
                           ) : (
-                            /* Regular Compact View */
-                            <div className="flex items-center justify-between gap-2 w-full">
-                              <div className="flex items-center gap-1.5 flex-wrap flex-1 min-w-0">
-                                {statusBadge}
-                                <span className="px-1.5 py-0.5 bg-white/80 text-slate-800 text-[9.5px] font-black rounded border border-slate-200/80">
-                                  {pay.paymentType || 'اشتراك شهري'}
-                                </span>
-                                <span className="text-xs font-black text-slate-900">
-                                  {pay.amount} ج.م
-                                </span>
-                                {(() => {
-                                  const isMaster = isMasterDistributionPayment(pay);
-                                  const isChild = isChildDistributedPayment(pay);
-                                  if (isMaster) {
-                                    return (
-                                      <span className="px-1.5 py-0.2 bg-emerald-100 text-emerald-900 border border-emerald-300 rounded text-[8px] font-black flex items-center gap-1">
-                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
-                                        <span>تم التوزيع منه</span>
-                                      </span>
-                                    );
-                                  }
-                                  if (isChild) {
-                                    return (
-                                      <span className="px-1.5 py-0.2 bg-slate-100 text-slate-700 border border-slate-200 rounded text-[8px] font-bold">
-                                        <span>موزع من سداد مجمع</span>
-                                      </span>
-                                    );
-                                  }
-                                  if (isOriginalAggregatedPayment(pay) || Boolean(pay.isAggregatedCollection)) {
-                                    return (
-                                      <span className="px-1.5 py-0.2 bg-amber-100 text-amber-900 border border-amber-300 rounded text-[8px] font-black flex items-center gap-0.5">
-                                        <Sparkles className="w-2.5 h-2.5 text-amber-600" />
-                                        <span>تحصيل مجمع</span>
-                                      </span>
-                                    );
-                                  }
-                                  return null;
-                                })()}
-                                <span className="text-[9px] text-slate-500 font-semibold">
-                                  {pay.date}
-                                </span>
-                                {pay.receiptNumber && (
-                                  <span className="text-[8.5px] text-slate-600 font-bold bg-white/90 px-1.5 py-0.5 rounded border border-slate-200/60 font-mono">
-                                    #{pay.receiptNumber}
+                            /* Regular Compact View with Notes */
+                            <div className="flex flex-col gap-1 w-full">
+                              <div className="flex items-center justify-between gap-2 w-full flex-wrap sm:flex-nowrap">
+                                <div className="flex items-center gap-1.5 flex-wrap flex-1 min-w-0">
+                                  {statusBadge}
+                                  <span className="px-1.5 py-0.5 bg-white/80 text-slate-800 text-[9.5px] font-black rounded border border-slate-200/80">
+                                    {pay.paymentType || 'اشتراك شهري'}
                                   </span>
-                                )}
-                              </div>
+                                  <span className="text-xs font-black text-slate-900">
+                                    {pay.amount} ج.م
+                                  </span>
+                                  {(() => {
+                                    const isMaster = isMasterDistributionPayment(pay);
+                                    const isChild = isChildDistributedPayment(pay);
+                                    if (isMaster) {
+                                      return (
+                                        <span className="px-1.5 py-0.2 bg-emerald-100 text-emerald-900 border border-emerald-300 rounded text-[8px] font-black flex items-center gap-1">
+                                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                                          <span>تم التوزيع منه</span>
+                                        </span>
+                                      );
+                                    }
+                                    if (isChild) {
+                                      return (
+                                        <span className="px-1.5 py-0.2 bg-slate-100 text-slate-700 border border-slate-200 rounded text-[8px] font-bold">
+                                          <span>موزع من سداد مجمع</span>
+                                        </span>
+                                      );
+                                    }
+                                    if (isOriginalAggregatedPayment(pay) || Boolean(pay.isAggregatedCollection)) {
+                                      return (
+                                        <span className="px-1.5 py-0.2 bg-amber-100 text-amber-900 border border-amber-300 rounded text-[8px] font-black flex items-center gap-0.5">
+                                          <Sparkles className="w-2.5 h-2.5 text-amber-600" />
+                                          <span>تحصيل مجمع</span>
+                                        </span>
+                                      );
+                                    }
+                                    return null;
+                                  })()}
+                                  <span className="text-[9px] text-slate-500 font-semibold">
+                                    {pay.date}
+                                  </span>
+                                  {pay.receiptNumber && (
+                                    <span className="text-[8.5px] text-slate-600 font-bold bg-white/90 px-1.5 py-0.5 rounded border border-slate-200/60 font-mono">
+                                      #{pay.receiptNumber}
+                                    </span>
+                                  )}
+                                </div>
 
-                              <div className="flex items-center gap-1 shrink-0">
-                                {pay.fileUrl && (
-                                  <a 
-                                    href={pay.fileUrl} 
-                                    target="_blank" 
-                                    rel="noreferrer"
-                                    className="p-1 text-blue-900 hover:bg-blue-50 rounded transition"
-                                    title="عرض الإيصال"
-                                  >
-                                    <ExternalLink className="w-3 h-3" />
-                                  </a>
-                                )}
+                                <div className="flex items-center gap-1 shrink-0 flex-wrap">
+                                  {pay.fileUrl && (
+                                    <a 
+                                      href={pay.fileUrl} 
+                                      target="_blank" 
+                                      rel="noreferrer"
+                                      className="p-1 text-blue-900 hover:bg-blue-50 rounded transition"
+                                      title="عرض الإيصال"
+                                    >
+                                      <ExternalLink className="w-3 h-3" />
+                                    </a>
+                                  )}
 
-                                {!isReadOnly && role !== 'ASSISTANT' && (
-                                  <>
-                                    {/* Dedicated Multi-Month Distribute Button: ONLY for original aggregated collection or master payment */}
-                                    {isOriginalAggregatedPayment(pay) && (
-                                      <button
-                                        type="button"
-                                        onClick={() => handleStartEdit(pay, true)}
-                                        className={`px-2 py-1 rounded-md transition cursor-pointer flex items-center gap-1.5 text-[9.5px] font-black shadow-2xs active:scale-95 border ${
-                                          isMasterDistributionPayment(pay)
-                                            ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-950 border-emerald-400 ring-2 ring-emerald-500/20'
-                                            : 'bg-blue-100 hover:bg-blue-200 text-blue-900 border-blue-200'
-                                        }`}
-                                        title={
-                                          isMasterDistributionPayment(pay)
-                                            ? 'تم التوزيع من هذه الدفعة - انقر لتعديل التوزيع'
-                                            : 'تحصيل مجمع - انقر لتوزيع المبلغ على شهور السنة'
-                                        }
-                                      >
-                                        {/* Green dot on the original button that distributed the payment */}
-                                        {isMasterDistributionPayment(pay) && (
-                                          <span className="w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-emerald-300 animate-pulse shrink-0" />
-                                        )}
-                                        <Calendar className={`w-3 h-3 shrink-0 ${isMasterDistributionPayment(pay) ? 'text-emerald-700' : 'text-blue-700'}`} />
-                                        <span>{isMasterDistributionPayment(pay) ? 'توزيع مجمع (موزع)' : 'توزيع مجمع'}</span>
-                                      </button>
-                                    )}
-
-                                    {/* Dedicated Direct Cancel Distribution Button: ONLY on original master payment with green dot */}
-                                    {isMasterDistributionPayment(pay) && (
-                                      confirmCancelId === pay.id ? (
-                                        <div className="flex items-center gap-1 bg-rose-50 border border-rose-300 px-1.5 py-0.5 rounded-lg animate-in fade-in">
-                                          <span className="text-[9px] font-black text-rose-900">تأكيد؟</span>
-                                          <button
-                                            type="button"
-                                            onClick={() => handleCancelDistribution(pay)}
-                                            className="px-2 py-0.5 bg-rose-600 hover:bg-rose-700 text-white rounded text-[9px] font-black cursor-pointer transition shadow-2xs"
-                                          >
-                                            نعم، استعادة ↩️
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() => setConfirmCancelId(null)}
-                                            className="px-1.5 py-0.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded text-[9px] font-bold cursor-pointer transition"
-                                          >
-                                            تراجع
-                                          </button>
-                                        </div>
-                                      ) : (
+                                  {!isReadOnly && role !== 'ASSISTANT' && (
+                                    <>
+                                      {/* Distribute Button: For collected payments that are not child payments */}
+                                      {!isChildDistributedPayment(pay) && isCollected && (
                                         <button
                                           type="button"
-                                          onClick={() => setConfirmCancelId(pay.id)}
-                                          className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 rounded-md transition cursor-pointer flex items-center gap-1 text-[9.5px] font-black shadow-2xs active:scale-95"
-                                          title="إلغاء توزيع هذا السداد واستعادة المبلغ بالكامل في هذا الشهر الأصلي"
+                                          onClick={() => handleStartEdit(pay, true)}
+                                          className={`px-2 py-1 rounded-md transition cursor-pointer flex items-center gap-1 text-[9.5px] font-black shadow-2xs active:scale-95 border ${
+                                            isMasterDistributionPayment(pay)
+                                              ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-950 border-emerald-400 ring-2 ring-emerald-500/20'
+                                              : 'bg-blue-100 hover:bg-blue-200 text-blue-900 border-blue-200'
+                                          }`}
+                                          title={
+                                            isMasterDistributionPayment(pay)
+                                              ? 'تم التوزيع من هذه الدفعة - انقر لتعديل التوزيع'
+                                              : 'توزيع هذا المبلغ على شهور السنة'
+                                          }
                                         >
-                                          <RotateCcw className="w-3 h-3 text-rose-700 shrink-0" />
-                                          <span>إلغاء التوزيع ↩️</span>
+                                          {isMasterDistributionPayment(pay) && (
+                                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 ring-2 ring-emerald-300 animate-pulse shrink-0" />
+                                          )}
+                                          <Calendar className={`w-3 h-3 shrink-0 ${isMasterDistributionPayment(pay) ? 'text-emerald-700' : 'text-blue-700'}`} />
+                                          <span>{isMasterDistributionPayment(pay) ? 'توزيع مجمع (موزع)' : 'توزيع مجمع'}</span>
                                         </button>
-                                      )
-                                    )}
+                                      )}
 
-                                    {/* Edit Button */}
-                                    <button
-                                      onClick={() => handleStartEdit(pay, false)}
-                                      className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-white/80 rounded transition cursor-pointer"
-                                      title="تعديل"
-                                    >
-                                      <Edit className="w-3.5 h-3.5" />
-                                    </button>
+                                      {/* Dedicated Cancel Distribution Button: On master OR child payment */}
+                                      {(isMasterDistributionPayment(pay) || isChildDistributedPayment(pay)) && (
+                                        confirmCancelId === pay.id ? (
+                                          <div className="flex items-center gap-1 bg-rose-50 border border-rose-300 px-1.5 py-0.5 rounded-lg animate-in fade-in">
+                                            <span className="text-[9px] font-black text-rose-900">تأكيد؟</span>
+                                            <button
+                                              type="button"
+                                              onClick={() => handleCancelDistribution(pay)}
+                                              className="px-2 py-0.5 bg-rose-600 hover:bg-rose-700 text-white rounded text-[9px] font-black cursor-pointer transition shadow-2xs"
+                                            >
+                                              نعم، استعادة ↩️
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => setConfirmCancelId(null)}
+                                              className="px-1.5 py-0.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded text-[9px] font-bold cursor-pointer transition"
+                                            >
+                                              تراجع
+                                            </button>
+                                          </div>
+                                        ) : (
+                                          <button
+                                            type="button"
+                                            onClick={() => setConfirmCancelId(pay.id)}
+                                            className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 rounded-md transition cursor-pointer flex items-center gap-1 text-[9.5px] font-black shadow-2xs active:scale-95"
+                                            title="إلغاء توزيع هذا السداد واستعادة المبلغ بالكامل في هذا الشهر الأصلي"
+                                          >
+                                            <RotateCcw className="w-3 h-3 text-rose-700 shrink-0" />
+                                            <span>إلغاء التوزيع ↩️</span>
+                                          </button>
+                                        )
+                                      )}
 
-                                    {deleteConfirmId === pay.id ? (
-                                      <div className="flex items-center gap-1 bg-red-50 px-1 py-0.5 rounded border border-red-100">
+                                      {/* Edit Button */}
+                                      <button
+                                        onClick={() => handleStartEdit(pay, false)}
+                                        className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-white/80 rounded transition cursor-pointer"
+                                        title="تعديل الدفعة والملاحظات"
+                                      >
+                                        <Edit className="w-3.5 h-3.5" />
+                                      </button>
+
+                                      {deleteConfirmId === pay.id ? (
+                                        <div className="flex items-center gap-1 bg-red-50 px-1 py-0.5 rounded border border-red-100">
                                         <span className="text-[8px] text-red-700 font-extrabold">تأكيد؟</span>
                                         <button
                                           onClick={() => {
@@ -1637,6 +1696,16 @@ export const Summaries: React.FC<SummariesProps> = ({
                                 )}
                               </div>
                             </div>
+
+                            {/* Prominently Display Notes in registered payment card */}
+                            {pay.notes && pay.notes.trim() && (
+                              <div className="w-full mt-1 pt-1 border-t border-slate-200/60 flex items-start gap-1.5 text-[10px] text-slate-700 bg-white/70 px-2 py-1 rounded-md font-medium">
+                                <FileText className="w-3.5 h-3.5 text-blue-900 shrink-0 mt-0.5" />
+                                <span className="font-black text-slate-500 shrink-0">ملاحظات:</span>
+                                <span className="font-semibold text-slate-800 break-words leading-relaxed">{pay.notes}</span>
+                              </div>
+                            )}
+                          </div>
                           )}
                         </div>
                       );

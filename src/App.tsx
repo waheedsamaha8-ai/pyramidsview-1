@@ -1432,9 +1432,17 @@ export default function App() {
     const cleanOrigId = String(originalPaymentId);
     offlineSync.purgeEntityFromQueue(cleanOrigId);
 
-    // Find any previous child payments linked via distributionSourceId or explicit list
+    // Find original payment object to check its stored distributedPaymentIds
+    const origPayment = payments.find(p => String(p.id) === cleanOrigId);
+
+    // Find any previous child payments linked via distributionSourceId or stored in origPayment.distributedPaymentIds
     const linkedChildIds = payments
-      .filter(p => String(p.distributionSourceId || '') === cleanOrigId)
+      .filter(p => 
+        String(p.id) !== cleanOrigId && (
+          String(p.distributionSourceId || '') === cleanOrigId ||
+          (Array.isArray(origPayment?.distributedPaymentIds) && origPayment.distributedPaymentIds.map(String).includes(String(p.id)))
+        )
+      )
       .map(p => String(p.id));
 
     const allIdsToRemove = new Set<string>([
