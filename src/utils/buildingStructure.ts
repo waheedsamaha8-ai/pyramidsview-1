@@ -1,4 +1,4 @@
-import { Resident, FloorConfig, UnitHistoryRecord } from '../types';
+import { Resident, FloorConfig, UnitHistoryRecord, UnitActivityRecord } from '../types';
 
 export const floorTypeLabels: Record<FloorConfig['type'], string> = {
   basement: 'دور البدروم',
@@ -971,5 +971,198 @@ export function formatResidentOptionLabel(res: Resident, yearOrPeriod?: string |
     return `وحدة ${flatStr} — المالك: ${ownerName} 👤 (المستأجر: ${tenantName})`;
   }
   return `وحدة ${flatStr} — المالك: ${ownerName}`;
+}
+
+/**
+ * Computes an effective start date string for sorting an activity record.
+ */
+function getActivityRecordEffectiveStartDate(rec: UnitActivityRecord): string {
+  const norm = parseToStandardDate(rec.fromDate);
+  return norm?.dateStr || '';
+}
+
+/**
+ * Computes an effective end date string for sorting an activity record.
+ * Ongoing / current records return '9999-99-99'.
+ */
+function getActivityRecordEffectiveEndDate(rec: UnitActivityRecord): string {
+  if (isOngoingOrCurrentDate(rec.toDate)) return '9999-99-99';
+  const norm = parseToStandardDate(rec.toDate);
+  return norm?.dateStr || '';
+}
+
+/**
+ * Sorts unit activity records chronologically (oldest to newest).
+ * Records marked with "حتى الآن" or ongoing into current time period are placed at the end as current/active records.
+ */
+export function sortActivityRecordsChronologically(records: UnitActivityRecord[]): UnitActivityRecord[] {
+  if (!records || records.length <= 1) return records ? [...records] : [];
+  return [...records].sort((a, b) => {
+    const aEnd = getActivityRecordEffectiveEndDate(a);
+    const bEnd = getActivityRecordEffectiveEndDate(b);
+    const aIsCurrent = aEnd === '9999-99-99';
+    const bIsCurrent = bEnd === '9999-99-99';
+
+    if (aIsCurrent && !bIsCurrent) return 1;
+    if (!aIsCurrent && bIsCurrent) return -1;
+
+    const startA = getActivityRecordEffectiveStartDate(a);
+    const startB = getActivityRecordEffectiveStartDate(b);
+    if (startA && startB && startA !== startB) {
+      return startA.localeCompare(startB);
+    }
+    if (aEnd !== bEnd) {
+      return aEnd.localeCompare(bEnd);
+    }
+    const cA = a.createdAt || '';
+    const cB = b.createdAt || '';
+    return cA.localeCompare(cB);
+  });
+}
+
+/**
+ * Resolves standard default monthly fee for a given activity type
+ */
+export function getDefaultFeeForActivity(
+  activityType: string,
+  defaultMonthlyFee: number = 400,
+  activityDefaultFees?: Record<string, number>
+): number {
+  if (!activityType) return defaultMonthlyFee || 400;
+  const cleanType = activityType.trim();
+  if (activityDefaultFees && activityDefaultFees[cleanType] !== undefined) {
+    return activityDefaultFees[cleanType];
+  }
+  switch (cleanType) {
+    case 'بدون تحصيل': return 0;
+    case 'بدون تشطيب': return 0;
+    case 'تحت التشطيب': return 200;
+    case 'سكني': return 400;
+    case 'سكني مغلق': return 200;
+    case 'مفروش': return 600;
+    case 'إداري': return 800;
+    case 'تجاري': return 500;
+    default:
+      if (cleanType.includes('بدون تحصيل') || cleanType.includes('بدون تشطيب')) return 0;
+      if (cleanType.includes('تشطيب')) return 200;
+      return defaultMonthlyFee || 400;
+  }
+}
+
+/**
+ * Resolves the unit's activity and monthly fee for the given target date or period from its activityHistory records.
+ * If targetDateOrPeriod is given, matches against the period. Otherwise returns the latest active activity.
+ */
+export function getLatestActivityFromHistory(
+  resident: Resident,
+  targetDateOrPeriod?: string | number,
+  defaultMonthlyFee: number = 400,
+  activityDefaultFees?: Record<string, number>
+): {
+  activityType: string;
+  monthlyFee: number;
+  fromDate?: string;
+  toDate?: string;
+} {
+  const fallbackActivity = (resident.activityType || 'سكني').trim();
+  const fallbackFee = (resident.monthlyFee !== undefined && !isNaN(resident.monthlyFee) && resident.monthlyFee >= 0)
+    ? resident.monthlyFee
+    : getDefaultFeeForActivity(fallbackActivity, defaultMonthlyFee, activityDefaultFees);
+
+  const fallback = {
+    activityType: fallbackActivity,
+    monthlyFee: fallbackFee,
+  };
+
+  if (!resident.activityHistory || !Array.isArray(resident.activityHistory) || resident.activityHistory.length === 0) {
+    return fallback;
+  }
+
+  const historyList = sortActivityRecordsChronologically(resident.activityHistory);
+  if (historyList.length === 0) {
+    return fallback;
+  }
+
+  // Parse target date
+  const now = new Date();
+  const currentY = String(now.getFullYear());
+  const currentM = String(now.getMonth() + 1).padStart(2, '0');
+  const currentD = String(now.getDate()).padStart(2, '0');
+  const currentMonthStr = `${currentY}-${currentM}`;
+  const currentDateStr = `${currentMonthStr}-${currentD}`;
+
+  let targetNorm: { year: string; month: string; dateStr: string };
+  if (targetDateOrPeriod && targetDateOrPeriod !== 'latest' && targetDateOrPeriod !== 'current') {
+    const parsed = parseToStandardDate(targetDateOrPeriod);
+    targetNorm = parsed || { year: currentY, month: currentMonthStr, dateStr: currentDateStr };
+  } else {
+    targetNorm = { year: currentY, month: currentMonthStr, dateStr: currentDateStr };
+  }
+
+  // Find record matching target period (from newest to oldest)
+  let matchedRecord: UnitActivityRecord | undefined = undefined;
+  for (let i = historyList.length - 1; i >= 0; i--) {
+    const rec = historyList[i];
+    if (rec.activityType && rec.activityType.trim()) {
+      if (isPeriodMatchingTarget(targetNorm, rec.fromDate, rec.toDate)) {
+        matchedRecord = rec;
+        break;
+      }
+    }
+  }
+
+  // If none matched specifically by date, take the latest record
+  if (!matchedRecord) {
+    matchedRecord = historyList[historyList.length - 1];
+  }
+
+  if (matchedRecord && matchedRecord.activityType) {
+    const actType = matchedRecord.activityType.trim();
+    const fee = (matchedRecord.monthlyFee !== undefined && !isNaN(matchedRecord.monthlyFee) && matchedRecord.monthlyFee >= 0)
+      ? matchedRecord.monthlyFee
+      : getDefaultFeeForActivity(actType, defaultMonthlyFee, activityDefaultFees);
+
+    return {
+      activityType: actType,
+      monthlyFee: fee,
+      fromDate: matchedRecord.fromDate,
+      toDate: matchedRecord.toDate,
+    };
+  }
+
+  return fallback;
+}
+
+/**
+ * Convenience wrapper returning historical activity and monthly fee for a resident at a specific date/period.
+ */
+export function getHistoricalActivityForDate(
+  resident: Resident,
+  dateOrPeriod?: string | number,
+  defaultMonthlyFee?: number,
+  activityDefaultFees?: Record<string, number>
+): { activityType: string; monthlyFee: number } {
+  if (!resident) {
+    return { activityType: 'سكني', monthlyFee: defaultMonthlyFee || 400 };
+  }
+  return getLatestActivityFromHistory(resident, dateOrPeriod, defaultMonthlyFee, activityDefaultFees);
+}
+
+/**
+ * Synchronizes resident top-level activityType and monthlyFee with the active activity record from activityHistory.
+ */
+export function syncResidentCurrentActivity(
+  r: Resident,
+  targetDateOrPeriod?: string | number,
+  defaultMonthlyFee?: number,
+  activityDefaultFees?: Record<string, number>
+): Resident {
+  if (!r || !r.activityHistory || !Array.isArray(r.activityHistory) || r.activityHistory.length === 0) return r;
+  const act = getLatestActivityFromHistory(r, targetDateOrPeriod, defaultMonthlyFee, activityDefaultFees);
+  return {
+    ...r,
+    activityType: act.activityType || r.activityType,
+    monthlyFee: act.monthlyFee !== undefined ? act.monthlyFee : r.monthlyFee,
+  };
 }
 

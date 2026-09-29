@@ -45,6 +45,16 @@ export interface UnitHistoryRecord {
   createdAt?: string;
 }
 
+export interface UnitActivityRecord {
+  id: string;
+  activityType: string; // e.g. سكني، سكني مغلق، تجاري، إداري، تحت التشطيب، بدون تشطيب، مفروش
+  monthlyFee?: number;  // The custom monthly fee for this activity during this period
+  fromDate?: string;    // YYYY-MM-DD or YYYY-MM or Month Year in Arabic
+  toDate?: string;      // YYYY-MM-DD or YYYY-MM or empty for 'حتى الآن'
+  notes?: string;
+  createdAt?: string;
+}
+
 export interface Resident {
   id: string;
   buildingId?: string;
@@ -68,6 +78,7 @@ export interface Resident {
   lastLoginAt?: string;
   tenantLastLoginAt?: string;
   history?: UnitHistoryRecord[];
+  activityHistory?: UnitActivityRecord[];
 }
 
 export interface Payment {

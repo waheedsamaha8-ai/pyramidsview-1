@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Resident, UserRole, FloorConfig, Payment, AppConfig, JoinRequest } from '../types';
 import { Search, Phone, Edit, Trash2, Home, AlertCircle, LayoutGrid, List, Settings2, Plus, X, Building2, Save, User, KeyRound, Wallet, ArrowDownRight, ArrowUpRight, CheckCircle2, UserCheck, UserX, Clock, Share2, RefreshCw, ShieldCheck, SlidersHorizontal, Contact, History } from 'lucide-react';
-import { deriveFloorConfigsFromResidents, floorTypeLabels, getFloorName, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber, parseFlatNumber, getLatestOccupantFromHistory } from '../utils/buildingStructure';
+import { deriveFloorConfigsFromResidents, floorTypeLabels, getFloorName, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber, parseFlatNumber, getLatestOccupantFromHistory, getLatestActivityFromHistory } from '../utils/buildingStructure';
 import * as googleApi from '../services/googleApi';
 import { 
   fetchAllJoinRequests, 
@@ -477,9 +477,14 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                                 </span>
                               )}
 
-                              <span className="px-2 py-0.5 bg-slate-50 text-slate-600 border border-slate-100 rounded-md text-[9px] font-extrabold">
-                                {res.activityType}
-                              </span>
+                              {(() => {
+                                const latestAct = getLatestActivityFromHistory(res, undefined, config?.defaultMonthlyFee, config?.activityDefaultFees);
+                                return (
+                                  <span className="px-2 py-0.5 bg-slate-50 text-slate-600 border border-slate-100 rounded-md text-[9px] font-extrabold" title={res.activityHistory && res.activityHistory.length > 0 ? `سجل النشاط: ${res.activityHistory.length} مراحل` : undefined}>
+                                    {latestAct.activityType || res.activityType}
+                                  </span>
+                                );
+                              })()}
                             </div>
                           </div>
 
@@ -873,13 +878,16 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                             )}
 
                             {/* Activity Type */}
-                            {visibleColumns.activityType && (
-                              <td className="w-16 sm:w-18 px-1 py-1.5 text-center whitespace-nowrap">
-                                <span className="px-1.5 py-0.2 bg-slate-100 border border-slate-200 rounded text-[8.5px] text-slate-700 font-bold">
-                                  {res.activityType}
-                                </span>
-                              </td>
-                            )}
+                            {visibleColumns.activityType && (() => {
+                              const latestAct = getLatestActivityFromHistory(res, undefined, config?.defaultMonthlyFee, config?.activityDefaultFees);
+                              return (
+                                <td className="w-16 sm:w-18 px-1 py-1.5 text-center whitespace-nowrap">
+                                  <span className="px-1.5 py-0.2 bg-slate-100 border border-slate-200 rounded text-[8.5px] text-slate-700 font-bold" title={res.activityHistory && res.activityHistory.length > 0 ? `سجل النشاط: ${res.activityHistory.length} مراحل` : undefined}>
+                                    {latestAct.activityType || res.activityType}
+                                  </span>
+                                </td>
+                              );
+                            })()}
 
                             {/* Notes */}
                             {visibleColumns.notes && (
@@ -1362,10 +1370,12 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
         initialResident={inviteResidentTarget}
       />
 
-      {/* Unit Ownership & Occupancy History Modal */}
+      {/* Unit Ownership, Occupancy & Activity History Modal */}
       <UnitHistoryModal
         isOpen={historyModalResident !== null}
         resident={historyModalResident}
+        activityTypes={activityTypes}
+        config={config}
         onClose={() => setHistoryModalResident(null)}
         onUpdateResident={(updatedResident) => {
           setHistoryModalResident(updatedResident);

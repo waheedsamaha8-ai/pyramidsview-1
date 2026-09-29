@@ -24,7 +24,7 @@ import {
   CheckCircle2,
   Download
 } from 'lucide-react';
-import { deriveFloorConfigsFromResidents, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber, getHistoricalOccupantForDate } from '../utils/buildingStructure';
+import { deriveFloorConfigsFromResidents, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber, getHistoricalOccupantForDate, getHistoricalActivityForDate } from '../utils/buildingStructure';
 import { calculateResidentFinancials, getCarriedPreviousBalance } from '../utils/financialCalculations';
 import { formatMobileNumber, formatPhoneForDisplay, toWhatsAppNumber } from '../utils/phoneUtils';
 import { shareImageViaWhatsApp } from '../utils/shareImageViaWhatsApp';
@@ -194,7 +194,8 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
       activityDefaultFees
     );
 
-    const monthlyFee = residentFin.monthlyFee;
+    const histAct = getHistoricalActivityForDate(resident, `${currentYear}-${selectedMonth}`, defaultMonthlyFee, activityDefaultFees);
+    const monthlyFee = histAct.monthlyFee;
     const isPaid = Boolean(currentMonthPayment && (currentMonthPayment.amount > 0 || currentMonthPayment.isManuallyPaid));
 
     // Calculate old debt strictly from carried previous balance (initialBalance or accumulated from prior years)
@@ -214,6 +215,7 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
 
     return {
       resident,
+      histAct,
       totalPaid,
       monthlyFee,
       currentMonthStatus: isPaid ? 'مسدد' : 'غير مسدد',
@@ -248,19 +250,20 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
         if (!res || st === 'empty') {
           emptyCount++;
         } else {
+          const histAct = getHistoricalActivityForDate(res, `${currentYear}-${selectedMonth}`, defaultMonthlyFee, activityDefaultFees);
           const isRaw = Boolean(
-            res.activityType === 'بدون تحصيل' ||
-            res.activityType === 'بدون تشطيب' ||
-            res.activityType?.includes('بدون تحصيل') ||
-            res.activityType?.includes('بدون تشطيب') ||
-            res.monthlyFee === 0
+            histAct.activityType === 'بدون تحصيل' ||
+            histAct.activityType === 'بدون تشطيب' ||
+            histAct.activityType?.includes('بدون تحصيل') ||
+            histAct.activityType?.includes('بدون تشطيب') ||
+            histAct.monthlyFee === 0
           );
           if (isRaw) {
             rawNoFeeCount++;
           } else if (st === 'paid') {
             paidCount++;
           } else {
-            const isFinishing = Boolean(res.activityType === 'تحت التشطيب' || res.activityType.includes('تشطيب'));
+            const isFinishing = Boolean(histAct.activityType === 'تحت التشطيب' || histAct.activityType.includes('تشطيب'));
             if (isFinishing) {
               finishingUnpaidCount++;
             } else {
@@ -297,7 +300,7 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
         let msg = `🏢 *اتحاد ملاك عمارة بيراميدز فيو ١*\n`;
         msg += `💐 *إيصال سداد: ${payDescription}*\n`;
         msg += `-----------------------------------\n`;
-        msg += `🚪 *الوحدة:* ( الوحدة ${resident.flatNumber} - ${resident.activityType} )\n`;
+        msg += `🚪 *الوحدة:* ( الوحدة ${resident.flatNumber} - ${financials.histAct?.activityType || resident.activityType || 'سكني'} )\n`;
         msg += `👤 *بيانات الشاغل (${recipientRole}):* ${recipientName}\n`;
         msg += `💰 *المبلغ المسدد معتمداً:* *${paidAmt.toLocaleString()} ج.م* ✓\n`;
         msg += `🗓 *بيان الإيصال:* ${payDescription}\n`;
@@ -667,6 +670,7 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
     const activeTenantName = historical.tenantName !== undefined ? historical.tenantName : financials.resident.tenantName;
     const activeTenantPhone = historical.tenantPhone || (activeTenantName ? financials.resident.tenantPhone : undefined);
 
+    const histAct = getHistoricalActivityForDate(financials.resident, `${currentYear}-${selectedMonth}`, defaultMonthlyFee, activityDefaultFees);
     const printData: ReceiptClaimData = {
       type: isPaid ? 'receipt' : 'claim',
       unitNumber: financials.resident.flatNumber,
@@ -680,9 +684,9 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
       date: isPaid ? financials.currentMonthPayment?.date : new Date().toISOString().slice(0, 10),
       receiptNumber: financials.currentMonthPayment?.receiptNumber,
       paymentType: payCategory,
-      activityType: financials.resident.activityType || 'سكني',
+      activityType: histAct.activityType || financials.resident.activityType || 'سكني',
       occupancyType: activeTenantName ? 'إيجار' : (financials.resident.ownershipType || 'تمليك'),
-      monthlyFee: financials.monthlyFee,
+      monthlyFee: histAct.monthlyFee || financials.monthlyFee,
       carriedBalance: financials.carriedBalance,
       oldDebtAmount: financials.oldDebtVal,
       unpaidMonthsCount: financials.unpaidMonthsCount,
@@ -800,16 +804,17 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
                 {units.map(unitNum => {
                   const status = getPaymentStatus(unitNum);
                   const resident = residents.find(r => isSameFlatNumber(r.flatNumber, unitNum));
+                  const histAct = resident ? getHistoricalActivityForDate(resident, `${currentYear}-${selectedMonth}`, defaultMonthlyFee, activityDefaultFees) : null;
                   const isRaw = Boolean(
-                    resident && (
-                      resident.activityType === 'بدون تحصيل' ||
-                      resident.activityType === 'بدون تشطيب' ||
-                      resident.activityType.includes('بدون تحصيل') ||
-                      resident.activityType.includes('بدون تشطيب') ||
-                      resident.monthlyFee === 0
+                    histAct && (
+                      histAct.activityType === 'بدون تحصيل' ||
+                      histAct.activityType === 'بدون تشطيب' ||
+                      histAct.activityType.includes('بدون تحصيل') ||
+                      histAct.activityType.includes('بدون تشطيب') ||
+                      histAct.monthlyFee === 0
                     )
                   );
-                  const isFinishing = Boolean(resident && !isRaw && (resident.activityType === 'تحت التشطيب' || resident.activityType.includes('تشطيب')));
+                  const isFinishing = Boolean(histAct && !isRaw && (histAct.activityType === 'تحت التشطيب' || histAct.activityType.includes('تشطيب')));
                   const isPaid = status === 'paid';
                   const isUnpaid = status === 'unpaid';
 
@@ -830,7 +835,7 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
                     }
                   }
 
-                  const displayActivity = resident ? (resident.activityType || 'سكني') : 'شاغرة';
+                  const displayActivity = histAct ? histAct.activityType : (resident ? (resident.activityType || 'سكني') : 'شاغرة');
                   const unitStr = String(unitNum);
                   const isLongUnit = unitStr.length > 3;
 
@@ -940,7 +945,7 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
                             </div>
                           </div>
                           <span className="text-[9.5px] font-black px-2.5 py-0.5 rounded-md bg-blue-100 text-blue-900 border border-blue-200">
-                            {((activeTenantName || financials.resident.ownershipType === 'إيجار') ? 'إيجار' : (financials.resident.ownershipType || 'تمليك'))} / {financials.resident.activityType || 'سكني'}
+                            {((activeTenantName || financials.resident.ownershipType === 'إيجار') ? 'إيجار' : (financials.resident.ownershipType || 'تمليك'))} / {financials.histAct?.activityType || financials.resident.activityType || 'سكني'}
                           </span>
                         </div>
                         

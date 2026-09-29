@@ -3,7 +3,7 @@ import { generateElementImage } from '../utils/imageExport';
 import { Resident, Payment, AppConfig, UserRole, FloorConfig } from '../types';
 import { ReceiptClaimModal, ReceiptClaimData } from './ReceiptClaimModal';
 import { useDebtsCalculations } from '../hooks/useDebtsCalculations';
-import { deriveFloorConfigsFromResidents, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber, getHistoricalOccupantForDate } from '../utils/buildingStructure';
+import { deriveFloorConfigsFromResidents, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber, getHistoricalOccupantForDate, getHistoricalActivityForDate } from '../utils/buildingStructure';
 import { 
   calculateResidentFinancials, 
   getCarriedPreviousBalance, 
@@ -534,15 +534,18 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
       { label: 'إجمالي المبلغ المتأخر المطلوب', value: `${Math.round(debtAmount).toLocaleString()} ج.م`, isHighlight: true, color: '#b91c1c' }
     ];
 
+    const histAct = getHistoricalActivityForDate(resident, `${currentYearNum}-${currentMonthNum}`, config?.defaultMonthlyFee, config?.activityDefaultFees);
+    const historical = getHistoricalOccupantForDate(resident, `${currentYearNum}-${currentMonthNum}`);
+
     setClaimModalData({
       type: 'claim',
       unitNumber: resident.flatNumber,
-      residentName: resident.name,
-      tenantName: resident.tenantName,
-      phone: resident.phone,
-      tenantPhone: resident.tenantPhone,
-      activityType: resident.activityType || 'سكني',
-      occupancyType: resident.ownershipType || 'تمليك',
+      residentName: historical.ownerName || resident.name,
+      tenantName: historical.tenantName !== undefined ? historical.tenantName : resident.tenantName,
+      phone: historical.ownerPhone || resident.phone,
+      tenantPhone: historical.tenantPhone || resident.tenantPhone,
+      activityType: histAct.activityType || resident.activityType || 'سكني',
+      occupancyType: (historical.tenantName || resident.tenantName) ? 'إيجار' : (resident.ownershipType || 'تمليك'),
       amount: debtAmount,
       month: currentMonthNum,
       year: currentYearNum,
@@ -948,6 +951,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                         const debtAmount = Math.round(Math.abs(financials.netBalance));
                         const displayNotes = (resident.notes || '').includes('توليد تلقائي') ? '' : (resident.notes || '');
                         const historical = getHistoricalOccupantForDate(resident, selectedYearFilter === 'all' ? currentYear : selectedYearFilter);
+                        const histAct = getHistoricalActivityForDate(resident, selectedYearFilter === 'all' ? currentYear : selectedYearFilter, config?.defaultMonthlyFee, config?.activityDefaultFees);
                         const ownerName = historical.ownerName || resident.name;
                         const tenantName = historical.tenantName !== undefined ? historical.tenantName : (resident.ownershipType === 'إيجار' ? resident.tenantName : '');
                         const hasTenant = Boolean(tenantName && tenantName.trim());
@@ -991,7 +995,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                             {/* Activity Type */}
                             <td className="w-14 sm:w-16 px-1 py-1.5 text-center whitespace-nowrap">
                               <span className="px-1.5 py-0.2 bg-slate-50 text-slate-700 rounded text-[8.5px] font-extrabold border border-slate-200">
-                                {resident.activityType}
+                                {histAct.activityType || resident.activityType}
                               </span>
                             </td>
 
@@ -1234,7 +1238,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                   {group.debtors.map(({ resident, financials, carriedBalance }) => {
                     const debtAmount = Math.round(Math.abs(financials.netBalance));
                     const displayNotes = (resident.notes || '').includes('توليد تلقائي') ? '' : (resident.notes || '');
-
+                    const histAct = getHistoricalActivityForDate(resident, selectedYearFilter === 'all' ? currentYear : selectedYearFilter, config?.defaultMonthlyFee, config?.activityDefaultFees);
                     const isSelected = selectedItemId === resident.id;
 
                     return (
@@ -1254,7 +1258,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                               وحدة {resident.flatNumber}
                             </span>
                             <span className="text-[10px] font-extrabold px-2.5 py-0.5 bg-slate-50 text-slate-700 rounded-lg border border-slate-100">
-                              {resident.activityType} ({resident.ownershipType || 'تمليك'})
+                              {histAct.activityType || resident.activityType} ({resident.ownershipType || 'تمليك'})
                             </span>
                           </div>
 
@@ -1574,21 +1578,25 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                   </tr>
                   {group.debtors.map(({ resident, financials, carriedBalance }) => {
                     const debtAmount = Math.round(Math.abs(financials.netBalance));
-                    const hasTenant = Boolean(resident.tenantName && resident.tenantName.trim());
+                    const historical = getHistoricalOccupantForDate(resident, selectedYearFilter === 'all' ? currentYear : selectedYearFilter);
+                    const histAct = getHistoricalActivityForDate(resident, selectedYearFilter === 'all' ? currentYear : selectedYearFilter, config?.defaultMonthlyFee, config?.activityDefaultFees);
+                    const activeOwner = historical.ownerName || resident.name;
+                    const activeTenant = historical.tenantName !== undefined ? historical.tenantName : resident.tenantName;
+                    const hasTenant = Boolean(activeTenant && activeTenant.trim());
                     return (
                       <tr key={resident.id} className="border-b border-slate-300">
                         <td className="border border-slate-300 p-2 text-center font-bold text-blue-900">وحدة {resident.flatNumber}</td>
                         <td className="border border-slate-300 p-2 font-bold text-slate-800">
                           <div>
-                            <div>{resident.name}</div>
+                            <div>{activeOwner}</div>
                             {hasTenant && (
                               <div className="text-[10px] text-amber-900 font-normal">
-                                مستأجر: {resident.tenantName}
+                                مستأجر: {activeTenant}
                               </div>
                             )}
                           </div>
                         </td>
-                        <td className="border border-slate-300 p-2 text-center">{resident.activityType}</td>
+                        <td className="border border-slate-300 p-2 text-center">{histAct.activityType || resident.activityType}</td>
                         <td className="border border-slate-300 p-2 text-center font-semibold">{financials.monthlyFee} ج.م</td>
                         <td className="border border-slate-300 p-2 text-center font-semibold">
                           {carriedBalance < 0 

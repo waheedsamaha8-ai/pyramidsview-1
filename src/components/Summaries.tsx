@@ -2,7 +2,7 @@ import React, { useMemo, useState, useRef } from 'react';
 import { Resident, Payment, Expense, UserRole, FloorConfig, AppConfig } from '../types';
 import { Calendar, Check, AlertCircle, RefreshCw, X, ExternalLink, Trash2, PlusCircle, CreditCard, Clock, Layers, Receipt, Edit, Save, Minus, Sparkles, RotateCcw } from 'lucide-react';
 import { BuildingMap } from './BuildingMap';
-import { deriveFloorConfigsFromResidents, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber, getHistoricalOccupantForDate } from '../utils/buildingStructure';
+import { deriveFloorConfigsFromResidents, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber, getHistoricalOccupantForDate, getHistoricalActivityForDate } from '../utils/buildingStructure';
 
 interface SummariesProps {
   residents: Resident[];
@@ -289,8 +289,12 @@ export const Summaries: React.FC<SummariesProps> = ({
     const isPending = !isPaid && pendingPayments.length > 0;
     const pendingAmount = pendingPayments.reduce((sum, p) => sum + p.amount, 0);
 
-    const isAggregated = validCollectedPayments.some(p => isOriginalAggregatedPayment(p));
-    const isDistributed = validCollectedPayments.some(p => isMasterDistributionPayment(p));
+    const isAggregated = matchingPayments.some(p => 
+      p.status !== 'cancelled' && p.status !== 'لاغي' && (isOriginalAggregatedPayment(p) || Boolean(p.isAggregatedCollection))
+    );
+    const isDistributed = matchingPayments.some(p => 
+      p.status !== 'cancelled' && p.status !== 'لاغي' && isMasterDistributionPayment(p)
+    );
 
     return {
       paid: isPaid,
@@ -956,12 +960,13 @@ export const Summaries: React.FC<SummariesProps> = ({
                           const status = getSubscriptionStatus(res.id, m);
                           const isMulti = status.paymentsList.length > 1;
                           const isQuarterEnd = idx === 2 || idx === 5 || idx === 8;
+                          const histAct = getHistoricalActivityForDate(res, `${currentYear}-${m}`, defaultMonthlyFee, activityDefaultFees);
                           const isNoFeeActivity = Boolean(
-                            res.activityType === 'بدون تحصيل' ||
-                            res.activityType === 'بدون تشطيب' ||
-                            res.activityType?.includes('بدون تحصيل') ||
-                            res.activityType?.includes('بدون تشطيب') ||
-                            (res.monthlyFee === 0)
+                            histAct.activityType === 'بدون تحصيل' ||
+                            histAct.activityType === 'بدون تشطيب' ||
+                            histAct.activityType?.includes('بدون تحصيل') ||
+                            histAct.activityType?.includes('بدون تشطيب') ||
+                            (histAct.monthlyFee === 0)
                           );
 
                           let cellBgClass = 'bg-red-100/90 text-red-950 hover:bg-red-200 border-red-200/70';
@@ -978,7 +983,7 @@ export const Summaries: React.FC<SummariesProps> = ({
                               key={m}
                               onClick={() => {
                                 const monthName = monthNamesArabic[idx];
-                                const defaultAmt = getDefaultFeeForResident(res);
+                                const defaultAmt = histAct.monthlyFee;
                                 setNewAmount(String(defaultAmt));
                                 setNewPaymentType(isNoFeeActivity ? 'تحصيلات اخرى' : 'اشتراك شهري');
                                 setEditingPaymentId(null);
@@ -1021,7 +1026,22 @@ export const Summaries: React.FC<SummariesProps> = ({
                                   </>
                                 ) : status.pending ? (
                                   <>
-                                    <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-700 stroke-[2.5]" />
+                                    <div className="flex items-center gap-0.5">
+                                      <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-700 stroke-[2.5]" />
+                                      {status.isDistributed && (
+                                        <span className="w-2 h-2 rounded-full bg-amber-500 ring-2 ring-amber-300 animate-pulse" title="تم التوزيع من هذه الدفعة" />
+                                      )}
+                                      {!status.isDistributed && status.isAggregated && (
+                                        <span className="text-[7px] sm:text-[7.5px] font-black px-1 py-0.2 bg-amber-200 text-amber-950 rounded-xs" title="تحصيل مجمع">
+                                          مجمع ⚡
+                                        </span>
+                                      )}
+                                      {isMulti && (
+                                        <span className="text-[7.5px] sm:text-[9px] font-black px-0.5 py-0.2 bg-blue-200 text-blue-900 rounded-xs">
+                                          {status.paymentsList.length}
+                                        </span>
+                                      )}
+                                    </div>
                                     <span className="text-[8.5px] sm:text-[10px] font-black text-amber-950 whitespace-nowrap leading-none">لم يحصل</span>
                                     {status.pendingAmount > 0 && (
                                       <span className="text-[9px] sm:text-[11px] font-black text-amber-950 leading-none">
@@ -1096,18 +1116,26 @@ export const Summaries: React.FC<SummariesProps> = ({
               {/* Content Body */}
               <div className="p-3 space-y-2 overflow-y-auto flex-1 min-h-0">
                 {/* Resident Summary Bar */}
-                <div className="bg-blue-50/50 px-3 py-1.5 rounded-lg border border-blue-100/60 flex items-center justify-between gap-2 shrink-0">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] text-slate-500 font-bold">الساكن:</span>
-                    <span className="text-xs font-black text-slate-800">{selectedCell.resident.name}</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] text-slate-500 font-bold">الإجمالي:</span>
-                    <span className="text-xs font-black text-emerald-600 bg-emerald-50/80 px-2 py-0.5 rounded">
-                      {activeCellPayments.reduce((sum, p) => sum + p.amount, 0)} ج.م
-                    </span>
-                  </div>
-                </div>
+                {(() => {
+                  const cellHistAct = getHistoricalActivityForDate(selectedCell.resident, `${currentYear}-${selectedCell.month}`, defaultMonthlyFee, activityDefaultFees);
+                  return (
+                    <div className="bg-blue-50/50 px-3 py-1.5 rounded-lg border border-blue-100/60 flex items-center justify-between gap-2 shrink-0 flex-wrap">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] text-slate-500 font-bold">الساكن:</span>
+                        <span className="text-xs font-black text-slate-800">{selectedCell.resident.name}</span>
+                      </div>
+                      <div className="flex items-center gap-1 bg-purple-100 text-purple-900 px-2 py-0.5 rounded text-[10px] font-black border border-purple-200">
+                        <span>النشاط: {cellHistAct.activityType} ({cellHistAct.monthlyFee} ج.م)</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] text-slate-500 font-bold">الإجمالي:</span>
+                        <span className="text-xs font-black text-emerald-600 bg-emerald-50/80 px-2 py-0.5 rounded">
+                          {activeCellPayments.reduce((sum, p) => sum + p.amount, 0)} ج.م
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Payments List */}
                 <div className="space-y-1.5">
@@ -1467,7 +1495,7 @@ export const Summaries: React.FC<SummariesProps> = ({
                                       </span>
                                     );
                                   }
-                                  if (isOriginalAggregatedPayment(pay)) {
+                                  if (isOriginalAggregatedPayment(pay) || Boolean(pay.isAggregatedCollection)) {
                                     return (
                                       <span className="px-1.5 py-0.2 bg-amber-100 text-amber-900 border border-amber-300 rounded text-[8px] font-black flex items-center gap-0.5">
                                         <Sparkles className="w-2.5 h-2.5 text-amber-600" />

@@ -96,7 +96,7 @@ import { ImagePreviewModal } from './components/modals/ImagePreviewModal';
 import { BuildingRulesModal } from './components/modals/BuildingRulesModal';
 import { ActivityUnitsModal } from './components/modals/ActivityUnitsModal';
 import { calculateResidentFinancials } from './utils/financialCalculations';
-import { removeUnitFromBuildingLayout, addUnitToBuildingLayout, compareFlatNumbers, isSameFlatNumber, parseFlatNumber, getUnitNumbersForFloor, deriveFloorConfigsFromResidents, deduplicateResidents, syncResidentCurrentOccupant } from './utils/buildingStructure';
+import { removeUnitFromBuildingLayout, addUnitToBuildingLayout, compareFlatNumbers, isSameFlatNumber, parseFlatNumber, getUnitNumbersForFloor, deriveFloorConfigsFromResidents, deduplicateResidents, syncResidentCurrentOccupant, syncResidentCurrentActivity } from './utils/buildingStructure';
 import { formatMobileNumber, formatPhoneForDisplay } from './utils/phoneUtils';
 import { 
   canDeleteChatMessage, 
@@ -178,7 +178,7 @@ export default function App() {
     const baseConfig: AppConfig = {
       expenseTypes: ['صيانة', 'كهرباء', 'مياه', 'أمن ونظافة', 'مصاعد', 'أخرى'],
       paymentTypes: ['اشتراك شهري', 'صيانة طارئة', 'تحصيلات اخرى'],
-      activityTypes: ['سكني', 'سكني مغلق', 'مفروش', 'إداري', 'تجاري', 'بدون تشطيب'],
+      activityTypes: ['سكني', 'سكني مغلق', 'تحت التشطيب', 'بدون تشطيب', 'مفروش', 'إداري', 'تجاري'],
       admins: [],
       managers: [],
       accountingStartDate: '2026-01-01',
@@ -186,10 +186,11 @@ export default function App() {
       activityDefaultFees: {
         'سكني': 400,
         'سكني مغلق': 200,
+        'تحت التشطيب': 200,
+        'بدون تشطيب': 0,
         'مفروش': 600,
         'إداري': 800,
         'تجاري': 500,
-        'بدون تشطيب': 0,
       },
       adminResidentProfile: {
         flatNumber: 207,
@@ -230,10 +231,10 @@ export default function App() {
       if (raw && Array.isArray(raw)) {
         return raw
           .filter(r => r && r.id && (!['1', '2', '3'].includes(String(r.id)) || (r.name !== 'محمد أحمد' && r.name !== 'خالد مصطفى' && r.name !== 'سمير عبد الله')))
-          .map(r => syncResidentCurrentOccupant({
+          .map(r => syncResidentCurrentActivity(syncResidentCurrentOccupant({
             ...r,
             notes: (r.notes || '').includes('توليد تلقائي') ? '' : (r.notes || '')
-          }));
+          })));
       }
     } catch {}
     return [];
@@ -2969,6 +2970,7 @@ export default function App() {
             onDelete={deletePayment}
             onPreviewImage={handlePreviewImage}
             onEditResident={editResident}
+            onDistributePayment={distributePayment}
           />
         )}
 

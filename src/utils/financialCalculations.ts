@@ -1,32 +1,23 @@
 import { Resident, Payment, AppConfig } from '../types';
-import { isSameFlatNumber } from './buildingStructure';
+import { isSameFlatNumber, getHistoricalActivityForDate, getDefaultFeeForActivity } from './buildingStructure';
 
 /**
- * Determines the effective monthly fee for a resident
+ * Determines the effective monthly fee for a resident (optionally for a specific historical date/period)
  */
 export function getResidentMonthlyFee(
   resident: Resident,
   defaultMonthlyFee: number = 400,
-  activityDefaultFees?: Record<string, number>
+  activityDefaultFees?: Record<string, number>,
+  targetDateOrPeriod?: string | number
 ): number {
+  if (resident.activityHistory && resident.activityHistory.length > 0) {
+    const act = getHistoricalActivityForDate(resident, targetDateOrPeriod, defaultMonthlyFee, activityDefaultFees);
+    return act.monthlyFee;
+  }
   if (resident.monthlyFee !== undefined && !isNaN(resident.monthlyFee) && resident.monthlyFee >= 0) {
     return resident.monthlyFee;
   }
-  if (activityDefaultFees && activityDefaultFees[resident.activityType] !== undefined) {
-    return activityDefaultFees[resident.activityType];
-  }
-  switch (resident.activityType) {
-    case 'بدون تحصيل': return 0;
-    case 'بدون تشطيب': return 0;
-    case 'سكني': return 400;
-    case 'سكني مغلق': return 200;
-    case 'مفروش': return 600;
-    case 'إداري': return 800;
-    case 'تجاري': return 500;
-    default: 
-      if (resident.activityType?.includes('بدون تحصيل') || resident.activityType?.includes('بدون تشطيب')) return 0;
-      return defaultMonthlyFee || 400;
-  }
+  return getDefaultFeeForActivity(resident.activityType, defaultMonthlyFee, activityDefaultFees);
 }
 
 export interface PaymentLookupIndex {
@@ -168,7 +159,20 @@ export function getCarriedPreviousBalance(
   // End date is December of targetYear - 1
   const yearsDiff = (targetYear - 1) - startYear;
   const elapsedMonthsPrior = (yearsDiff * 12) + (12 - startMonth);
-  const duesPrior = elapsedMonthsPrior * fee;
+  let duesPrior = 0;
+
+  if (resident.activityHistory && resident.activityHistory.length > 0) {
+    for (let y = startYear; y < targetYear; y++) {
+      const mStart = (y === startYear) ? startMonth + 1 : 1;
+      for (let m = mStart; m <= 12; m++) {
+        const mStr = String(m).padStart(2, '0');
+        const monthFee = getResidentMonthlyFee(resident, defaultMonthlyFee, activityDefaultFees, `${y}-${mStr}`);
+        duesPrior += monthFee;
+      }
+    }
+  } else {
+    duesPrior = elapsedMonthsPrior * fee;
+  }
 
   // Retrieve only this resident's valid paid monthly payments (excluding cancelled and pending/uncollected ones)
   const allResidentPayments = getPaymentsForResident(resident, paymentsOrIndex);
@@ -280,12 +284,24 @@ export function calculateResidentFinancials(
     const totalPaid = monthlyPaid + otherCollectionsPaid;
 
     // Expected dues in targetYear for monthly subscriptions
-    const expectedDues = (monthsInYear * fee) - carriedPreviousBalance;
+    let periodExpectedDues = 0;
+    if (resident.activityHistory && resident.activityHistory.length > 0) {
+      const loopStartMonth = (targetYear === startYear) ? startMonth + 1 : 1;
+      const loopEndMonth = (targetYear === currentCalendarYear) ? currentCalendarMonth + 1 : 12;
+      for (let m = loopStartMonth; m <= loopEndMonth; m++) {
+        const mStr = String(m).padStart(2, '0');
+        const monthFee = getResidentMonthlyFee(resident, defaultMonthlyFee, activityDefaultFees, `${targetYear}-${mStr}`);
+        periodExpectedDues += monthFee;
+      }
+    } else {
+      periodExpectedDues = monthsInYear * fee;
+    }
+
+    const expectedDues = periodExpectedDues - carriedPreviousBalance;
 
     const paidMonthsCount = fee > 0 ? Math.floor(monthlyPaid / fee) : 0;
     const unpaidMonthsCount = Math.max(0, monthsInYear - paidMonthsCount);
-    const unpaidMonthsDues = unpaidMonthsCount * fee;
-    const periodExpectedDues = monthsInYear * fee;
+    const unpaidMonthsDues = Math.max(0, periodExpectedDues - monthlyPaid);
     const oldDebtAmount = carriedPreviousBalance < 0 ? Math.abs(carriedPreviousBalance) : 0;
 
     // Net balance: monthly net balance minus any unpaid other collections debt
@@ -328,7 +344,37 @@ export function calculateResidentFinancials(
   }
 
   const initialBal = resident.initialBalance || 0;
-  const expectedDues = (monthsElapsed * fee) - initialBal;
+  let periodExpectedDues = 0;
+
+  if (resident.activityHistory && resident.activityHistory.length > 0) {
+    try {
+      const start = new Date(accountingStartDate || '2026-01-01');
+      const now = new Date();
+      const startY = isNaN(start.getFullYear()) ? 2026 : start.getFullYear();
+      const startM = isNaN(start.getMonth()) ? 0 : start.getMonth();
+      const currY = now.getFullYear();
+      const currM = now.getMonth();
+
+      let y = startY;
+      let m = startM + 1;
+      while (y < currY || (y === currY && m <= currM + 1)) {
+        const mStr = String(m).padStart(2, '0');
+        const monthFee = getResidentMonthlyFee(resident, defaultMonthlyFee, activityDefaultFees, `${y}-${mStr}`);
+        periodExpectedDues += monthFee;
+        m++;
+        if (m > 12) {
+          m = 1;
+          y++;
+        }
+      }
+    } catch {
+      periodExpectedDues = monthsElapsed * fee;
+    }
+  } else {
+    periodExpectedDues = monthsElapsed * fee;
+  }
+
+  const expectedDues = periodExpectedDues - initialBal;
 
   const monthlyPaid = validPayments
     .filter(p => isMonthlySubscriptionType(p.paymentType))
@@ -346,8 +392,7 @@ export function calculateResidentFinancials(
 
   const paidMonthsCount = fee > 0 ? Math.floor(monthlyPaid / fee) : 0;
   const unpaidMonthsCount = Math.max(0, monthsElapsed - paidMonthsCount);
-  const unpaidMonthsDues = unpaidMonthsCount * fee;
-  const periodExpectedDues = monthsElapsed * fee;
+  const unpaidMonthsDues = Math.max(0, periodExpectedDues - monthlyPaid);
   const oldDebtAmount = initialBal < 0 ? Math.abs(initialBal) : 0;
 
   const monthlyNetBalance = monthlyPaid - expectedDues;

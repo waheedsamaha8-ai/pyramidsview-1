@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { generateElementImage, generateElementImageBlob, GeneratedImageResult } from '../utils/imageExport';
 import { Resident, Payment, AppConfig, FloorConfig } from '../types';
 import { calculateResidentFinancials, getCarriedPreviousBalance } from '../utils/financialCalculations';
-import { compareFlatNumbers, isSameFlatNumber, deriveFloorConfigsFromResidents, getUnitNumbersForFloor, getLatestOccupantFromHistory, formatResidentOptionLabel } from '../utils/buildingStructure';
+import { compareFlatNumbers, isSameFlatNumber, deriveFloorConfigsFromResidents, getUnitNumbersForFloor, getLatestOccupantFromHistory, getHistoricalActivityForDate, formatResidentOptionLabel } from '../utils/buildingStructure';
 import { formatMobileNumber, formatPhoneForDisplay, toWhatsAppNumber } from '../utils/phoneUtils';
 import { 
   FileText, 
@@ -281,6 +281,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
       year: number;
       monthLabel: string;
       fee: number;
+      activityType?: string;
       isPaid: boolean;
       paidAmount: number;
       matchingPayments: Payment[];
@@ -312,14 +313,17 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
       );
 
       const paidAmount = validPaidMatching.reduce((sum, p) => sum + (p.amount || 0), 0);
-      const isPaid = paidAmount >= financials.monthlyFee;
+      const monthActivity = getHistoricalActivityForDate(activeResident, `${y}-${monthStr}`, defaultMonthlyFee, activityDefaultFees);
+      const effectiveFee = monthActivity.monthlyFee;
+      const isPaid = paidAmount >= effectiveFee;
 
       timeline.push({
         monthNum,
         monthStr,
         year: y,
         monthLabel,
-        fee: financials.monthlyFee,
+        fee: effectiveFee,
+        activityType: monthActivity.activityType,
         isPaid,
         paidAmount,
         matchingPayments: matching,
@@ -335,7 +339,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
     }
 
     return timeline;
-  }, [activeResident, accountingStartDate, currentYear, unitPayments, financials.monthlyFee]);
+  }, [activeResident, accountingStartDate, currentYear, unitPayments, defaultMonthlyFee, activityDefaultFees]);
 
   const paidMonthsList = useMemo(() => monthsTimeline.filter(m => m.isPaid), [monthsTimeline]);
   const unpaidMonthsList = useMemo(() => monthsTimeline.filter(m => !m.isPaid), [monthsTimeline]);
@@ -1227,7 +1231,10 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                             </div>
                           </td>
                           <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-slate-600 font-bold text-[11px] sm:text-xs align-middle">
-                            {m.fee.toLocaleString()} ج.م
+                            <div>{m.fee.toLocaleString()} ج.م</div>
+                            {m.activityType && (
+                              <div className="text-[9px] text-slate-400 font-normal">{m.activityType}</div>
+                            )}
                           </td>
                           <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-[11px] sm:text-xs align-middle">
                             {count === 0 ? (
