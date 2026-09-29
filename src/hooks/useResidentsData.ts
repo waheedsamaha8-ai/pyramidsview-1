@@ -304,7 +304,7 @@ export function useResidentsData({
         return;
       }
 
-      // Preserve exclusively real residents that were registered manually - strictly NO auto-registration
+      // 1. Preserve all existing residents with their historical data, passwords, payments, etc.
       const preservedResidents: Resident[] = [];
       const processedFlats = new Set<string>();
 
@@ -331,12 +331,59 @@ export function useResidentsData({
         }
       });
 
+      // 2. Synchronize and register every unit configured in targetLayout into the residents registry
+      targetLayout.forEach(floor => {
+        const floorUnits = Array.isArray(floor.unitNumbers) && floor.unitNumbers.length > 0 
+          ? floor.unitNumbers 
+          : getUnitNumbersForFloor(floor, residents);
+
+        floorUnits.forEach(uNum => {
+          if (uNum === undefined || uNum === null || String(uNum).trim() === '') return;
+          const key = getCanonicalFlatKey(uNum);
+          if (!key || processedFlats.has(key)) return;
+          processedFlats.add(key);
+
+          const cleanFlatStr = String(uNum).trim();
+          const cleanUnitNumber = /^\d+$/.test(cleanFlatStr) ? parseInt(cleanFlatStr, 10) : cleanFlatStr;
+          const defaultFee = getDefaultFeeForActivity(floor.activityType || 'سكني');
+
+          const newRes: Resident = {
+            id: `res_${Date.now()}_${cleanFlatStr}_${Math.random().toString(36).substring(2, 7)}`,
+            flatNumber: cleanUnitNumber,
+            name: `الوحدة ${cleanFlatStr}`,
+            activityType: floor.activityType || 'سكني',
+            ownershipType: 'تمليك',
+            monthlyFee: defaultFee,
+            initialBalance: 0,
+            email: `flat${cleanFlatStr}@pyramids.com`,
+            password: `pyr${cleanFlatStr}#2026`,
+            accountStatus: 'ACTIVE',
+            phone: '',
+            notes: '',
+          };
+          preservedResidents.push(newRes);
+        });
+      });
+
       const finalUniqueResidents = deduplicateResidents(preservedResidents);
 
-      await onSetFloorConfigs(targetLayout);
+      // Clean and normalize targetLayout floor unitsCount and unitNumbers
+      const normalizedLayout = targetLayout.map(floor => {
+        const uNums = Array.isArray(floor.unitNumbers) && floor.unitNumbers.length > 0
+          ? floor.unitNumbers
+          : getUnitNumbersForFloor(floor, finalUniqueResidents);
+        return {
+          ...floor,
+          unitNumbers: uNums,
+          unitsCount: uNums.length,
+          startUnitNumber: uNums.length > 0 ? uNums[0] : floor.startUnitNumber,
+        };
+      });
+
+      await onSetFloorConfigs(normalizedLayout);
       await onSetAll(finalUniqueResidents);
 
-      showToast('تم حفظ وتحديث هيكل العمارة وتوليد الشقق بنجاح دون أي تكرار! 🔥', 5000);
+      showToast('تم حفظ وتحديث هيكل العمارة وتوليد وتسجيل الشقق بنجاح في سجل الوحدات! 🔥', 5000);
     } catch (err: any) {
       alert('حدث خطأ أثناء الحفظ والمعالجة: ' + (err?.message || 'خطأ غير معروف'));
     } finally {

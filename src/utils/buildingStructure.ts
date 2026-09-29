@@ -145,7 +145,8 @@ export function deriveFloorConfigsFromResidents(residents: Resident[]): FloorCon
  * Returns all unit numbers for a floor, respecting explicit unitNumbers or existing residents.
  */
 export function getUnitNumbersForFloor(floor: FloorConfig, allResidents: Resident[] = []): (number | string)[] {
-  const startParsed = parseFlatNumber(floor.startUnitNumber ?? (floor.unitNumbers?.[0] ?? 101));
+  const defaultStart = floor.type === 'ground' ? 1 : 101;
+  const startParsed = parseFlatNumber(floor.startUnitNumber ?? (floor.unitNumbers?.[0] ?? defaultStart));
   const floorHundred = startParsed.main >= 100 ? Math.floor(startParsed.main / 100) : null;
 
   const baseUnits: (number | string)[] = Array.isArray(floor.unitNumbers) && floor.unitNumbers.length > 0

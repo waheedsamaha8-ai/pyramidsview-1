@@ -43,7 +43,7 @@ export const BuildingStructureModal: React.FC<BuildingStructureModalProps> = ({
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && !editingFloorId) {
       const base = floorConfigs && floorConfigs.length > 0 ? floorConfigs : [];
       const initialized = base.map(f => {
         const units = getUnitNumbersForFloor(f, residents);
@@ -51,17 +51,53 @@ export const BuildingStructureModal: React.FC<BuildingStructureModalProps> = ({
           ...f,
           unitNumbers: units,
           unitsCount: units.length,
-          startUnitNumber: units.length > 0 ? units[0] : (f.startUnitNumber || 101),
+          startUnitNumber: units.length > 0 ? units[0] : (f.startUnitNumber ?? (f.type === 'ground' ? 1 : 101)),
         };
       });
       setLocalFloorConfigs(initialized);
+    }
+  }, [isOpen, floorConfigs, residents, editingFloorId]);
+
+  useEffect(() => {
+    if (isOpen) {
       setEditingFloorId(null);
       setNewUnitInputs({});
       setToastMsg(null);
     }
-  }, [isOpen, floorConfigs, residents]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
+
+  const flushPendingUnitInput = (floorId: string, currentConfigs: FloorConfig[]): FloorConfig[] => {
+    const raw = newUnitInputs[floorId]?.trim();
+    if (!raw) return currentConfigs;
+
+    const standardDigits: Record<string, string> = {
+      '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4', '٥': '5', '٦': '6', '٧': '7', '٨': '8',
+      '۰': '0', '۱': '1', '۲': '2', '۳': '3', '۴': '4', '۵': '5', '۶': '6', '۷': '7', '۸': '8'
+    };
+    standardDigits['\u0669'] = '9';
+    standardDigits['\u06f9'] = '9';
+    const str = raw.replace(/[٠-٩۰-۹]/g, (char) => standardDigits[char] || char);
+    const cleanUnit: number | string = /^\d+$/.test(str) ? parseInt(str, 10) : str;
+
+    setNewUnitInputs(prev => ({ ...prev, [floorId]: '' }));
+
+    return currentConfigs.map(f => {
+      if (f.id !== floorId) return f;
+      const currentUnits = Array.isArray(f.unitNumbers) ? f.unitNumbers : getUnitNumbersForFloor(f, residents);
+      if (currentUnits.some(u => isSameFlatNumber(u, cleanUnit) || String(u).trim() === String(cleanUnit).trim())) {
+        return f;
+      }
+      const merged = [...currentUnits, cleanUnit].sort(compareFlatNumbers);
+      return {
+        ...f,
+        unitNumbers: merged,
+        unitsCount: merged.length,
+        startUnitNumber: merged[0],
+      };
+    });
+  };
 
   const addFloorConfig = () => {
     const floorCount = localFloorConfigs.length;
@@ -88,7 +124,8 @@ export const BuildingStructureModal: React.FC<BuildingStructureModalProps> = ({
       const updated = { ...f, ...updates } as FloorConfig;
       if (updates.unitsCount !== undefined || updates.startUnitNumber !== undefined) {
         const count = updates.unitsCount !== undefined ? Math.max(1, updates.unitsCount) : f.unitsCount;
-        const start = updates.startUnitNumber !== undefined ? updates.startUnitNumber : (f.startUnitNumber || 101);
+        const defaultStart = f.type === 'ground' ? 1 : 101;
+        const start = updates.startUnitNumber !== undefined ? updates.startUnitNumber : (f.startUnitNumber ?? defaultStart);
         const startParsed = parseFlatNumber(start);
         const autoUnits: (number | string)[] = [];
         for (let i = 0; i < count; i++) {
@@ -148,11 +185,17 @@ export const BuildingStructureModal: React.FC<BuildingStructureModalProps> = ({
     setNewUnitInputs(prev => ({ ...prev, [floorId]: '' }));
   };
 
-  const handleSaveFloor = async (configsToSave: FloorConfig[]) => {
+  const handleSaveFloor = async (configsToSave: FloorConfig[], targetFloorId?: string) => {
+    let finalConfigs = configsToSave;
+    const floorIdToFlush = targetFloorId || editingFloorId;
+    if (floorIdToFlush) {
+      finalConfigs = flushPendingUnitInput(floorIdToFlush, configsToSave);
+      setLocalFloorConfigs(finalConfigs);
+    }
     setIsSaving(true);
     try {
-      await onPersistFloorChange(configsToSave);
-      setToastMsg('تم حفظ وتحديث هيكل العمارة وتوليد الشقق بنجاح! 🔥');
+      await onPersistFloorChange(finalConfigs);
+      setToastMsg('تم حفظ وتحديث هيكل العمارة وتوليد وتسجيل الشقق بنجاح في سجل الوحدات! 🔥');
       setTimeout(() => setToastMsg(null), 5000);
     } catch (err: any) {
       alert('حدث خطأ أثناء الحفظ: ' + (err?.message || 'خطأ غير معروف'));
@@ -357,7 +400,7 @@ export const BuildingStructureModal: React.FC<BuildingStructureModalProps> = ({
                                 ...f,
                                 unitNumbers: units,
                                 unitsCount: units.length,
-                                startUnitNumber: units.length > 0 ? units[0] : (f.startUnitNumber || 101),
+                                startUnitNumber: units.length > 0 ? units[0] : (f.startUnitNumber ?? (f.type === 'ground' ? 1 : 101)),
                               };
                             });
                             setLocalFloorConfigs(initialized);
@@ -371,11 +414,13 @@ export const BuildingStructureModal: React.FC<BuildingStructureModalProps> = ({
                           type="button"
                           disabled={isSaving}
                           onClick={async () => {
+                            const configsToSave = flushPendingUnitInput(floor.id, localFloorConfigs);
+                            setLocalFloorConfigs(configsToSave);
                             setEditingFloorId(null);
-                            await handleSaveFloor(localFloorConfigs);
+                            await handleSaveFloor(configsToSave, floor.id);
                           }}
                           className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black flex items-center gap-1.5 transition cursor-pointer shadow-xs"
-                          title="حفظ التعديلات الحالية لهذا الدور فورياً"
+                          title="حفظ التعديلات الحالية لهذا الدور وتوليد شققه فورياً في سجل الوحدات"
                         >
                           <CheckCircle2 className="w-4 h-4 text-emerald-100" />
                           <span>حفظ الدور وإغلاق التعديل</span>
@@ -411,9 +456,9 @@ export const BuildingStructureModal: React.FC<BuildingStructureModalProps> = ({
                         <button
                           type="button"
                           disabled={isSaving}
-                          onClick={() => handleSaveFloor(localFloorConfigs)}
+                          onClick={() => handleSaveFloor(localFloorConfigs, floor.id)}
                           className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-black flex items-center gap-1 transition cursor-pointer"
-                          title="حفظ هيكل هذا الدور فورياً وتوليد شققه في قاعدة البيانات"
+                          title="حفظ هيكل هذا الدور فورياً وتوليد شققه في سجل الوحدات"
                         >
                           <Save className="w-3.5 h-3.5 text-emerald-600" />
                           <span>حفظ الدور</span>
@@ -448,7 +493,26 @@ export const BuildingStructureModal: React.FC<BuildingStructureModalProps> = ({
         </div>
 
         {/* Modal Actions */}
-        <div className="flex items-center justify-end pt-3 border-t border-slate-100">
+        <div className="flex items-center justify-between pt-3 border-t border-slate-100 flex-wrap gap-2">
+          <button 
+            type="button"
+            disabled={isSaving}
+            onClick={async () => {
+              let configsToSave = localFloorConfigs;
+              if (editingFloorId) {
+                configsToSave = flushPendingUnitInput(editingFloorId, localFloorConfigs);
+                setLocalFloorConfigs(configsToSave);
+                setEditingFloorId(null);
+              }
+              await handleSaveFloor(configsToSave);
+            }}
+            className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl flex items-center gap-1.5 transition cursor-pointer shadow-xs active:scale-[0.98]"
+            title="حفظ وتثبيت كامل هيكل العمارة وتوليد كافة الوحدات والشقق في سجل الوحدات"
+          >
+            <Save className="w-4 h-4 text-emerald-100" />
+            <span>حفظ وتثبيت هيكل العمارة في سجل الوحدات</span>
+          </button>
+
           <button 
             type="button"
             onClick={onClose}
