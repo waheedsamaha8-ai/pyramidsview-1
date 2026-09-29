@@ -370,7 +370,7 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({
               <option value="">كل الشهور</option>
               {monthNamesArabic.map((name, idx) => (
                 <option key={idx} value={String(idx + 1).padStart(2, '0')}>
-                  {name}
+                  {name} {currentYear}
                 </option>
               ))}
             </select>
@@ -737,7 +737,7 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({
                   >
                     {monthNamesArabic.map((name, idx) => (
                       <option key={idx} value={String(idx + 1).padStart(2, '0')}>
-                        {name}
+                        {name} {currentYear}
                       </option>
                     ))}
                   </select>

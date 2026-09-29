@@ -745,7 +745,7 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
                 className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs font-black text-blue-950 outline-none cursor-pointer hover:border-blue-300 transition"
               >
                 {months.map((m, idx) => (
-                  <option key={m} value={m}>{monthNamesArabic[idx]}</option>
+                  <option key={m} value={m}>{monthNamesArabic[idx]} {currentYear}</option>
                 ))}
               </select>
             </div>
