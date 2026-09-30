@@ -194,15 +194,21 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
 
       const result = await generateElementImageBlob('payments-monthly-printable-area', fileName);
 
-      const totalAmt = sortedFilteredPayments.reduce((s, p) => s + p.amount, 0);
-      const count = sortedFilteredPayments.length;
+      const isUncollectedPayment = (p: Payment) => 
+        p.status === 'pending' || p.status === 'لم يتم التحصيل' || p.status === 'uncollected' || p.status === 'unpaid' || p.status === 'غير مسدد' || p.status === 'لم يسدد' || p.status === 'معلق';
+      const isCancelledPayment = (p: Payment) => 
+        p.status === 'cancelled' || p.status === 'لاغي' || p.status === 'VOID' || p.status === 'ملغي' || p.status === 'مرفوض';
+
+      const validCollectedList = sortedFilteredPayments.filter(p => !isUncollectedPayment(p) && !isCancelledPayment(p));
+      const totalAmt = validCollectedList.reduce((s, p) => s + p.amount, 0);
+      const count = validCollectedList.length;
       const periodText = onlyCurrentMonth
         ? `تحصيلات شهر ${monthNamesArabic[parseInt(actualCurrentMonth, 10) - 1]} ${currentYear}`
         : filterMonth
         ? `تحصيلات شهر ${monthNamesArabic[parseInt(filterMonth, 10) - 1]} ${currentYear}`
         : `إجمالي تحصيلات السنة المالية ${currentYear}`;
 
-      const statsText = `الإجمالي: ${totalAmt.toLocaleString()} ج.م | عدد العمليات: ${count}`;
+      const statsText = `إجمالي المقبوض المستلم: ${totalAmt.toLocaleString()} ج.م | عدد العمليات المقبوضة: ${count}`;
 
       // If a specific unit/resident filter is active on screen, share directly to that unit's WhatsApp!
       if (activeResidentObj) {
@@ -2535,26 +2541,53 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
 
         {/* Stats Summary Bar */}
         {(() => {
-          const totalAmt = sortedFilteredPayments.reduce((sum, p) => sum + p.amount, 0);
-          const recordedMonths = Math.max(1, new Set(sortedFilteredPayments.map(p => `${p.year || currentYear}-${p.month}`)).size);
-          const monthlyAverage = Math.round(totalAmt / recordedMonths);
+          const isUncollected = (p: Payment) => 
+            p.status === 'pending' || p.status === 'لم يتم التحصيل' || p.status === 'uncollected' || p.status === 'unpaid' || p.status === 'غير مسدد' || p.status === 'لم يسدد' || p.status === 'معلق';
+          const isCancelled = (p: Payment) => 
+            p.status === 'cancelled' || p.status === 'لاغي' || p.status === 'VOID' || p.status === 'ملغي' || p.status === 'مرفوض';
+
+          const validCollectedPayments = sortedFilteredPayments.filter(p => !isUncollected(p) && !isCancelled(p));
+          const uncollectedPayments = sortedFilteredPayments.filter(p => isUncollected(p));
+          const cancelledPayments = sortedFilteredPayments.filter(p => isCancelled(p));
+
+          const totalCollectedAmt = validCollectedPayments.reduce((sum, p) => sum + p.amount, 0);
+          const totalUncollectedAmt = uncollectedPayments.reduce((sum, p) => sum + p.amount, 0);
+
+          // Calculate average monthly collection = (Sum of monthly collections for all registered months) / (number of registered months)
+          const validPaymentsInScope = payments.filter(p => p.year === currentYear && !isUncollected(p) && !isCancelled(p));
+          const registeredMonthsSet = new Set(validPaymentsInScope.map(p => p.month));
+          const registeredMonthsCount = Math.max(1, registeredMonthsSet.size);
+
+          const totalYearCollectedAmt = validPaymentsInScope.reduce((sum, p) => sum + p.amount, 0);
+          const monthlyAverage = Math.round(totalYearCollectedAmt / registeredMonthsCount);
 
           return (
             <div className="grid grid-cols-3 gap-4 border border-slate-300 rounded-xl p-4 bg-slate-50 mb-6 text-xs">
               <div className="text-center space-y-1">
-                <span className="font-extrabold text-slate-500">إجمالي المبلغ المحصل</span>
+                <span className="font-extrabold text-slate-500">إجمالي المقبوض المستلم</span>
                 <div className="text-base font-black text-emerald-700">
-                  {totalAmt.toLocaleString()} ج.م
+                  {totalCollectedAmt.toLocaleString()} ج.م
+                </div>
+                <div className="text-[10px] text-slate-500 font-semibold">
+                  ({validCollectedPayments.length} عملية مقبوضة)
+                  {uncollectedPayments.length > 0 && <span className="text-amber-800 font-bold block mt-0.5">({uncollectedPayments.length} معلقة: {totalUncollectedAmt.toLocaleString()} ج.م)</span>}
+                  {cancelledPayments.length > 0 && <span className="text-rose-700 font-bold block mt-0.5">({cancelledPayments.length} ملغاة)</span>}
                 </div>
               </div>
               <div className="text-center space-y-1 border-x border-slate-300">
-                <span className="font-extrabold text-slate-500">عدد عمليات التحصيل</span>
-                <div className="text-base font-black text-slate-800">{sortedFilteredPayments.length} إيصال</div>
+                <span className="font-extrabold text-slate-500">عدد المعاملات بالتقرير</span>
+                <div className="text-base font-black text-slate-800">{sortedFilteredPayments.length} معاملة</div>
+                <div className="text-[10px] text-slate-500 font-semibold">
+                  {validCollectedPayments.length} مقبوض | {uncollectedPayments.length} معلق | {cancelledPayments.length} ملغى
+                </div>
               </div>
               <div className="text-center space-y-1">
                 <span className="font-extrabold text-slate-500">متوسط التحصيل الشهري</span>
                 <div className="text-base font-black text-blue-900">
                   {monthlyAverage.toLocaleString()} ج.م
+                </div>
+                <div className="text-[10px] text-slate-500 font-semibold">
+                  ({totalYearCollectedAmt.toLocaleString()} ج.م ÷ {registeredMonthsCount} شهور مسجلة)
                 </div>
               </div>
             </div>
@@ -2571,8 +2604,8 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
               <th className="border border-slate-300 p-2 text-center">فئة الاشتراك</th>
               <th className="border border-slate-300 p-2 text-center">شهر الاشتراك</th>
               <th className="border border-slate-300 p-2 text-center">تاريخ التحصيل</th>
-              <th className="border border-slate-300 p-2 text-center">المبلغ المستلم</th>
-              <th className="border border-slate-300 p-2 text-center">رقم الإيصال</th>
+              <th className="border border-slate-300 p-2 text-center">المبلغ</th>
+              <th className="border border-slate-300 p-2 text-center">حالة الدفعة / الإيصال</th>
             </tr>
           </thead>
           <tbody>
@@ -2589,7 +2622,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                   <React.Fragment key={group.floor.id}>
                     <tr className="bg-slate-200 border-y border-slate-400">
                       <td colSpan={8} className="p-2 border border-slate-400 bg-slate-100 font-extrabold text-slate-900">
-                        🏢 {group.floor.floorLabel} ({group.payments.length} {group.payments.length === 1 ? 'عملية تحصيل' : 'عمليات تحصيل'})
+                        🏢 {group.floor.floorLabel} ({group.payments.length} {group.payments.length === 1 ? 'عملیة تحصيل' : 'عمليات تحصيل'})
                       </td>
                     </tr>
                     {group.payments.map((p) => {
@@ -2600,8 +2633,23 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                       const ownerName = historical.ownerName || res?.name || p.residentName;
                       const tenantName = historical.tenantName !== undefined ? historical.tenantName : (res?.ownershipType === 'إيجار' ? res?.tenantName : '');
 
+                      const isUncollected = 
+                        p.status === 'pending' || 
+                        p.status === 'لم يتم التحصيل' || 
+                        p.status === 'uncollected' ||
+                        p.status === 'unpaid' ||
+                        p.status === 'غير مسدد' ||
+                        p.status === 'لم يسدد' ||
+                        p.status === 'معلق';
+                      const isCancelled = 
+                        p.status === 'cancelled' || 
+                        p.status === 'لاغي' || 
+                        p.status === 'VOID' || 
+                        p.status === 'ملغي' || 
+                        p.status === 'مرفوض';
+
                       return (
-                        <tr key={p.id} className="border-b border-slate-200">
+                        <tr key={p.id} className={`border-b border-slate-200 ${isCancelled ? 'bg-rose-50/50' : isUncollected ? 'bg-amber-50/50' : ''}`}>
                           <td className="border border-slate-300 p-2 text-center font-bold text-slate-500">{rowCounter}</td>
                           <td className="border border-slate-300 p-2 text-center font-black text-blue-900">وحدة {p.flatNumber}</td>
                           <td className="border border-slate-300 p-2 font-bold text-slate-900">
@@ -2619,11 +2667,25 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                             {monthNamesArabic[parseInt(p.month, 10) - 1] || p.month} {p.year}
                           </td>
                           <td className="border border-slate-300 p-2 text-center text-slate-600">{p.date || p.month}</td>
-                          <td className="border border-slate-300 p-2 text-center font-black text-emerald-700">
+                          <td className={`border border-slate-300 p-2 text-center font-black ${
+                            isCancelled
+                              ? 'text-rose-700 line-through opacity-80'
+                              : isUncollected
+                              ? 'text-amber-800'
+                              : 'text-emerald-700'
+                          }`}>
                             {Math.round(p.amount).toLocaleString()} ج.م
                           </td>
-                          <td className="border border-slate-300 p-2 text-center font-mono text-slate-700 font-bold">
-                            {p.receiptNumber ? `#${p.receiptNumber}` : 'مسدد'}
+                          <td className="border border-slate-300 p-2 text-center font-mono font-bold text-xs">
+                            {isCancelled ? (
+                              <span className="px-1.5 py-0.5 bg-rose-100 text-rose-800 rounded font-black border border-rose-200">🚫 لاغي</span>
+                            ) : isUncollected ? (
+                              <span className="px-1.5 py-0.5 bg-amber-100 text-amber-900 rounded font-black border border-amber-200">⏳ معلق</span>
+                            ) : p.receiptNumber ? (
+                              `#${p.receiptNumber}`
+                            ) : (
+                              <span className="text-emerald-800 font-black">✓ مسدد</span>
+                            )}
                           </td>
                         </tr>
                       );
@@ -2633,19 +2695,45 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
               })()
             )}
           </tbody>
-          {sortedFilteredPayments.length > 0 && (
-            <tfoot>
-              <tr className="bg-slate-100 font-black text-slate-900 border-t-2 border-slate-800">
-                <td colSpan={6} className="border border-slate-300 p-2.5 text-left pl-4 font-black">
-                  إجمالي التحصيلات المقبوضة:
-                </td>
-                <td className="border border-slate-300 p-2.5 text-center text-emerald-800 text-sm font-black">
-                  {sortedFilteredPayments.reduce((sum, p) => sum + p.amount, 0).toLocaleString()} ج.م
-                </td>
-                <td className="border border-slate-300 p-2.5"></td>
-              </tr>
-            </tfoot>
-          )}
+          {sortedFilteredPayments.length > 0 && (() => {
+            const isUncollected = (p: Payment) => p.status === 'pending' || p.status === 'لم يتم التحصيل' || p.status === 'uncollected' || p.status === 'unpaid' || p.status === 'غير مسدد' || p.status === 'لم يسدد' || p.status === 'معلق';
+            const isCancelled = (p: Payment) => p.status === 'cancelled' || p.status === 'لاغي' || p.status === 'VOID' || p.status === 'ملغي' || p.status === 'مرفوض';
+
+            const validCollected = sortedFilteredPayments.filter(p => !isUncollected(p) && !isCancelled(p));
+            const uncollectedList = sortedFilteredPayments.filter(p => isUncollected(p));
+
+            const totalCollected = validCollected.reduce((sum, p) => sum + p.amount, 0);
+            const totalUncollected = uncollectedList.reduce((sum, p) => sum + p.amount, 0);
+
+            return (
+              <tfoot>
+                <tr className="bg-slate-100 font-black text-slate-900 border-t-2 border-slate-800">
+                  <td colSpan={6} className="border border-slate-300 p-2.5 text-left pl-4 font-black">
+                    إجمالي التحصيلات المقبوضة المستلمة فعلياً:
+                  </td>
+                  <td className="border border-slate-300 p-2.5 text-center text-emerald-800 text-sm font-black">
+                    {totalCollected.toLocaleString()} ج.م
+                  </td>
+                  <td className="border border-slate-300 p-2.5 text-center text-xs font-bold text-emerald-800">
+                    ({validCollected.length} مقبوض)
+                  </td>
+                </tr>
+                {uncollectedList.length > 0 && (
+                  <tr className="bg-amber-50 font-bold text-amber-950 border-t border-amber-300 text-xs">
+                    <td colSpan={6} className="border border-slate-300 p-2 text-left pl-4 font-bold">
+                      إجمالي المبالغ المعلقة (قيد التحصيل):
+                    </td>
+                    <td className="border border-slate-300 p-2 text-center text-amber-900 font-black">
+                      {totalUncollected.toLocaleString()} ج.م
+                    </td>
+                    <td className="border border-slate-300 p-2 text-center text-xs font-bold text-amber-800">
+                      ({uncollectedList.length} معلق)
+                    </td>
+                  </tr>
+                )}
+              </tfoot>
+            );
+          })()}
         </table>
 
         <div className="mt-4 pt-3 border-t border-slate-200 text-center text-[11px] text-slate-400 font-semibold">
