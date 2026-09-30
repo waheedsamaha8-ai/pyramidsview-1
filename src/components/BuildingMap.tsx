@@ -25,7 +25,7 @@ import {
   Download
 } from 'lucide-react';
 import { deriveFloorConfigsFromResidents, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber, getHistoricalOccupantForDate, getHistoricalActivityForDate } from '../utils/buildingStructure';
-import { calculateResidentFinancials, getCarriedPreviousBalance } from '../utils/financialCalculations';
+import { calculateResidentFinancials, getCarriedPreviousBalance, calculateUnitClaimBreakdown, getResidentMonthlyFee } from '../utils/financialCalculations';
 import { formatMobileNumber, formatPhoneForDisplay, toWhatsAppNumber } from '../utils/phoneUtils';
 import { shareImageViaWhatsApp } from '../utils/shareImageViaWhatsApp';
 import { generateElementImageBlob } from '../utils/imageExport';
@@ -195,7 +195,7 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
     );
 
     const histAct = getHistoricalActivityForDate(resident, `${currentYear}-${selectedMonth}`, defaultMonthlyFee, activityDefaultFees);
-    const monthlyFee = histAct.monthlyFee;
+    const monthlyFee = getResidentMonthlyFee(resident, defaultMonthlyFee, activityDefaultFees, `${currentYear}-${selectedMonth}`, payments);
     const isPaid = Boolean(currentMonthPayment && (currentMonthPayment.amount > 0 || currentMonthPayment.isManuallyPaid));
 
     // Calculate old debt strictly from carried previous balance (initialBalance or accumulated from prior years)
@@ -213,6 +213,17 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
       return dateB.localeCompare(dateA);
     });
 
+    const claimBreakdown = calculateUnitClaimBreakdown(
+      resident,
+      payments,
+      currentYear,
+      selectedMonth,
+      accountingStartDate,
+      monthlyFee,
+      activityDefaultFees,
+      currentMonthPayment
+    );
+
     return {
       resident,
       histAct,
@@ -227,7 +238,8 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
       periodExpectedDues: residentFin.periodExpectedDues,
       oldDebtVal: Math.round(oldDebtVal),
       oldSurplusVal: Math.round(oldSurplusVal),
-      allPayments: sortedAllPayments
+      allPayments: sortedAllPayments,
+      claimBreakdown
     };
   };
 
@@ -332,14 +344,19 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
         msg += `تحية طيبة،\n`;
         msg += `نحيط سيادتكم علماً ببيان مستحقات ( *الوحدة ${resident.flatNumber} - ${resident.activityType}* ):\n`;
         msg += `👤 *المطلوب منه (${recipientRole}):* ${recipientName}\n`;
-        msg += `⚠️ *حالة سداد الشهر الحالي:* اشتراك شهر ${monthName} ${currentYear} (${monthlyFee.toLocaleString()} ج.م) غير مسدد حتى تاريخه.\n\n`;
-
+        const cb = financials.claimBreakdown;
         msg += `📋 *بيان وتفصيل المبالغ المستحقة على الوحدة:*\n`;
-        msg += `• متأخرات ${payCategory}: تأخير ${unpaidCount} شهور بقيمة ${Math.round(unpaidDues).toLocaleString()} ج.م (الاشتراك الشهري: ${monthlyFee.toLocaleString()} ج.م)\n`;
-        if (oldDebtVal > 0) {
-          msg += `• مديونية قديمة ومرحلة على الوحدة: ${oldDebtVal.toLocaleString()} ج.م\n`;
-        }
-        msg += `💰 *إجمالي المبالغ المستحقة للسداد:* *${totalDue.toLocaleString()} جنيه مصري* (مجموع المتأخرات الحالية + مجموع المديونيات القديمة)\n`;
+        msg += `*حالة الشهر الحالي:*\n`;
+        msg += `• ${cb.subsLineText}\n`;
+        msg += `• ${cb.otherLineText}\n`;
+        msg += `• ${cb.monthlyArrearsLineText}\n`;
+        msg += `• ${cb.otherArrearsLineText}\n`;
+        msg += `• ${cb.previousDebtLineText}\n`;
+        msg += `• ${cb.totalDueLineText}\n\n`;
+        msg += `📦 *ملخص المستحقات:*\n`;
+        msg += `▫️ اجمالي المبالغ المستحقة عن هذا الشهر : ${cb.currentMonthTotalDue.toLocaleString()} ج.م\n`;
+        msg += `▫️ اجمالي المتأخرات و المديونيات : ${cb.totalArrearsAndDebts.toLocaleString()} ج.م\n\n`;
+        msg += `💰 *إجمالي المبلغ المطلوب سداده:* *${cb.totalDueForPayment.toLocaleString()} جنيه مصري*\n`;
         msg += `🔢 *رقم المطالبة:* CLM-${resident.flatNumber}-${selectedMonth}${currentYear}\n`;
         msg += `📅 *تاريخ الإصدار:* ${todayStr}\n\n`;
         msg += `🤝 *نأمل من سيادتكم التكرم بالمبادرة بسرعة سداد المستحقات لتغطية مصروفات الصيانة الدورية والنظافة والأمن وتشغيل المصاعد بكفاءة لراحة وسلامة جميع سكان ورواد العمارة.*\n`;
@@ -613,7 +630,7 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
 
     const isPaid = financials.currentMonthStatus === 'مسدد';
     const paidAmt = financials.currentMonthPayment?.amount || financials.monthlyFee;
-    const totalDue = financials.unpaidMonthsDues + financials.oldDebtVal;
+    const totalDue = isPaid ? paidAmt : financials.claimBreakdown.totalDueForPayment;
     const payCategory = financials.currentMonthPayment?.paymentType || 'تحصيلات شهرية';
 
     const historical = getHistoricalOccupantForDate(financials.resident, `${currentYear}-${selectedMonth}`);
@@ -629,7 +646,7 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
       tenantName: activeTenantName,
       phone: target === 'tenant' ? (activeTenantPhone || activeOwnerPhone) : activeOwnerPhone,
       tenantPhone: activeTenantPhone,
-      amount: isPaid ? paidAmt : totalDue,
+      amount: totalDue,
       month: selectedMonth,
       year: currentYear,
       date: isPaid ? financials.currentMonthPayment?.date : new Date().toISOString().slice(0, 10),
@@ -644,6 +661,7 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
       unpaidMonthsDues: financials.unpaidMonthsDues,
       currentMonthStatus: financials.currentMonthStatus === 'مسدد' ? 'مسدد ✓' : 'غير مسدد ⚠️',
       remainingBalance: financials.oldDebtVal,
+      claimBreakdown: financials.claimBreakdown,
       breakdown: [
         { label: 'الاشتراك الشهري للوحدة', value: `${Math.round(financials.monthlyFee).toLocaleString()} ج.م` },
         { label: `متأخرات ${payCategory}`, value: `تأخير ${financials.unpaidMonthsCount} شهور (${Math.round(financials.unpaidMonthsDues).toLocaleString()} ج.م)` },
@@ -652,7 +670,7 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
           value: `${Math.round(financials.oldDebtVal).toLocaleString()} ج.م`,
           color: '#b91c1c'
         }] : []),
-        { label: isPaid ? 'المبلغ المسدد معتمداً' : 'إجمالي المبالغ المستحقة للسداد', value: `${Math.round(isPaid ? paidAmt : totalDue).toLocaleString()} ج.م`, isHighlight: true, color: isPaid ? '#047857' : '#b91c1c' }
+        { label: isPaid ? 'المبلغ المسدد معتمداً' : 'إجمالي المبالغ المستحقة للسداد', value: `${Math.round(totalDue).toLocaleString()} ج.م`, isHighlight: true, color: isPaid ? '#047857' : '#b91c1c' }
       ]
     });
   };
@@ -661,7 +679,7 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
     if (!financials) return;
     const isPaid = financials.currentMonthStatus === 'مسدد';
     const paidAmt = financials.currentMonthPayment?.amount || financials.monthlyFee;
-    const totalDue = financials.unpaidMonthsDues + financials.oldDebtVal;
+    const totalDue = isPaid ? paidAmt : financials.claimBreakdown.totalDueForPayment;
     const payCategory = financials.currentMonthPayment?.paymentType || 'تحصيلات شهرية';
 
     const historical = getHistoricalOccupantForDate(financials.resident, `${currentYear}-${selectedMonth}`);
@@ -678,7 +696,7 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
       tenantName: activeTenantName,
       phone: activeOwnerPhone,
       tenantPhone: activeTenantPhone,
-      amount: isPaid ? paidAmt : totalDue,
+      amount: totalDue,
       month: selectedMonth,
       year: currentYear,
       date: isPaid ? financials.currentMonthPayment?.date : new Date().toISOString().slice(0, 10),
@@ -693,6 +711,7 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
       unpaidMonthsDues: financials.unpaidMonthsDues,
       currentMonthStatus: financials.currentMonthStatus === 'مسدد' ? 'مسدد ✓' : 'غير مسدد ⚠️',
       remainingBalance: financials.oldDebtVal,
+      claimBreakdown: financials.claimBreakdown,
     };
 
     printReceiptClaim(printData, residents);
@@ -1095,18 +1114,33 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
                           </div>
                         )
                       ) : (
-                        <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-rose-900 text-xs font-black space-y-1">
-                          <div className="flex items-center gap-1.5 text-rose-700">
-                            <AlertTriangle className="w-4 h-4 shrink-0" />
+                        <div className="p-2.5 bg-rose-50 border border-rose-300 rounded-xl text-rose-950 text-xs font-black space-y-1">
+                          <div className="flex items-center gap-1.5 text-rose-900 mb-1">
+                            <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600" />
                             <span>⚠️ بيان وتفصيل المبالغ المستحقة على الوحدة:</span>
                           </div>
-                          <div className="text-[11px] text-rose-800 pr-5 space-y-0.5 font-bold">
-                            <div>• حالة الشهر الحالي: اشتراك شهر {monthName} {currentYear} ({financials.monthlyFee} ج.م) غير مسدد ⚠️</div>
-                            <div>• متأخرات تحصيلات شهرية: تأخير {financials.unpaidMonthsCount} شهور ({Math.round(financials.unpaidMonthsDues).toLocaleString()} ج.م)</div>
-                            {financials.oldDebtVal > 0 && (
-                              <div>• مديونية قديمة مرحلة من فترات سابقة: <span className="underline font-black text-rose-700">{financials.oldDebtVal.toLocaleString()} ج.م</span></div>
-                            )}
-                            <div className="font-black text-rose-950 pt-0.5">• إجمالي المبالغ المستحقة للسداد: <span className="underline font-black">{Math.round(financials.unpaidMonthsDues + financials.oldDebtVal).toLocaleString()} ج.م</span> (المتأخرات الحالية + المديونيات القديمة)</div>
+                          <div className="text-[11px] text-rose-900 pr-3 space-y-1 font-bold">
+                            <div className="font-black text-slate-900 pb-0.5">حالة الشهر الحالي:</div>
+                            <div>• {financials.claimBreakdown.subsLineText}</div>
+                            <div>• {financials.claimBreakdown.otherLineText}</div>
+                            <div>• {financials.claimBreakdown.monthlyArrearsLineText}</div>
+                            <div>• {financials.claimBreakdown.otherArrearsLineText}</div>
+                            <div>• {financials.claimBreakdown.previousDebtLineText}</div>
+                            <div className="font-black text-rose-950 pt-0.5 border-t border-rose-200">
+                              • {financials.claimBreakdown.totalDueLineText}
+                            </div>
+                          </div>
+
+                          {/* المستطيل المطلوب للتفصيل المالي */}
+                          <div className="mt-2.5 p-2 bg-white rounded-lg border-2 border-rose-400 shadow-2xs space-y-1 text-[11px]">
+                            <div className="flex justify-between items-center text-slate-900 font-black">
+                              <span>اجمالي المبالغ المستحقة عن هذا الشهر :</span>
+                              <span className="text-blue-900 font-black">{financials.claimBreakdown.currentMonthTotalDue.toLocaleString()} ج.م</span>
+                            </div>
+                            <div className="flex justify-between items-center text-slate-900 font-black pt-1 border-t border-dashed border-rose-200">
+                              <span>احمالي المتأخرات و المديونيات :</span>
+                              <span className="text-rose-900 font-black">{financials.claimBreakdown.totalArrearsAndDebts.toLocaleString()} ج.م</span>
+                            </div>
                           </div>
                         </div>
                       )}
@@ -1129,7 +1163,7 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
                         <span className={financials.currentMonthStatus === 'مسدد' ? 'text-emerald-700' : 'text-rose-700'}>
                           {financials.currentMonthStatus === 'مسدد'
                             ? `${(financials.currentMonthPayment?.amount || financials.monthlyFee).toLocaleString()} ج.م`
-                            : `${(financials.unpaidMonthsDues + financials.oldDebtVal).toLocaleString()} ج.م`}
+                            : `${financials.claimBreakdown.totalDueForPayment.toLocaleString()} ج.م`}
                         </span>
                       </div>
                     </div>
@@ -1378,6 +1412,8 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
         onClose={() => setReceiptModalData(null)}
         data={receiptModalData}
         residents={residents}
+        payments={payments}
+        config={config}
         onSuccessToast={(msg) => {
           setToastMsg(msg);
           setTimeout(() => setToastMsg(null), 8000);

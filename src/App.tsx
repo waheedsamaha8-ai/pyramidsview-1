@@ -1451,32 +1451,38 @@ export default function App() {
       ...(deletedPaymentIds ? deletedPaymentIds.map(String) : [])
     ]);
 
-    allIdsToRemove.forEach(id => {
-      if (!distributedPayments.some(dp => String(dp.id) === id)) {
-        offlineSync.purgeEntityFromQueue(id);
-        firestoreService.deletePaymentFromFirestore(id).catch(() => {});
-      }
-    });
+    const idsToDelete = Array.from(allIdsToRemove).filter(id => !distributedPayments.some(dp => String(dp.id) === id));
 
-    // 1. Remove original payment and any removed child payments, then insert new distributed payments
+    if (idsToDelete.length > 0) {
+      firestoreService.deleteBatchPaymentsFromFirestore(idsToDelete).catch(err => {
+        logError(err, 'distributePayment:deleteBatch');
+        idsToDelete.forEach(id => offlineSync.enqueueAction('DELETE_PAYMENT', { id }));
+      });
+    }
+
+    // Save image to IndexedDB once for master payment if present
+    const masterWithImage = distributedPayments.find(p => p.fileUrl && p.fileUrl.startsWith('data:image/'));
+    if (masterWithImage) {
+      saveImageToIndexedDB(String(masterWithImage.id), masterWithImage.fileUrl!).catch(() => {});
+    }
+
+    // 1. Remove original payment and any removed child payments, then insert new distributed payments in a single atomic update
     const filteredPayments = payments.filter((p) => !allIdsToRemove.has(String(p.id)));
     const updatedPayments = [...filteredPayments, ...distributedPayments];
     setPayments(updatedPayments);
     offlineSync.saveCachedData('payments', updatedPayments);
 
-    // 2. Save each distributed payment to Firestore
-    distributedPayments.forEach(p => {
-      firestoreService.savePaymentToFirestore(p).catch(err => {
-        logError(err, 'distributePayment');
-        offlineSync.enqueueAction('ADD_PAYMENT', p);
-      });
+    // 2. Batch write all distributed payments to Firestore in a single request
+    firestoreService.saveBatchPaymentsToFirestore(distributedPayments).catch(err => {
+      logError(err, 'distributePayment:saveBatch');
+      distributedPayments.forEach(p => offlineSync.enqueueAction('ADD_PAYMENT', p));
     });
 
     const flatNum = distributedPayments[0]?.flatNumber || '';
     if (distributedPayments.length === 1 && !distributedPayments[0].isDistributed) {
       addNotification('إلغاء التوزيع', `تم إلغاء التوزيع بنجاح واستعادة كامل المبلغ (${distributedPayments[0].amount} ج.م) في شهر ${distributedPayments[0].month} للوحدة ${flatNum}.`, 'success', 'services');
     } else {
-      addNotification('توزيع سداد مجمع', `تم توزيع الاشتراك المجمع بنجاح على ${distributedPayments.length} شهور للوحدة ${flatNum}.`, 'success', 'services');
+      addNotification('سداد مجمع سريع', `تم تسجيل وتوزيع السداد المجمع بنجاح على ${distributedPayments.length} شهور للوحدة ${flatNum}.`, 'success', 'services');
     }
   };
 

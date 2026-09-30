@@ -2,7 +2,7 @@ import React, { useState, useRef, useMemo } from 'react';
 import { Payment, Resident, UserRole, FloorConfig, AppConfig } from '../types';
 import { Search, Plus, Calendar, FileText, Image as ImageIcon, Camera, Trash2, Edit, AlertCircle, Eye, User, LayoutGrid, List, Building, ArrowUpDown, Upload, X, ZoomIn, Download, RefreshCw, Share2, CheckCircle2, Receipt, Printer } from 'lucide-react';
 import { deriveFloorConfigsFromResidents, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber, getHistoricalOccupantForDate, formatResidentOptionLabel } from '../utils/buildingStructure';
-import { getResidentMonthlyFee, calculateResidentFinancials } from '../utils/financialCalculations';
+import { getResidentMonthlyFee, calculateResidentFinancials, calculateUnitClaimBreakdown } from '../utils/financialCalculations';
 import { generateElementImageBlob, GeneratedImageResult } from '../utils/imageExport';
 import { shareImageViaWhatsApp } from '../utils/shareImageViaWhatsApp';
 import { ShareReportModal } from './ShareReportModal';
@@ -83,7 +83,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
   const [residentId, setResidentId] = useState('');
   const [month, setMonth] = useState(actualCurrentMonth);
   const [isAggregatedCollection, setIsAggregatedCollection] = useState<boolean>(false);
-  const [additionalMonths, setAdditionalMonths] = useState<string[]>([]);
+  const [coveredMonths, setCoveredMonths] = useState<string[]>([]);
   const [showMultiMonthPicker, setShowMultiMonthPicker] = useState<boolean>(false);
   const [targetActivityType, setTargetActivityType] = useState<string>('سكني');
   const [paymentType, setPaymentType] = useState('');
@@ -448,6 +448,17 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
     const isUncollected = payment.status === 'pending' || payment.status === 'لم يتم التحصيل';
     const isCancelled = payment.status === 'cancelled' || payment.status === 'لاغي';
 
+    const claimBreakdown = calculateUnitClaimBreakdown(
+      res,
+      payments,
+      payment.year,
+      payment.month,
+      accountingStartDate,
+      monthlyFee,
+      activityDefaultFees,
+      payment
+    );
+
     const subPeriod = `${payment.year}-${String(payment.month).padStart(2, '0')}`;
     const historical = res ? getHistoricalOccupantForDate(res, subPeriod) : null;
 
@@ -458,7 +469,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       tenantName: historical?.tenantName !== undefined ? historical.tenantName : res?.tenantName,
       phone: historical?.ownerPhone || res?.phone,
       tenantPhone: historical?.tenantPhone || res?.tenantPhone,
-      amount: isUncollected ? (unpaidMonthsDues + oldDebtAmount || payment.amount) : payment.amount,
+      amount: isUncollected ? claimBreakdown.totalDueForPayment : payment.amount,
       month: payment.month,
       year: payment.year,
       date: payment.date,
@@ -470,9 +481,10 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       monthlyFee: monthlyFee,
       carriedBalance: carriedBalance,
       oldDebtAmount: oldDebtAmount,
-      unpaidMonthsCount: unpaidMonthsCount,
-      unpaidMonthsDues: unpaidMonthsDues,
+      unpaidMonthsCount: isUncollected ? claimBreakdown.monthlyDelayedMonthsCount : unpaidMonthsCount,
+      unpaidMonthsDues: isUncollected ? claimBreakdown.monthlyDelayedAmount : unpaidMonthsDues,
       remainingBalance: remainingBalance,
+      claimBreakdown: isUncollected ? claimBreakdown : undefined,
       notes: isCancelled ? `(إيصال لاغي) ${payment.notes || ''}` : isUncollected ? `(لم يتم التحصيل بعد) ${payment.notes || ''}` : payment.notes,
     });
   };
@@ -622,7 +634,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       setTargetActivityType(selectedRes.activityType || 'سكني');
       if (!selectedPayment) {
         const fee = getResidentMonthlyFee(selectedRes, defaultMonthlyFee, activityDefaultFees);
-        const totalMonthsCount = 1 + additionalMonths.length;
+        const totalMonthsCount = (isAggregatedCollection && coveredMonths.length > 0) ? coveredMonths.length : 1;
         setAmount(fee * totalMonthsCount);
       }
     }
@@ -632,35 +644,93 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
     setTargetActivityType(newAct);
     if (!selectedPayment) {
       const actFee = getActivityDefaultFee(newAct);
-      const totalMonthsCount = 1 + additionalMonths.length;
+      const totalMonthsCount = (isAggregatedCollection && coveredMonths.length > 0) ? coveredMonths.length : 1;
       setAmount(actFee * totalMonthsCount);
     }
   };
 
   const applyDefaultFeeForActivity = (act: string) => {
     const actFee = getActivityDefaultFee(act);
-    const totalMonthsCount = 1 + additionalMonths.length;
+    const totalMonthsCount = (isAggregatedCollection && coveredMonths.length > 0) ? coveredMonths.length : 1;
     setAmount(actFee * totalMonthsCount);
   };
 
-  const toggleAdditionalMonth = (m: string) => {
-    if (m === month) return;
+  const toggleCoveredMonth = (m: string) => {
+    const mNorm = String(parseInt(m, 10)).padStart(2, '0');
     let updated: string[];
-    if (additionalMonths.includes(m)) {
-      updated = additionalMonths.filter(x => x !== m);
+    if (coveredMonths.some(x => String(parseInt(x, 10)).padStart(2, '0') === mNorm)) {
+      updated = coveredMonths.filter(x => String(parseInt(x, 10)).padStart(2, '0') !== mNorm);
     } else {
-      updated = [...additionalMonths, m].sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
+      updated = [...coveredMonths, mNorm].sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
     }
-    setAdditionalMonths(updated);
+    setCoveredMonths(updated);
 
     const selectedRes = residents.find(r => r.id === residentId);
     if (selectedRes && (!paymentType || paymentType === 'اشتراك شهري' || paymentType.includes('اشتراك'))) {
       const baseFee = targetActivityType !== selectedRes.activityType
         ? getActivityDefaultFee(targetActivityType)
         : getResidentMonthlyFee(selectedRes, defaultMonthlyFee, activityDefaultFees);
-      const totalMonthsCount = 1 + updated.length;
+      const totalMonthsCount = updated.length > 0 ? updated.length : 1;
       setAmount(baseFee * totalMonthsCount);
     }
+  };
+
+  const setQuickCoveredMonths = (monthsList: string[]) => {
+    const uniqueSorted = Array.from(new Set(
+      monthsList.map(m => String(parseInt(m, 10)).padStart(2, '0'))
+    )).sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
+    setCoveredMonths(uniqueSorted);
+
+    const selectedRes = residents.find(r => r.id === residentId);
+    if (selectedRes && (!paymentType || paymentType === 'اشتراك شهري' || paymentType.includes('اشتراك'))) {
+      const baseFee = targetActivityType !== selectedRes.activityType
+        ? getActivityDefaultFee(targetActivityType)
+        : getResidentMonthlyFee(selectedRes, defaultMonthlyFee, activityDefaultFees);
+      const totalMonthsCount = uniqueSorted.length > 0 ? uniqueSorted.length : 1;
+      setAmount(baseFee * totalMonthsCount);
+    }
+  };
+
+  const handleSelectSameMonthOnly = () => {
+    const curMonthNorm = String(parseInt(month, 10)).padStart(2, '0');
+    setQuickCoveredMonths([curMonthNorm]);
+  };
+
+  const handleSelectQuarter = () => {
+    const curM = parseInt(month, 10);
+    const targets: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      let m = curM + i;
+      if (m <= 12) targets.push(String(m));
+    }
+    setQuickCoveredMonths(targets);
+  };
+
+  const handleSelectHalfYear = () => {
+    const curM = parseInt(month, 10);
+    const targets: string[] = [];
+    for (let i = 0; i < 6; i++) {
+      let m = curM + i;
+      if (m <= 12) targets.push(String(m));
+    }
+    setQuickCoveredMonths(targets);
+  };
+
+  const handleSelectRestOfYear = () => {
+    const curM = parseInt(month, 10);
+    const targets: string[] = [];
+    for (let m = curM; m <= 12; m++) {
+      targets.push(String(m));
+    }
+    setQuickCoveredMonths(targets);
+  };
+
+  const handleSelectAllYear = () => {
+    const targets: string[] = [];
+    for (let m = 1; m <= 12; m++) {
+      targets.push(String(m));
+    }
+    setQuickCoveredMonths(targets);
   };
 
   const handlePaymentTypeSelect = (newType: string) => {
@@ -672,7 +742,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
           const fee = targetActivityType !== selectedRes.activityType
             ? getActivityDefaultFee(targetActivityType)
             : getResidentMonthlyFee(selectedRes, defaultMonthlyFee, activityDefaultFees);
-          const totalMonthsCount = 1 + additionalMonths.length;
+          const totalMonthsCount = (isAggregatedCollection && coveredMonths.length > 0) ? coveredMonths.length : 1;
           setAmount(fee * totalMonthsCount);
         }
       }
@@ -697,7 +767,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
     setResidentId(initialResId);
     setMonth(defaultTargetMonth);
     setIsAggregatedCollection(false);
-    setAdditionalMonths([]);
+    setCoveredMonths([defaultTargetMonth]);
     setShowMultiMonthPicker(false);
     setTargetActivityType(initialRes?.activityType || 'سكني');
     setPaymentType(initialType);
@@ -730,19 +800,77 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       // Find master payment if this was a child distributed payment
       const cleanPaymentId = String(payment.id);
       const sourceId = payment.distributionSourceId ? String(payment.distributionSourceId) : null;
-      const masterPayment = sourceId 
+      let masterPayment = sourceId 
         ? (payments.find(p => String(p.id) === sourceId) || payment)
         : payment;
 
+      // If this payment has note saying "تم السداد في شهر X بإيصال رقم Y", find the master payment by receipt / resident / year
+      if (masterPayment === payment && payment.notes?.includes('تم السداد في شهر')) {
+        const matchingMaster = payments.find(p => 
+          String(p.id) !== cleanPaymentId &&
+          (isSameFlatNumber(p.flatNumber, payment.flatNumber) || p.residentId === payment.residentId) &&
+          Number(p.year) === Number(payment.year) &&
+          (p.isAggregatedCollection || p.isDistributed || (p.notes && p.notes.includes('سداد مجمع')) || (payment.receiptNumber && p.receiptNumber === payment.receiptNumber))
+        );
+        if (matchingMaster) {
+          masterPayment = matchingMaster;
+        }
+      }
+
       const targetMasterId = String(masterPayment.id);
+      const masterMonthNorm = String(parseInt(String(masterPayment.month || payment.month), 10)).padStart(2, '0');
 
       // Find all linked child payments for this aggregated collection
-      const linkedChildren = payments.filter(p => 
-        String(p.id) !== targetMasterId && (
-          String(p.distributionSourceId || '') === targetMasterId ||
-          (Array.isArray(masterPayment.distributedPaymentIds) && masterPayment.distributedPaymentIds.map(String).includes(String(p.id)))
-        )
-      );
+      const linkedChildren = payments.filter(p => {
+        if (String(p.id) === targetMasterId) return false;
+        if (String(p.distributionSourceId || '') === targetMasterId) return true;
+        if (Array.isArray(masterPayment.distributedPaymentIds) && masterPayment.distributedPaymentIds.map(String).includes(String(p.id))) return true;
+        if (
+          masterPayment.receiptNumber && 
+          masterPayment.receiptNumber.trim() && 
+          p.receiptNumber && 
+          p.receiptNumber.trim() === masterPayment.receiptNumber.trim() &&
+          (isSameFlatNumber(p.flatNumber, masterPayment.flatNumber) || p.residentId === masterPayment.residentId) &&
+          Number(p.year) === Number(masterPayment.year) &&
+          (p.notes?.includes('تم السداد في شهر') || p.notes?.includes('سداد مجمع') || p.amount === 0)
+        ) {
+          return true;
+        }
+        return false;
+      });
+
+      // Collect all covered months involved in this collection (normalized to 2-digit format)
+      const coveredSet = new Set<string>();
+      linkedChildren.forEach(p => {
+        const m = String(parseInt(String(p.month), 10)).padStart(2, '0');
+        if (!isNaN(parseInt(m, 10))) {
+          coveredSet.add(m);
+        }
+      });
+
+      // Check notes for any mentioned months (e.g. "سداد مجمع عن شهور: أبريل، مايو، يونيو..." or "سداد عن شهر يناير")
+      const combinedNotes = `${masterPayment.notes || ''} ${payment.notes || ''}`;
+      if (combinedNotes.includes('سداد مجمع') || combinedNotes.includes('سداد عن شهر') || combinedNotes.includes('تم السداد في شهر')) {
+        monthNamesArabic.forEach((mName, idx) => {
+          if (combinedNotes.includes(mName)) {
+            const mStr = String(idx + 1).padStart(2, '0');
+            coveredSet.add(mStr);
+          }
+        });
+      }
+
+      const isSingleDifferent = combinedNotes.includes('سداد عن شهر') && !combinedNotes.includes('سداد مجمع عن شهور');
+      const masterName = monthNamesArabic[parseInt(masterMonthNorm, 10) - 1];
+      if (!isSingleDifferent && (combinedNotes.includes(masterName) || linkedChildren.length > 0)) {
+        if (linkedChildren.length > 0 && !combinedNotes.includes('سداد عن شهر')) {
+          coveredSet.add(masterMonthNorm);
+        }
+      }
+      if (coveredSet.size === 0) {
+        coveredSet.add(masterMonthNorm);
+      }
+
+      const recoveredCoveredMonths = Array.from(coveredSet).sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
 
       const isAggregated = Boolean(
         payment.isAggregatedCollection || 
@@ -751,19 +879,17 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
         masterPayment.isDistributed ||
         (Array.isArray(masterPayment.distributedPaymentIds) && masterPayment.distributedPaymentIds.length > 0) ||
         sourceId ||
-        linkedChildren.length > 0
+        linkedChildren.length > 0 ||
+        (recoveredCoveredMonths.length === 1 && recoveredCoveredMonths[0] !== masterMonthNorm) ||
+        recoveredCoveredMonths.length > 1 ||
+        combinedNotes.includes('سداد مجمع') ||
+        combinedNotes.includes('سداد عن شهر') ||
+        combinedNotes.includes('تم السداد في شهر')
       );
 
       setIsAggregatedCollection(isAggregated);
-
-      // Collect all other months involved in this collection
-      const otherMonths = linkedChildren
-        .map(p => p.month)
-        .filter(m => m !== masterPayment.month)
-        .sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
-
-      setAdditionalMonths(otherMonths);
-      setShowMultiMonthPicker(isAggregated && otherMonths.length > 0);
+      setCoveredMonths(recoveredCoveredMonths);
+      setShowMultiMonthPicker(isAggregated);
 
       // Calculate total collection amount
       let initialTotalAmount: number | '' = payment.amount;
@@ -772,17 +898,19 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
           initialTotalAmount = masterPayment.originalAmountBeforeDistribution;
         } else if (linkedChildren.length > 0) {
           initialTotalAmount = masterPayment.amount + linkedChildren.reduce((s, cp) => s + (Number(cp.amount) || 0), 0);
+        } else {
+          initialTotalAmount = masterPayment.amount;
         }
       }
       setAmount(initialTotalAmount);
 
-      // Set month to master payment's month
-      setMonth(masterPayment.month || payment.month);
+      // Set month to master payment's month (normalized)
+      setMonth(masterMonthNorm);
 
-      setPaymentType(payment.paymentType);
+      setPaymentType(payment.paymentType || masterPayment.paymentType || 'اشتراك شهري');
       setReceiptNumber(payment.receiptNumber || masterPayment.receiptNumber || '');
       setPaymentStatus(((payment.status || masterPayment.status) as any) || 'collected');
-      setNotes(payment.notes || masterPayment.notes || '');
+      setNotes(masterPayment.notes || payment.notes || '');
 
       const immediateUrl = payment.fileUrl || masterPayment.fileUrl || '';
       setImageName(immediateUrl || payment.fileId ? 'صورة إيصال مرفوعة مسبقاً' : '');
@@ -901,13 +1029,18 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       return;
     }
 
-    const allTargetMonths = isAggregatedCollection
-      ? Array.from(new Set([month, ...additionalMonths])).sort((a, b) => parseInt(a, 10) - parseInt(b, 10))
-      : [month];
+    const masterMonthNorm = String(parseInt(month, 10)).padStart(2, '0');
+    const targetCoveredMonths = (isAggregatedCollection && coveredMonths.length > 0)
+      ? Array.from(new Set(coveredMonths.map(m => String(parseInt(m, 10)).padStart(2, '0')))).sort((a, b) => parseInt(a, 10) - parseInt(b, 10))
+      : [masterMonthNorm];
+
+    const isSameSingleMonth = targetCoveredMonths.length === 1 && targetCoveredMonths[0] === masterMonthNorm;
 
     const residentToUpdate = (targetActivityType && targetActivityType !== resident.activityType)
       ? { ...resident, activityType: targetActivityType }
       : undefined;
+
+    const primaryMonthName = monthNamesArabic[parseInt(masterMonthNorm, 10) - 1];
 
     // If EDITING an existing payment
     if (selectedPayment) {
@@ -922,16 +1055,26 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       );
       const existingChildIds = existingChildPayments.map(p => String(p.id));
 
-      if (allTargetMonths.length > 1) {
-        // Multi-month aggregated collection on edit
-        const basePerMonth = Math.floor(numAmount / allTargetMonths.length);
-        const remainder = numAmount - (basePerMonth * allTargetMonths.length);
-        const otherMonths = allTargetMonths.slice(1);
+      if (!isSameSingleMonth) {
+        // Multi-month or different-month distribution on edit
+        const masterMonth = masterMonthNorm;
+        const otherMonths = targetCoveredMonths.filter(m => m !== masterMonth);
         const otherIds = otherMonths.map((m, idx) => existingChildIds[idx] || `pay_${Date.now()}_${m}_${idx + 1}`);
         const deletedPaymentIds = existingChildIds.filter(id => !otherIds.includes(id));
 
-        const masterMonth = allTargetMonths[0];
         const hist0 = getHistoricalOccupantForDate(resident, `${currentYear}-${masterMonth}`);
+        const coveredNames = targetCoveredMonths
+          .map(x => monthNamesArabic[parseInt(x, 10) - 1])
+          .join('، ');
+
+        const noteHeader = targetCoveredMonths.length === 1
+          ? `سداد عن شهر ${coveredNames}`
+          : `سداد مجمع عن شهور: ${coveredNames}`;
+
+        const cleanNotes = (notes || '').trim()
+          ? (notes.includes('سداد عن شهر') || notes.includes('سداد مجمع عن شهور') ? notes : `${notes} (${noteHeader})`)
+          : noteHeader;
+
         const masterPaymentData: Payment = {
           id: masterPaymentId,
           year: currentYear,
@@ -940,15 +1083,13 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
           residentName: hist0.occupantName || resident.name,
           flatNumber: resident.flatNumber,
           paymentType,
-          amount: basePerMonth + remainder,
+          amount: numAmount,
           receiptNumber: (receiptNumber || '').trim(),
-          notes: (notes || '').trim()
-            ? `${notes} (سداد مجمع ${allTargetMonths.length} شهور)`
-            : `سداد مجمع عن شهور: ${allTargetMonths.map(x => monthNamesArabic[parseInt(x, 10) - 1]).join('، ')}`,
+          notes: cleanNotes,
           fileId: base64Image ? '' : (existingFileUrl ? (selectedPayment?.fileId || '') : ''),
           fileUrl: base64Image ? base64Image : (existingFileUrl || ''),
           date: selectedPayment ? selectedPayment.date : new Date().toISOString().split('T')[0],
-          isManuallyPaid: false,
+          isManuallyPaid: true,
           status: paymentStatus,
           isAggregatedCollection: true,
           isDistributed: true,
@@ -959,6 +1100,9 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
 
         const childPayments: Payment[] = otherMonths.map((m, idx) => {
           const hist = getHistoricalOccupantForDate(resident, `${currentYear}-${m}`);
+          const recNum = (receiptNumber || '').trim();
+          const baseUserNotes = notes ? notes.replace(/\(سداد.*?\)/g, '').trim() : '';
+          const noteText = `تم السداد في شهر ${primaryMonthName} ${currentYear} بإيصال رقم ${recNum || '—'}${baseUserNotes ? ` (${baseUserNotes})` : ''}`;
           return {
             id: otherIds[idx],
             year: currentYear,
@@ -967,15 +1111,13 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
             residentName: hist.occupantName || resident.name,
             flatNumber: resident.flatNumber,
             paymentType,
-            amount: basePerMonth,
-            receiptNumber: (receiptNumber || '').trim(),
-            notes: (notes || '').trim()
-              ? `${notes} (سداد مجمع ${allTargetMonths.length} شهور)`
-              : `سداد مجمع عن شهور: ${allTargetMonths.map(x => monthNamesArabic[parseInt(x, 10) - 1]).join('، ')}`,
+            amount: 0,
+            receiptNumber: recNum,
+            notes: noteText,
             fileId: base64Image ? '' : (existingFileUrl ? (selectedPayment?.fileId || '') : ''),
             fileUrl: base64Image ? base64Image : (existingFileUrl || ''),
             date: selectedPayment ? selectedPayment.date : new Date().toISOString().split('T')[0],
-            isManuallyPaid: false,
+            isManuallyPaid: true,
             status: paymentStatus,
             isAggregatedCollection: false,
             isDistributed: false,
@@ -992,12 +1134,12 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
           base64Image: base64Image || undefined
         });
       } else {
-        // Single month collection on edit (either converted back to single or standalone with isAggregatedCollection flag)
-        const hist = getHistoricalOccupantForDate(resident, `${currentYear}-${month}`);
+        // Single month collection in same month on edit
+        const hist = getHistoricalOccupantForDate(resident, `${currentYear}-${masterMonthNorm}`);
         const paymentData: Payment = {
           id: masterPaymentId,
           year: currentYear,
-          month,
+          month: masterMonthNorm,
           residentId,
           residentName: hist.occupantName || resident.name,
           flatNumber: resident.flatNumber,
@@ -1010,7 +1152,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
           date: selectedPayment ? selectedPayment.date : new Date().toISOString().split('T')[0],
           isManuallyPaid: false,
           status: paymentStatus,
-          isAggregatedCollection: isAggregatedCollection,
+          isAggregatedCollection: false,
           isDistributed: false,
           distributionSourceId: undefined,
           distributedPaymentIds: undefined,
@@ -1027,53 +1169,88 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       }
     } else {
       // Adding a NEW payment
-      if (allTargetMonths.length > 1) {
-        const basePerMonth = Math.floor(numAmount / allTargetMonths.length);
-        const remainder = numAmount - (basePerMonth * allTargetMonths.length);
-        const masterId = `pay_${Date.now()}_${allTargetMonths[0]}_0`;
-        const otherIds = allTargetMonths.slice(1).map((m, idx) => `pay_${Date.now()}_${m}_${idx + 1}`);
+      if (!isSameSingleMonth) {
+        const masterMonth = masterMonthNorm;
+        const otherMonths = targetCoveredMonths.filter(m => m !== masterMonth);
+        const masterId = `pay_${Date.now()}_${masterMonth}_0`;
+        const otherIds = otherMonths.map((m, idx) => `pay_${Date.now()}_${m}_${idx + 1}`);
 
-        const multiPayments: Payment[] = allTargetMonths.map((m, idx) => {
+        const histMaster = getHistoricalOccupantForDate(resident, `${currentYear}-${masterMonth}`);
+        const coveredNames = targetCoveredMonths
+          .map(x => monthNamesArabic[parseInt(x, 10) - 1])
+          .join('، ');
+
+        const noteHeader = targetCoveredMonths.length === 1
+          ? `سداد عن شهر ${coveredNames}`
+          : `سداد مجمع عن شهور: ${coveredNames}`;
+
+        const cleanNotes = (notes || '').trim()
+          ? (notes.includes('سداد عن شهر') || notes.includes('سداد مجمع عن شهور') ? notes : `${notes} (${noteHeader})`)
+          : noteHeader;
+
+        const masterPayment: Payment = {
+          id: masterId,
+          year: currentYear,
+          month: masterMonth,
+          residentId,
+          residentName: histMaster.occupantName || resident.name,
+          flatNumber: resident.flatNumber,
+          paymentType,
+          amount: numAmount,
+          receiptNumber: (receiptNumber || '').trim(),
+          notes: cleanNotes,
+          fileId: base64Image ? '' : (existingFileUrl ? (selectedPayment?.fileId || '') : ''),
+          fileUrl: base64Image ? base64Image : (existingFileUrl || ''),
+          date: new Date().toISOString().split('T')[0],
+          isManuallyPaid: true,
+          status: paymentStatus,
+          isAggregatedCollection: true,
+          isDistributed: true,
+          distributedPaymentIds: otherIds,
+          distributionSourceId: undefined,
+          originalAmountBeforeDistribution: numAmount,
+        };
+
+        const childPayments: Payment[] = otherMonths.map((m, idx) => {
           const hist = getHistoricalOccupantForDate(resident, `${currentYear}-${m}`);
-          const isMaster = idx === 0;
+          const recNum = (receiptNumber || '').trim();
+          const baseUserNotes = notes ? notes.replace(/\(سداد.*?\)/g, '').trim() : '';
+          const noteText = `تم السداد في شهر ${primaryMonthName} ${currentYear} بإيصال رقم ${recNum || '—'}${baseUserNotes ? ` (${baseUserNotes})` : ''}`;
           return {
-            id: isMaster ? masterId : otherIds[idx - 1],
+            id: otherIds[idx],
             year: currentYear,
             month: m,
             residentId,
             residentName: hist.occupantName || resident.name,
             flatNumber: resident.flatNumber,
             paymentType,
-            amount: basePerMonth + (isMaster ? remainder : 0),
-            receiptNumber: (receiptNumber || '').trim(),
-            notes: (notes || '').trim()
-              ? `${notes} (سداد مجمع ${allTargetMonths.length} شهور)`
-              : `سداد مجمع عن شهور: ${allTargetMonths.map(x => monthNamesArabic[parseInt(x, 10) - 1]).join('، ')}`,
+            amount: 0,
+            receiptNumber: recNum,
+            notes: noteText,
             fileId: base64Image ? '' : (existingFileUrl ? (selectedPayment?.fileId || '') : ''),
             fileUrl: base64Image ? base64Image : (existingFileUrl || ''),
             date: new Date().toISOString().split('T')[0],
-            isManuallyPaid: false,
+            isManuallyPaid: true,
             status: paymentStatus,
-            isAggregatedCollection: isMaster,
-            isDistributed: isMaster,
-            distributedPaymentIds: isMaster ? otherIds : undefined,
-            distributionSourceId: isMaster ? undefined : masterId,
-            originalAmountBeforeDistribution: isMaster ? numAmount : undefined,
+            isAggregatedCollection: false,
+            isDistributed: false,
+            distributionSourceId: masterId,
+            originalAmountBeforeDistribution: undefined,
           };
         });
 
         setConfirmData({
           type: 'add',
-          multiplePayments: multiPayments,
+          multiplePayments: [masterPayment, ...childPayments],
           residentToUpdate,
           base64Image: base64Image || undefined
         });
       } else {
-        const hist = getHistoricalOccupantForDate(resident, `${currentYear}-${month}`);
+        const hist = getHistoricalOccupantForDate(resident, `${currentYear}-${masterMonthNorm}`);
         const paymentData: Payment = {
           id: `pay_${Date.now()}`,
           year: currentYear,
-          month,
+          month: masterMonthNorm,
           residentId,
           residentName: hist.occupantName || resident.name,
           flatNumber: resident.flatNumber,
@@ -1086,7 +1263,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
           date: new Date().toISOString().split('T')[0],
           isManuallyPaid: false,
           status: paymentStatus,
-          isAggregatedCollection: isAggregatedCollection,
+          isAggregatedCollection: false,
           isDistributed: false,
           distributionSourceId: undefined,
           distributedPaymentIds: undefined,
@@ -1447,11 +1624,15 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                             <button
                               type="button"
                               onClick={(e) => { e.stopPropagation(); handleGenerateSinglePaymentReceipt(p); }}
-                              className="p-1 px-1.5 text-emerald-800 hover:bg-emerald-100 rounded-lg transition inline-flex items-center gap-0.5 text-[9px] cursor-pointer font-black border border-emerald-200 bg-emerald-50/70"
-                              title="توليد صورة إيصال سداد ومشاركتها مباشرة لواتساب الوحدة"
+                              className={`p-1 px-1.5 rounded-lg transition inline-flex items-center gap-0.5 text-[9px] cursor-pointer font-black border ${
+                                p.status === 'pending' || p.status === 'لم يتم التحصيل'
+                                  ? 'text-rose-800 hover:bg-rose-100 border-rose-300 bg-rose-50/90'
+                                  : 'text-emerald-800 hover:bg-emerald-100 border-emerald-200 bg-emerald-50/70'
+                              }`}
+                              title={p.status === 'pending' || p.status === 'لم يتم التحصيل' ? 'توليد إشعار مطالبة شهرية ومشاركتها مباشرة لواتساب الوحدة' : 'توليد صورة إيصال سداد ومشاركتها مباشرة لواتساب الوحدة'}
                             >
-                              <Share2 className="w-3 h-3 text-emerald-600" />
-                              <span>إيصال</span>
+                              <Share2 className={`w-3 h-3 ${p.status === 'pending' || p.status === 'لم يتم التحصيل' ? 'text-rose-600' : 'text-emerald-600'}`} />
+                              <span>{p.status === 'pending' || p.status === 'لم يتم التحصيل' ? 'مطالبة' : 'إيصال'}</span>
                             </button>
                             {p.fileUrl && (
                               <button
@@ -1636,11 +1817,15 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                                 <button
                                   type="button"
                                   onClick={(e) => { e.stopPropagation(); handleGenerateSinglePaymentReceipt(p); }}
-                                  className="p-1 px-1.5 text-emerald-800 hover:bg-emerald-100 rounded-lg transition inline-flex items-center gap-0.5 text-[9px] cursor-pointer font-black border border-emerald-200 bg-emerald-50/70"
-                                  title="توليد صورة إيصال سداد ومشاركتها مباشرة لواتساب الوحدة"
+                                  className={`p-1 px-1.5 rounded-lg transition inline-flex items-center gap-0.5 text-[9px] cursor-pointer font-black border ${
+                                    p.status === 'pending' || p.status === 'لم يتم التحصيل'
+                                      ? 'text-rose-800 hover:bg-rose-100 border-rose-300 bg-rose-50/90'
+                                      : 'text-emerald-800 hover:bg-emerald-100 border-emerald-200 bg-emerald-50/70'
+                                  }`}
+                                  title={p.status === 'pending' || p.status === 'لم يتم التحصيل' ? 'توليد إشعار مطالبة شهرية ومشاركتها مباشرة لواتساب الوحدة' : 'توليد صورة إيصال سداد ومشاركتها مباشرة لواتساب الوحدة'}
                                 >
-                                  <Share2 className="w-3 h-3 text-emerald-600" />
-                                  <span>إيصال</span>
+                                  <Share2 className={`w-3 h-3 ${p.status === 'pending' || p.status === 'لم يتم التحصيل' ? 'text-rose-600' : 'text-emerald-600'}`} />
+                                  <span>{p.status === 'pending' || p.status === 'لم يتم التحصيل' ? 'مطالبة' : 'إيصال'}</span>
                                 </button>
                                 {p.fileUrl && (
                                   <button
@@ -1839,11 +2024,15 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                         <button
                           type="button"
                           onClick={(e) => { e.stopPropagation(); handleGenerateSinglePaymentReceipt(p); }}
-                          className="flex-1 flex items-center justify-center gap-1 py-1.5 border border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 rounded-lg text-[10px] font-black transition cursor-pointer"
-                          title="توليد صورة إيصال سداد ومشاركتها مباشرة لواتساب الوحدة"
+                          className={`flex-1 flex items-center justify-center gap-1 py-1.5 border rounded-lg text-[10px] font-black transition cursor-pointer ${
+                            p.status === 'pending' || p.status === 'لم يتم التحصيل'
+                              ? 'border-rose-300 bg-rose-50 text-rose-800 hover:bg-rose-100'
+                              : 'border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
+                          }`}
+                          title={p.status === 'pending' || p.status === 'لم يتم التحصيل' ? 'توليد إشعار مطالبة شهرية ومشاركتها مباشرة لواتساب الوحدة' : 'توليد صورة إيصال سداد ومشاركتها مباشرة لواتساب الوحدة'}
                         >
-                          <Share2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                          <span>توليد صورة إيصال</span>
+                          <Share2 className={`w-3.5 h-3.5 shrink-0 ${p.status === 'pending' || p.status === 'لم يتم التحصيل' ? 'text-rose-600' : 'text-emerald-600'}`} />
+                          <span>{p.status === 'pending' || p.status === 'لم يتم التحصيل' ? 'توليد إشعار مطالبة' : 'توليد صورة إيصال'}</span>
                         </button>
 
                         {p.fileUrl && (
@@ -1954,7 +2143,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                 {/* Target Month + Multi-Month / Aggregated toggle */}
                 <div className="space-y-1">
                   <div className="flex items-center justify-between">
-                    <label className="text-[11px] font-bold text-slate-500">الشهر المستهدف</label>
+                    <label className="text-[11px] font-bold text-slate-500">شهر التحصيل الفعلي</label>
                     <button
                       type="button"
                       disabled={role === 'ASSISTANT' && !!selectedPayment}
@@ -1962,7 +2151,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                         const nextState = !isAggregatedCollection;
                         setIsAggregatedCollection(nextState);
                         if (!nextState) {
-                          setAdditionalMonths([]);
+                          setCoveredMonths([month]);
                           setShowMultiMonthPicker(false);
                           const selectedRes = residents.find(r => r.id === residentId);
                           if (selectedRes && (!paymentType || paymentType === 'اشتراك شهري' || paymentType.includes('اشتراك'))) {
@@ -1973,12 +2162,15 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                           }
                         } else {
                           setShowMultiMonthPicker(true);
+                          if (coveredMonths.length === 0) {
+                            setCoveredMonths([month]);
+                          }
                           const selectedRes = residents.find(r => r.id === residentId);
                           if (selectedRes && (!paymentType || paymentType === 'اشتراك شهري' || paymentType.includes('اشتراك'))) {
                             const fee = targetActivityType !== selectedRes.activityType
                               ? getActivityDefaultFee(targetActivityType)
                               : getResidentMonthlyFee(selectedRes, defaultMonthlyFee, activityDefaultFees);
-                            const totalMonthsCount = 1 + additionalMonths.length;
+                            const totalMonthsCount = coveredMonths.length > 0 ? coveredMonths.length : 1;
                             setAmount(fee * totalMonthsCount);
                           }
                         }
@@ -1988,13 +2180,13 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                           ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 ring-2 ring-emerald-500/20 shadow-emerald-600/10'
                           : 'bg-slate-100 hover:bg-slate-200 text-slate-600 border-slate-200'
                       }`}
-                      title={isAggregatedCollection ? 'تحصيل مجمع مفعل (انقر لإلغاء التفعيل أو تعديل الشهور)' : 'انقر لتفعيل تحصيل مجمع'}
+                      title={isAggregatedCollection ? 'التوزيع / التحصيل المجمع مفعل (انقر لإلغاء التفعيل أو تعديل الشهور)' : 'انقر لتفعيل توزيع التحصيل على شهور محددة'}
                     >
                       <span className={`w-1.5 h-1.5 rounded-full ${isAggregatedCollection ? 'bg-white animate-pulse' : 'bg-slate-400'}`}></span>
-                      <span>تحصيل مجمع</span>
+                      <span>توزيع / تحصيل مجمع</span>
                       {isAggregatedCollection && (
                         <span className="text-[8.5px] bg-white/25 px-1 py-0.2 rounded-xs font-black">
-                          {additionalMonths.length > 0 ? `(${additionalMonths.length + 1} شهور)` : 'مفعل ✓'}
+                          {coveredMonths.length > 0 ? `(${coveredMonths.length} شهور)` : 'مفعل ✓'}
                         </span>
                       )}
                     </button>
@@ -2005,8 +2197,8 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                     onChange={(e) => {
                       const newM = e.target.value;
                       setMonth(newM);
-                      if (additionalMonths.includes(newM)) {
-                        setAdditionalMonths(additionalMonths.filter(x => x !== newM));
+                      if (!isAggregatedCollection || coveredMonths.length <= 1) {
+                        setCoveredMonths([newM]);
                       }
                       if (newM && setCurrentMonth) {
                         const mIdx = parseInt(newM, 10) - 1;
@@ -2048,19 +2240,19 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                   <div className="col-span-2 p-2.5 bg-blue-50/80 border border-blue-200 rounded-xl space-y-2 animate-scale-up">
                     <div className="flex items-center justify-between text-[10.5px] font-black text-blue-950">
                       <span className="flex items-center gap-1.5">
-                        <span>📅 اختر الشهور الإضافية بالتحصيل المجمع:</span>
+                        <span>📅 اختر الشهور المستحقة المسددة بهذه الدفعة:</span>
                         {selectedPayment && (
                           <span className="text-[9px] text-emerald-800 bg-emerald-100 px-1.5 py-0.2 rounded font-black border border-emerald-200">
-                            تعديل التحصيل المجمع
+                            تعديل التوزيع
                           </span>
                         )}
                       </span>
                       <div className="flex items-center gap-2">
-                        {additionalMonths.length > 0 && (
+                        {coveredMonths.length > 0 && (
                           <button
                             type="button"
                             onClick={() => {
-                              setAdditionalMonths([]);
+                              setCoveredMonths([]);
                               const selectedRes = residents.find(r => r.id === residentId);
                               if (selectedRes && (!paymentType || paymentType === 'اشتراك شهري' || paymentType.includes('اشتراك'))) {
                                 const fee = targetActivityType !== selectedRes.activityType
@@ -2084,38 +2276,94 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                       </div>
                     </div>
 
+                    {/* Fast Presets for Quick Aggregated Months Selection */}
+                    <div className="flex items-center gap-1.5 flex-wrap pt-0.5 pb-1 border-b border-blue-200/60">
+                      <span className="text-[9.5px] font-black text-blue-900">اختيار سريع:</span>
+                      <button
+                        type="button"
+                        onClick={handleSelectSameMonthOnly}
+                        className="px-2 py-0.5 bg-white hover:bg-blue-100 text-blue-900 border border-blue-200 rounded-md text-[9px] font-bold transition cursor-pointer shadow-3xs active:scale-95"
+                        title="تحديد شهر التحصيل فقط"
+                      >
+                        ⚡ شهر التحصيل فقط
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSelectQuarter}
+                        className="px-2 py-0.5 bg-white hover:bg-blue-100 text-blue-900 border border-blue-200 rounded-md text-[9px] font-bold transition cursor-pointer shadow-3xs active:scale-95"
+                        title="تحديد 3 شهور متتالية من شهر التحصيل"
+                      >
+                        ⚡ 3 شهور
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSelectHalfYear}
+                        className="px-2 py-0.5 bg-white hover:bg-blue-100 text-blue-900 border border-blue-200 rounded-md text-[9px] font-bold transition cursor-pointer shadow-3xs active:scale-95"
+                        title="تحديد 6 شهور متتالية من شهر التحصيل"
+                      >
+                        ⚡ 6 شهور
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSelectRestOfYear}
+                        className="px-2 py-0.5 bg-white hover:bg-blue-100 text-blue-900 border border-blue-200 rounded-md text-[9px] font-bold transition cursor-pointer shadow-3xs active:scale-95"
+                        title="تحديد كافة الشهور المتبقية من السنة الحالية"
+                      >
+                        ⚡ باقي السنة
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSelectAllYear}
+                        className="px-2 py-0.5 bg-white hover:bg-blue-100 text-blue-900 border border-blue-200 rounded-md text-[9px] font-bold transition cursor-pointer shadow-3xs active:scale-95"
+                        title="تحديد كامل شهور السنة (12 شهر)"
+                      >
+                        ⚡ السنة كاملة (12 شهر)
+                      </button>
+                    </div>
+
                     <div className="grid grid-cols-4 gap-1">
                       {monthNamesArabic.map((name, idx) => {
                         const mStr = String(idx + 1).padStart(2, '0');
-                        const isPrimary = mStr === month;
-                        const isSelected = additionalMonths.includes(mStr);
+                        const isCollectionMonth = String(parseInt(mStr, 10)) === String(parseInt(month, 10));
+                        const isCovered = coveredMonths.some(x => String(parseInt(x, 10)) === String(parseInt(mStr, 10)));
 
                         return (
                           <button
                             key={mStr}
                             type="button"
-                            disabled={isPrimary || (role === 'ASSISTANT' && !!selectedPayment)}
-                            onClick={() => toggleAdditionalMonth(mStr)}
-                            className={`py-1 px-0.5 rounded-lg text-[10px] font-black transition cursor-pointer text-center disabled:opacity-60 disabled:cursor-not-allowed ${
-                              isPrimary
-                                ? 'bg-blue-900 text-white shadow-2xs cursor-not-allowed'
-                                : isSelected
-                                ? 'bg-emerald-600 text-white shadow-2xs ring-1 ring-emerald-400'
+                            disabled={role === 'ASSISTANT' && !!selectedPayment}
+                            onClick={() => toggleCoveredMonth(mStr)}
+                            className={`py-1.5 px-0.5 rounded-lg text-[10px] font-black transition cursor-pointer text-center disabled:opacity-60 disabled:cursor-not-allowed ${
+                              isCovered
+                                ? isCollectionMonth
+                                  ? 'bg-blue-900 text-white shadow-2xs ring-2 ring-blue-500'
+                                  : 'bg-emerald-600 text-white shadow-2xs ring-1 ring-emerald-400'
+                                : isCollectionMonth
+                                ? 'bg-blue-50 text-blue-900 border-2 border-dashed border-blue-400 hover:bg-blue-100'
                                 : 'bg-white text-slate-700 border border-slate-200 hover:bg-blue-100/50'
                             }`}
-                            title={isPrimary ? 'الشهر الأساسي للتحصيل' : `إضافة شهر ${name}`}
+                            title={isCollectionMonth ? `شهر التحصيل الفعلي: ${name}` : `سداد شهر ${name}`}
                           >
                             {name}
-                            {isPrimary && <span className="block text-[7.5px] opacity-80">(الأساسي)</span>}
-                            {isSelected && <span className="block text-[7.5px] opacity-90">✓</span>}
+                            {isCovered && isCollectionMonth && <span className="block text-[7.5px] opacity-90">✓ (التحصيل والسداد)</span>}
+                            {isCovered && !isCollectionMonth && <span className="block text-[7.5px] opacity-90">✓ (مسدد بدون قيمة)</span>}
+                            {!isCovered && isCollectionMonth && <span className="block text-[7.5px] opacity-80">(شهر التحصيل فقط)</span>}
                           </button>
                         );
                       })}
                     </div>
 
-                    <div className="text-[10px] text-blue-900 font-bold bg-white/95 px-2.5 py-1.5 rounded-lg border border-blue-200/60 flex items-center justify-between flex-wrap gap-1">
-                      <span>إجمالي الشهور المسددة: <strong className="text-emerald-700 font-black">{additionalMonths.length + 1} شهور</strong> ({[month, ...additionalMonths].sort((a,b)=>parseInt(a,10)-parseInt(b,10)).map(x => monthNamesArabic[parseInt(x,10)-1]).join('، ')})</span>
-                      <span className="text-slate-500 text-[9.5px] font-semibold">(توزيع متساوي لكل شهر في الكشوف والخريطة)</span>
+                    <div className="text-[10px] text-blue-900 font-bold bg-white/95 px-2.5 py-1.5 rounded-lg border border-blue-200/60 space-y-1">
+                      <div className="flex items-center justify-between flex-wrap gap-1">
+                        <span>شهر التحصيل: <strong className="text-blue-900 font-black">{monthNamesArabic[parseInt(month, 10) - 1]} {currentYear}</strong></span>
+                        <span>إجمالي الشهور المسددة: <strong className="text-emerald-700 font-black">{coveredMonths.length} شهور</strong> ({coveredMonths.map(x => monthNamesArabic[parseInt(x,10)-1]).join('، ')})</span>
+                      </div>
+                      <p className="text-slate-500 text-[9.5px] font-semibold">
+                        {coveredMonths.length === 1 && coveredMonths[0] !== String(parseInt(month, 10)).padStart(2, '0')
+                          ? `💡 يتم حفظ القيمة كاملة في شهر ${monthNamesArabic[parseInt(month, 10) - 1]}، وإنشاء دفعة مسددة بدون قيمة في شهر ${monthNamesArabic[parseInt(coveredMonths[0], 10) - 1]} مع كتابة «تم السداد في شهر ${monthNamesArabic[parseInt(month, 10) - 1]} بإيصال رقم ${receiptNumber || '—'}».`
+                          : `💡 يتم حفظ إجمالي المبلغ مجمعاً في شهر ${monthNamesArabic[parseInt(month, 10) - 1]} مع تسجيل باقي الشهور كدفعات مسددة بدون قيمة مع توثيق السداد في الملاحظات.`
+                        }
+                      </p>
                     </div>
                   </div>
                 )}
@@ -2130,8 +2378,8 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                     >
                       <span className="flex items-center gap-1.5">
                         <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
-                        <span>تحصيل مجمع مفعل:</span>
-                        <strong className="text-emerald-800">{additionalMonths.length > 0 ? `${additionalMonths.length + 1} شهور (${[month, ...additionalMonths].sort((a,b)=>parseInt(a,10)-parseInt(b,10)).map(x => monthNamesArabic[parseInt(x,10)-1]).join('، ')})` : 'شهر واحد (انقر لإضافة شهور)'}</strong>
+                        <span>توزيع السداد مفعل:</span>
+                        <strong className="text-emerald-800">{coveredMonths.length > 0 ? `${coveredMonths.length} شهور (${coveredMonths.map(x => monthNamesArabic[parseInt(x,10)-1]).join('، ')})` : 'انقر لتحديد الشهور'}</strong>
                       </span>
                       <span className="text-[9.5px] text-emerald-700 underline font-bold">تعديل الشهور ▾</span>
                     </button>
@@ -2180,7 +2428,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                       title="تطبيق قيمة الاشتراك الافتراضية للوحدة بهذا النشاط"
                     >
                       <RefreshCw className="w-2.5 h-2.5 shrink-0" />
-                      <span className="truncate">تطبيق اشتراك النشاط ({getActivityDefaultFee(targetActivityType) * (1 + additionalMonths.length)} ج.م)</span>
+                      <span className="truncate">تطبيق اشتراك النشاط ({getActivityDefaultFee(targetActivityType) * ((isAggregatedCollection && coveredMonths.length > 0) ? coveredMonths.length : 1)} ج.م)</span>
                     </button>
                   </div>
                 </div>
@@ -2409,13 +2657,9 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
             <p className="text-[11px] text-slate-600 text-center font-bold leading-relaxed mb-4">
               {confirmData.type === 'delete' 
                 ? 'هل أنت متأكد من حذف هذه العملية؟ سيؤدي هذا إلى مسح سجل التحصيل المحدد بالكامل ولا يمكن التراجع عن هذا الإجراء.'
-                : confirmData.type === 'edit'
-                ? confirmData.multiplePayments && confirmData.multiplePayments.length > 1
-                  ? `أنت على وشك حفظ تعديل سداد مجمع لعدد ${confirmData.multiplePayments.length} شهور (${confirmData.multiplePayments.map(p => monthNamesArabic[parseInt(p.month, 10) - 1]).join('، ')}) للوحدة ${confirmData.multiplePayments[0]?.flatNumber} بإجمالي ${confirmData.multiplePayments.reduce((s, p) => s + p.amount, 0)} ج.م (موزعة بالتساوي وتسجيل كل شهر في خريطة العمارة وكشوف التحصيل).${confirmData.residentToUpdate ? ` (مع حفظ نشاط الوحدة الجديد: ${confirmData.residentToUpdate.activityType})` : ''} هل تود التأكيد؟`
-                  : `هل تود حفظ التعديلات الجديدة على عملية التحصيل الخاصة بالوحدة ${confirmData.paymentData?.flatNumber} بمبلغ ${confirmData.paymentData?.amount} ج.م؟${confirmData.paymentData?.isAggregatedCollection ? ' (حالة التحصيل: تحصيل مجمع)' : ''}${confirmData.residentToUpdate ? ` (مع حفظ نشاط الوحدة الجديد: ${confirmData.residentToUpdate.activityType})` : ''}`
-                : confirmData.multiplePayments && confirmData.multiplePayments.length > 1
-                ? `أنت على وشك تسجيل سداد مجمع لعدد ${confirmData.multiplePayments.length} شهور (${confirmData.multiplePayments.map(p => monthNamesArabic[parseInt(p.month, 10) - 1]).join('، ')}) للوحدة ${confirmData.multiplePayments[0]?.flatNumber} بإجمالي ${confirmData.multiplePayments.reduce((s, p) => s + p.amount, 0)} ج.م (موزعة بالتساوي وتسجيل كل شهر في خريطة العمارة وكشوف التحصيل).${confirmData.residentToUpdate ? ` (مع حفظ نشاط الوحدة الجديد: ${confirmData.residentToUpdate.activityType})` : ''} هل تود التأكيد؟`
-                : `أنت على وشك إضافة عملية تحصيل جديدة للوحدة ${confirmData.paymentData?.flatNumber} بمبلغ ${confirmData.paymentData?.amount} ج.م.${confirmData.residentToUpdate ? ` (مع حفظ نشاط الوحدة الجديد: ${confirmData.residentToUpdate.activityType})` : ''} هل تود التأكيد؟`}
+                : confirmData.multiplePayments && confirmData.multiplePayments.length > 0
+                ? `أنت على وشك ${confirmData.type === 'edit' ? 'حفظ تعديل' : 'تسجيل'} سداد للوحدة ${confirmData.multiplePayments[0]?.flatNumber} بمبلغ ${confirmData.multiplePayments[0]?.amount} ج.م تم تحصيله في شهر ${monthNamesArabic[parseInt(confirmData.multiplePayments[0]?.month, 10) - 1]}${confirmData.multiplePayments.length === 2 && confirmData.multiplePayments[1]?.amount === 0 ? ` وتوزيعه لسداد شهر ${monthNamesArabic[parseInt(confirmData.multiplePayments[1]?.month, 10) - 1]} (دفعة مسددة بدون قيمة مع توثيق السداد في الملاحظات).` : ` وتوزيعه على ${confirmData.multiplePayments.length} شهور (${confirmData.multiplePayments.map(p => monthNamesArabic[parseInt(p.month, 10) - 1]).join('، ')}) كدفعات مسددة بدون قيمة مع توثيق السداد في الملاحظات.`}${confirmData.residentToUpdate ? ` (مع حفظ نشاط الوحدة الجديد: ${confirmData.residentToUpdate.activityType})` : ''} هل تود التأكيد؟`
+                : `أنت على وشك ${confirmData.type === 'edit' ? 'حفظ تعديل' : 'إضافة'} عملية تحصيل للوحدة ${confirmData.paymentData?.flatNumber} بمبلغ ${confirmData.paymentData?.amount} ج.م في شهر ${monthNamesArabic[parseInt(confirmData.paymentData?.month || '1', 10) - 1]}.${confirmData.residentToUpdate ? ` (مع حفظ نشاط الوحدة الجديد: ${confirmData.residentToUpdate.activityType})` : ''} هل تود التأكيد؟`}
             </p>
             <div className="flex items-center justify-center gap-2">
               <button
@@ -2453,9 +2697,14 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                         });
                       }
                     } else {
-                      confirmData.multiplePayments.forEach((p) => {
-                        onAdd(p, confirmData.base64Image);
-                      });
+                      if (onDistributePayment) {
+                        const origId = confirmData.multiplePayments[0].id;
+                        onDistributePayment(origId, confirmData.multiplePayments);
+                      } else {
+                        confirmData.multiplePayments.forEach((p) => {
+                          onAdd(p, confirmData.base64Image);
+                        });
+                      }
                     }
                     setShowModal(false);
                   } else if (confirmData.paymentData) {
@@ -2765,6 +3014,8 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
         onClose={() => setReceiptModalData(null)}
         data={receiptModalData}
         residents={residents}
+        payments={payments}
+        config={config}
         onSuccessToast={(msg) => {
           setToastMsg(msg);
           setTimeout(() => setToastMsg(null), 8000);

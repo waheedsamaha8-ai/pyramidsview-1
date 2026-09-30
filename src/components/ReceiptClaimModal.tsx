@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Resident } from '../types';
+import { Resident, Payment, AppConfig } from '../types';
 import { shareImageViaWhatsApp } from '../utils/shareImageViaWhatsApp';
 import { generateElementImageBlob } from '../utils/imageExport';
 import { generateReceiptClaimFast, printReceiptClaim } from '../utils/receiptClaimGenerator';
-import { groupResidentsByFloor, formatResidentOptionLabel, getHistoricalOccupantForDate } from '../utils/buildingStructure';
+import { groupResidentsByFloor, formatResidentOptionLabel, getHistoricalOccupantForDate, getHistoricalActivityForDate, isSameFlatNumber } from '../utils/buildingStructure';
+import { UnitClaimBreakdown, calculateUnitClaimBreakdown } from '../utils/financialCalculations';
 import { 
   formatMobileNumber, 
   formatPhoneForDisplay, 
@@ -59,6 +60,7 @@ export interface ReceiptClaimData {
   activityType?: string;
   occupancyType?: string;
   breakdown?: { label: string; value: string; isHighlight?: boolean; color?: string }[];
+  claimBreakdown?: UnitClaimBreakdown;
 }
 
 interface ReceiptClaimModalProps {
@@ -66,6 +68,8 @@ interface ReceiptClaimModalProps {
   onClose: () => void;
   data: ReceiptClaimData | null;
   residents?: Resident[];
+  payments?: Payment[];
+  config?: AppConfig;
   onSuccessToast?: (msg: string) => void;
 }
 
@@ -78,11 +82,15 @@ const ReceiptClaimModalContent: React.FC<{
   onClose: () => void;
   data: ReceiptClaimData;
   residents: Resident[];
+  payments?: Payment[];
+  config?: AppConfig;
   onSuccessToast?: (msg: string) => void;
 }> = ({
   onClose,
   data,
   residents,
+  payments = [],
+  config,
   onSuccessToast,
 }) => {
   const isReceipt = data.type === 'receipt';
@@ -117,7 +125,7 @@ const ReceiptClaimModalContent: React.FC<{
 
   const residentRecord = useMemo(() => {
     if (!data.unitNumber) return null;
-    return residents.find(r => String(r.flatNumber) === String(data.unitNumber)) || null;
+    return residents.find(r => isSameFlatNumber(r.flatNumber, data.unitNumber)) || null;
   }, [residents, data.unitNumber]);
 
   const formattedPhone = useMemo(() => {
@@ -128,7 +136,16 @@ const ReceiptClaimModalContent: React.FC<{
 
   const activityType = data.activityType || residentRecord?.activityType || 'سكني';
   const occupancyType = data.occupancyType || residentRecord?.ownershipType || 'تمليك';
-  const displayMonthlyFee = data.monthlyFee || residentRecord?.monthlyFee || (activityType === 'إداري' ? 800 : activityType === 'تحت التشطيب' ? 200 : 400);
+  const targetPeriodStr = `${data.year}-${String(data.month).padStart(2, '0')}`;
+  const histActForClaim = residentRecord 
+    ? getHistoricalActivityForDate(residentRecord, targetPeriodStr, config?.defaultMonthlyFee, config?.activityDefaultFees)
+    : null;
+
+  const displayMonthlyFee = (data.claimBreakdown?.currentMonthFee !== undefined && data.claimBreakdown.currentMonthFee > 0)
+    ? data.claimBreakdown.currentMonthFee
+    : (histActForClaim && residentRecord?.activityHistory && residentRecord.activityHistory.length > 0 && histActForClaim.monthlyFee !== undefined)
+      ? histActForClaim.monthlyFee
+      : (data.monthlyFee || (residentRecord?.monthlyFee !== undefined && residentRecord.monthlyFee > 0 ? residentRecord.monthlyFee : undefined) || (config?.activityDefaultFees && config.activityDefaultFees[activityType] !== undefined ? config.activityDefaultFees[activityType] : (config?.defaultMonthlyFee || 400)));
 
   const carriedDebt = useMemo(() => {
     if (data.oldDebtAmount !== undefined && data.oldDebtAmount > 0) return data.oldDebtAmount;
@@ -189,6 +206,27 @@ const ReceiptClaimModalContent: React.FC<{
   const currentArrears = unpaidMonthsDues;
   const totalUnitDebt = oldCarriedDebts + currentArrears;
 
+  const effectiveClaimBreakdown = useMemo(() => {
+    if (data.claimBreakdown) return data.claimBreakdown;
+    return calculateUnitClaimBreakdown(
+      residentRecord,
+      payments,
+      data.year,
+      data.month,
+      config?.accountingStartDate || '2026-01-01',
+      displayMonthlyFee,
+      config?.activityDefaultFees
+    );
+  }, [data.claimBreakdown, residentRecord, payments, data.year, data.month, displayMonthlyFee, config]);
+
+  const effectiveData = useMemo(() => {
+    return {
+      ...data,
+      amount: !isReceipt ? effectiveClaimBreakdown.totalDueForPayment : data.amount,
+      claimBreakdown: effectiveClaimBreakdown,
+    };
+  }, [data, isReceipt, effectiveClaimBreakdown]);
+
   // Recipient selection state
   const hasTenant = occupantInfo.hasTenant;
   const [recipientChoice, setRecipientChoice] = useState<'owner' | 'tenant' | 'other' | 'custom'>(
@@ -246,7 +284,7 @@ const ReceiptClaimModalContent: React.FC<{
     try {
       setIsGeneratingImage(true);
       // Ultra-Fast Canvas generation (< 15ms on mobile)
-      const res = await generateReceiptClaimFast(data, residents, fileName);
+      const res = await generateReceiptClaimFast(effectiveData, residents, fileName);
       setImageBlob(res.blob);
       setImageDataUrl(res.dataUrl);
     } catch (err) {
@@ -266,7 +304,7 @@ const ReceiptClaimModalContent: React.FC<{
   useEffect(() => {
     // Generate image immediately with ultra-fast generator
     generateImage();
-  }, [data, residents]);
+  }, [effectiveData, residents]);
 
   const isCurrentMonthPaid = useMemo(() => {
     if (data.currentMonthStatus) {
@@ -329,28 +367,18 @@ const ReceiptClaimModalContent: React.FC<{
       } else {
         t += `• ${occupantInfo.singleLine}\n\n`;
       }
-      if (isCurrentMonthPaid) {
-        t += `✓ *حالة سداد الشهر الحالي:* اشتراك شهر ${monthName} ${data.year} (${Math.round(displayMonthlyFee).toLocaleString()} ج.م) مسدد بالكامل ✓\n\n`;
-      } else {
-        t += `⚠️ *حالة سداد الشهر الحالي:* اشتراك شهر ${monthName} ${data.year} (${Math.round(displayMonthlyFee).toLocaleString()} ج.م) غير مسدد حتى تاريخه.\n\n`;
-      }
       t += `📋 *بيان وتفصيل المبالغ المستحقة على الوحدة:*\n`;
-      const delayedMonthsText = unpaidMonthsCount === 1 ? 'تأخير شهر واحد' : unpaidMonthsCount === 2 ? 'تأخير شهرين' : unpaidMonthsCount <= 10 ? `تأخير ${unpaidMonthsCount} أشهر` : `تأخير ${unpaidMonthsCount} شهراً`;
-      if (unpaidMonthsCount > 0) {
-        t += `• متأخرات ${paymentCategory}: ${delayedMonthsText} بقيمة ${Math.round(unpaidMonthsDues).toLocaleString()} ج.م (الاشتراك الشهري: ${Math.round(displayMonthlyFee).toLocaleString()} ج.م)\n`;
-      }
-
-      if (data.breakdown && data.breakdown.length > 0) {
-        data.breakdown.forEach(b => {
-          if (b.label.includes('تحصيلات أخرى') || b.label.includes('مديونية سابقة')) {
-            t += `• ${b.label}: ${b.value}\n`;
-          }
-        });
-      } else if (oldCarriedDebts > 0) {
-        t += `• مديونية قديمة ومرحلة على الوحدة: ${Math.round(oldCarriedDebts).toLocaleString()} ج.م\n`;
-      }
-
-      t += `💰 *إجمالي المبلغ المطلوب سداده:* *${Math.round(data.amount).toLocaleString()} جنيه مصري* (مجموع المتأخرات الحالية + مجموع المديونيات القديمة)\n`;
+      t += `*حالة الشهر الحالي:*\n`;
+      t += `• ${effectiveClaimBreakdown.subsLineText}\n`;
+      t += `• ${effectiveClaimBreakdown.otherLineText}\n`;
+      t += `• ${effectiveClaimBreakdown.monthlyArrearsLineText}\n`;
+      t += `• ${effectiveClaimBreakdown.otherArrearsLineText}\n`;
+      t += `• ${effectiveClaimBreakdown.previousDebtLineText}\n`;
+      t += `• ${effectiveClaimBreakdown.totalDueLineText}\n\n`;
+      t += `📦 *ملخص المستحقات:*\n`;
+      t += `▫️ اجمالي المبالغ المستحقة عن هذا الشهر : ${effectiveClaimBreakdown.currentMonthTotalDue.toLocaleString()} ج.م\n`;
+      t += `▫️ اجمالي المتأخرات و المديونيات : ${effectiveClaimBreakdown.totalArrearsAndDebts.toLocaleString()} ج.م\n\n`;
+      t += `💰 *إجمالي المبلغ المطلوب سداده:* *${Math.round(effectiveClaimBreakdown.totalDueForPayment).toLocaleString()} جنيه مصري*\n`;
       t += `🔢 *رقم المطالبة:* ${docNumber}\n`;
       t += `📅 *تاريخ الإصدار:* ${data.date || new Date().toISOString().split('T')[0]}\n`;
       t += `\n🤝 *نأمل من سيادتكم التكرم بالمبادرة بسرعة سداد المستحقات لتغطية مصروفات الصيانة الدورية والنظافة والأمن وتشغيل المصاعد بكفاءة لراحة وسلامة جميع سكان ورواد العمارة.*\n`;
@@ -362,7 +390,7 @@ const ReceiptClaimModalContent: React.FC<{
       t += `إدارة اتحاد ملاك بيراميدز فيو ١`;
       return t;
     }
-  }, [data, isReceipt, isCurrentMonthPaid, monthName, docNumber, hasTenant, occupantInfo, carriedDebt, activityType, displayMonthlyFee, unpaidMonthsCount, unpaidMonthsDues, paymentCategory, paymentDescription, totalUnitDebt, oldCarriedDebts]);
+  }, [data, isReceipt, effectiveClaimBreakdown, monthName, docNumber, hasTenant, occupantInfo, carriedDebt, activityType, displayMonthlyFee, unpaidMonthsCount, unpaidMonthsDues, paymentCategory, paymentDescription, totalUnitDebt, oldCarriedDebts]);
 
   const handleDownloadImage = () => {
     if (!imageBlob && !imageDataUrl) return;
@@ -379,7 +407,7 @@ const ReceiptClaimModalContent: React.FC<{
   };
 
   const handlePrintDocument = () => {
-    printReceiptClaim(data, residents);
+    printReceiptClaim(effectiveData, residents);
   };
 
   const handleSendDirectWhatsAppText = () => {
@@ -722,7 +750,7 @@ const ReceiptClaimModalContent: React.FC<{
                     <>
                       <div className="flex justify-between items-center p-2.5 font-bold">
                         <span className="text-slate-500">عن شهر:</span>
-                        <span className="text-slate-900">اشتراك {monthName} ${data.year} (${Math.round(displayMonthlyFee).toLocaleString()} ج.م)</span>
+                        <span className="text-slate-900">اشتراك {monthName} {data.year} ({Math.round(displayMonthlyFee).toLocaleString()} ج.م)</span>
                       </div>
                       <div className="flex justify-between items-center p-2.5 font-bold">
                         <span className="text-slate-500">حالة الشهر الحالي:</span>
@@ -780,39 +808,31 @@ const ReceiptClaimModalContent: React.FC<{
                   )
                 ) : (
                   <div className="p-3 bg-rose-50 border border-rose-300 rounded-xl text-rose-950 text-xs font-bold mb-4">
-                    <div className="flex items-center gap-1.5 text-rose-900 font-black mb-1">
+                    <div className="flex items-center gap-1.5 text-rose-900 font-black mb-1.5">
                       <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
                       <span>⚠️ بيان وتفصيل المبالغ المستحقة على الوحدة:</span>
                     </div>
                     <div className="text-[11.5px] leading-relaxed space-y-1">
-                      <div>
-                        • حالة الشهر الحالي: اشتراك شهر {monthName} {data.year} وقدره <span className="underline font-black">{Math.round(displayMonthlyFee).toLocaleString()} ج.م</span>{' '}
-                        <span className={`font-black ${isCurrentMonthPaid ? 'text-emerald-700' : 'text-rose-700'}`}>
-                          {isCurrentMonthPaid ? 'مسدد بالكامل ✓' : 'غير مسدد حتى تاريخه ⚠️'}
-                        </span>
+                      <div className="font-black text-slate-900 pb-0.5">حالة الشهر الحالي:</div>
+                      <div>• {effectiveClaimBreakdown.subsLineText}</div>
+                      <div>• {effectiveClaimBreakdown.otherLineText}</div>
+                      <div>• {effectiveClaimBreakdown.monthlyArrearsLineText}</div>
+                      <div>• {effectiveClaimBreakdown.otherArrearsLineText}</div>
+                      <div>• {effectiveClaimBreakdown.previousDebtLineText}</div>
+                      <div className="font-black text-rose-950 pt-1 border-t border-rose-200">
+                        • {effectiveClaimBreakdown.totalDueLineText}
                       </div>
-                      {unpaidMonthsCount > 0 && (
-                        <div className="font-bold text-slate-800">
-                          • متأخرات {paymentCategory}: تأخير {unpaidMonthsCount} شهور ({Math.round(unpaidMonthsDues).toLocaleString()} ج.م)
-                        </div>
-                      )}
-                      {data.breakdown && data.breakdown.length > 0 ? (
-                        data.breakdown.map((b, idx) => (
-                          (b.label.includes('تحصيلات أخرى') || b.label.includes('مديونية سابقة')) ? (
-                            <div key={idx} className="font-bold text-rose-900">
-                              • {b.label}: <span className="font-black">{b.value}</span>
-                            </div>
-                          ) : null
-                        ))
-                      ) : (
-                        oldCarriedDebts > 0 && (
-                          <div className="font-bold text-rose-900">
-                            • مديونية قديمة مرحلة: <span className="font-black">{Math.round(oldCarriedDebts).toLocaleString()} ج.م</span>
-                          </div>
-                        )
-                      )}
-                      <div className="font-black text-rose-800 pt-1 border-t border-rose-200">
-                        • إجمالي المبالغ المستحقة للسداد: <span className="underline">{Math.round(data.amount).toLocaleString()} ج.م</span> (مجموع المتأخرات الحالية + مجموع المديونيات القديمة)
+                    </div>
+
+                    {/* المستطيل المطلوب: اجمالي المبالغ المستحقة عن هذا الشهر واجمالي المتأخرات والمديونيات */}
+                    <div className="mt-3 p-2.5 bg-white rounded-lg border-2 border-rose-400 shadow-2xs space-y-1.5 text-[11.5px]">
+                      <div className="flex justify-between items-center text-slate-900 font-black">
+                        <span>اجمالي المبالغ المستحقة عن هذا الشهر :</span>
+                        <span className="text-blue-900 font-black text-xs">{effectiveClaimBreakdown.currentMonthTotalDue.toLocaleString()} ج.م</span>
+                      </div>
+                      <div className="flex justify-between items-center text-slate-900 font-black pt-1 border-t border-dashed border-rose-200">
+                        <span>احمالي المتأخرات و المديونيات :</span>
+                        <span className="text-rose-900 font-black text-xs">{effectiveClaimBreakdown.totalArrearsAndDebts.toLocaleString()} ج.م</span>
                       </div>
                     </div>
                   </div>
@@ -841,7 +861,7 @@ const ReceiptClaimModalContent: React.FC<{
                     {isReceipt ? 'إجمالي المبلغ المسدد معتمداً:' : 'إجمالي المبلغ المستحق للسداد:'}
                   </span>
                   <span className={`text-lg sm:text-xl ${isReceipt ? 'text-emerald-700' : 'text-rose-700'}`}>
-                    {Math.round(data.amount).toLocaleString()} ج.م
+                    {Math.round(isReceipt ? data.amount : effectiveClaimBreakdown.totalDueForPayment).toLocaleString()} ج.م
                   </span>
                 </div>
 
@@ -1168,20 +1188,38 @@ const ReceiptClaimModalContent: React.FC<{
           <div
             style={{
               backgroundColor: '#fef2f2',
-              border: '1px solid #fecaca',
+              border: '1.5px solid #fecaca',
               borderRadius: '14px',
               padding: '12px 16px',
               marginBottom: '16px',
               color: '#991b1b',
             }}
           >
-            <div style={{ fontSize: '13px', fontWeight: '900', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div style={{ fontSize: '13px', fontWeight: '900', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
               <span>⚠️ بيان وتفصيل المبالغ المستحقة على الوحدة:</span>
             </div>
-            <div style={{ fontSize: '12.5px', fontWeight: '800', lineHeight: '1.6' }}>
-              <div>• حالة الشهر الحالي: اشتراك شهر {monthName} {data.year} وقدره <span style={{ textDecoration: 'underline', fontWeight: '900' }}>{Math.round(displayMonthlyFee).toLocaleString()} ج.م</span> غير مسدد حتى تاريخه.</div>
-              <div>• متأخرات {paymentCategory}: تأخير {unpaidMonthsCount} شهور ({Math.round(unpaidMonthsDues).toLocaleString()} ج.م){oldCarriedDebts > 0 ? ` + مديونية قديمة مرحلة (${Math.round(oldCarriedDebts).toLocaleString()} ج.م)` : ''}</div>
-              <div style={{ fontWeight: '900', marginTop: '2px', color: '#7f1d1d' }}>• إجمالي المبالغ المستحقة للسداد: <span style={{ textDecoration: 'underline' }}>{Math.round(data.amount).toLocaleString()} ج.م</span> (مجموع المتأخرات الحالية + مجموع المديونيات القديمة)</div>
+            <div style={{ fontSize: '11.5px', fontWeight: '800', lineHeight: '1.6', color: '#7f1d1d' }}>
+              <div style={{ fontWeight: '900', color: '#0f172a' }}>حالة الشهر الحالي:</div>
+              <div>• {effectiveClaimBreakdown.subsLineText}</div>
+              <div>• {effectiveClaimBreakdown.otherLineText}</div>
+              <div>• {effectiveClaimBreakdown.monthlyArrearsLineText}</div>
+              <div>• {effectiveClaimBreakdown.otherArrearsLineText}</div>
+              <div>• {effectiveClaimBreakdown.previousDebtLineText}</div>
+              <div style={{ fontWeight: '900', marginTop: '4px', paddingTop: '4px', borderTop: '1px dashed #fca5a5', color: '#7f1d1d' }}>
+                • {effectiveClaimBreakdown.totalDueLineText}
+              </div>
+            </div>
+
+            {/* المستطيل المطلوب للتفصيل المالي في الطباعة */}
+            <div style={{ marginTop: '10px', background: '#ffffff', border: '2px solid #f87171', borderRadius: '8px', padding: '8px 12px', fontSize: '11.5px', fontWeight: '900' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#0f172a' }}>
+                <span>اجمالي المبالغ المستحقة عن هذا الشهر :</span>
+                <span style={{ color: '#1e3a8a' }}>{effectiveClaimBreakdown.currentMonthTotalDue.toLocaleString()} ج.م</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#0f172a', marginTop: '4px', paddingTop: '4px', borderTop: '1px dashed #fecaca' }}>
+                <span>احمالي المتأخرات و المديونيات :</span>
+                <span style={{ color: '#991b1b' }}>{effectiveClaimBreakdown.totalArrearsAndDebts.toLocaleString()} ج.م</span>
+              </div>
             </div>
           </div>
         )}
@@ -1235,7 +1273,7 @@ const ReceiptClaimModalContent: React.FC<{
               letterSpacing: 'normal',
             }}
           >
-            {Math.round(data.amount).toLocaleString()} ج.م
+            {Math.round(isReceipt ? data.amount : effectiveClaimBreakdown.totalDueForPayment).toLocaleString()} ج.م
           </span>
         </div>
 
@@ -1277,6 +1315,8 @@ export const ReceiptClaimModal: React.FC<ReceiptClaimModalProps> = ({
   onClose,
   data,
   residents = [],
+  payments = [],
+  config,
   onSuccessToast,
 }) => {
   if (!isOpen || !data) return null;
@@ -1285,6 +1325,8 @@ export const ReceiptClaimModal: React.FC<ReceiptClaimModalProps> = ({
       onClose={onClose}
       data={data}
       residents={residents}
+      payments={payments}
+      config={config}
       onSuccessToast={onSuccessToast}
     />
   );

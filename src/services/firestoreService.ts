@@ -388,6 +388,95 @@ export async function savePaymentToFirestore(payment: Payment): Promise<void> {
   offlineSync.saveCachedData(cacheKey, list);
 }
 
+export async function saveBatchPaymentsToFirestore(paymentsToSave: Payment[]): Promise<void> {
+  if (!paymentsToSave || paymentsToSave.length === 0) return;
+  const activeId = getActiveBuildingId();
+  const cacheKey = getBuildingCacheKey('payments');
+  let list = offlineSync.getCachedData<Payment[]>(cacheKey) || [];
+
+  const preparedPayments = paymentsToSave.map(payment => {
+    const cleanId = String(payment.id || `pay_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`);
+    return {
+      ...payment,
+      id: cleanId,
+      amount: Number(payment.amount) || 0,
+      buildingId: (payment as any).buildingId || activeId
+    };
+  });
+
+  // Update local cache immediately in a single batch
+  preparedPayments.forEach(payload => {
+    const idx = list.findIndex(p => String(p.id) === payload.id);
+    if (idx >= 0) {
+      list[idx] = payload;
+    } else {
+      list.push(payload);
+    }
+  });
+  offlineSync.saveCachedData(cacheKey, list);
+
+  try {
+    const CHUNK_SIZE = 150;
+    for (let i = 0; i < preparedPayments.length; i += CHUNK_SIZE) {
+      const batch = writeBatch(db);
+      const chunk = preparedPayments.slice(i, i + CHUNK_SIZE);
+      chunk.forEach(payload => {
+        const docRef = getBuildingDocRef('payments', payload.id);
+        batch.set(docRef, sanitizeForFirestore(payload), { merge: true });
+        if (activeId && activeId !== DEFAULT_BUILDING_ID) {
+          try {
+            const subDocRef = doc(db, 'buildings', activeId, 'payments', payload.id);
+            batch.set(subDocRef, sanitizeForFirestore(payload), { merge: true });
+          } catch {}
+        }
+      });
+      await batch.commit();
+    }
+  } catch (error) {
+    handleFirestoreError(error, {
+      operation: OperationType.CREATE,
+      path: 'payments'
+    });
+    throw error;
+  }
+}
+
+export async function deleteBatchPaymentsFromFirestore(ids: string[]): Promise<void> {
+  if (!ids || ids.length === 0) return;
+  const cleanIds = ids.map(id => String(id));
+  const activeId = getActiveBuildingId();
+  const cacheKey = getBuildingCacheKey('payments');
+  let list = offlineSync.getCachedData<Payment[]>(cacheKey) || [];
+  list = list.filter(p => !cleanIds.includes(String(p.id)));
+  offlineSync.saveCachedData(cacheKey, list);
+  cleanIds.forEach(id => offlineSync.purgeEntityFromQueue(id));
+
+  try {
+    const CHUNK_SIZE = 150;
+    for (let i = 0; i < cleanIds.length; i += CHUNK_SIZE) {
+      const batch = writeBatch(db);
+      const chunk = cleanIds.slice(i, i + CHUNK_SIZE);
+      chunk.forEach(cleanId => {
+        const docRef = getBuildingDocRef('payments', cleanId);
+        batch.delete(docRef);
+        if (activeId && activeId !== DEFAULT_BUILDING_ID) {
+          try {
+            const subDocRef = doc(db, 'buildings', activeId, 'payments', cleanId);
+            batch.delete(subDocRef);
+          } catch {}
+        }
+      });
+      await batch.commit();
+    }
+  } catch (error) {
+    handleFirestoreError(error, {
+      operation: OperationType.DELETE,
+      path: 'payments'
+    });
+    throw error;
+  }
+}
+
 export async function deletePaymentFromFirestore(id: string): Promise<void> {
   const cleanId = String(id);
   try {

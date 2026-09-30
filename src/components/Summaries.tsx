@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useRef } from 'react';
 import { Resident, Payment, Expense, UserRole, FloorConfig, AppConfig } from '../types';
-import { Calendar, Check, AlertCircle, RefreshCw, X, ExternalLink, Trash2, PlusCircle, CreditCard, Clock, Layers, Receipt, Edit, Save, Minus, Sparkles, RotateCcw, FileText } from 'lucide-react';
+import { Calendar, Check, AlertCircle, RefreshCw, X, ExternalLink, Trash2, PlusCircle, CreditCard, Clock, Layers, Receipt, Edit, Save, Minus, Sparkles, RotateCcw, FileText, Filter } from 'lucide-react';
 import { BuildingMap } from './BuildingMap';
 import { deriveFloorConfigsFromResidents, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber, getHistoricalOccupantForDate, getHistoricalActivityForDate } from '../utils/buildingStructure';
 
@@ -66,6 +66,44 @@ export const Summaries: React.FC<SummariesProps> = ({
   const [isDistributing, setIsDistributing] = useState<boolean>(false);
   const [selectedMonths, setSelectedMonths] = useState<string[]>([]);
   const [editNotes, setEditNotes] = useState<string>('');
+
+  // Filter for Section 3 (Monthly collection table) - defaults to 'اشتراك شهري'
+  const [selectedPaymentTypeFilter, setSelectedPaymentTypeFilter] = useState<string>('اشتراك شهري');
+
+  // Available Payment Types list - ONLY from config.paymentTypes (إدارة أنواع التحصيل) without duplicates
+  const availablePaymentTypes = useMemo(() => {
+    const configured = (config?.paymentTypes && config.paymentTypes.length > 0)
+      ? config.paymentTypes
+      : (paymentTypes && paymentTypes.length > 0)
+        ? paymentTypes
+        : ['اشتراك شهري', 'صيانة طارئة', 'تحصيلات اخرى'];
+
+    const seen = new Set<string>();
+    const result: string[] = [];
+    for (const type of configured) {
+      const trimmed = type?.trim();
+      if (trimmed && !seen.has(trimmed)) {
+        seen.add(trimmed);
+        result.push(trimmed);
+      }
+    }
+    return result;
+  }, [config?.paymentTypes, paymentTypes]);
+
+  const matchesPaymentType = (payType: string | undefined, filterType: string) => {
+    if (!filterType || filterType === 'all' || filterType === 'الكل' || filterType === 'الجميع') return true;
+    const cleanPay = (payType || 'اشتراك شهري').trim();
+    const cleanFilter = filterType.trim();
+    if (cleanPay === cleanFilter) return true;
+    
+    // Arabic normalization
+    const normPay = cleanPay.replace(/ي$/g, 'ى').replace(/[أإآ]/g, 'ا');
+    const normFilter = cleanFilter.replace(/ي$/g, 'ى').replace(/[أإآ]/g, 'ا');
+    if (normPay === normFilter) return true;
+    
+    if (normFilter.includes('اشتراك') && (normPay.includes('اشتراك') || normPay.includes('شهر'))) return true;
+    return false;
+  };
 
   // Synchronized horizontal scroll for the 3 summary tables
   const table1Ref = useRef<HTMLDivElement>(null);
@@ -268,12 +306,13 @@ export const Summaries: React.FC<SummariesProps> = ({
   };
 
   // 4. Map and aggregate all payments for grid display in that month
-  const getSubscriptionStatus = (residentId: string, month: string) => {
+  const getSubscriptionStatus = (residentId: string, month: string, filterType = selectedPaymentTypeFilter) => {
     const matchingPayments = payments.filter(
       (p) =>
         p.residentId === residentId &&
         p.month === month &&
-        p.year === currentYear
+        p.year === currentYear &&
+        matchesPaymentType(p.paymentType, filterType)
     );
 
     const validCollectedPayments = matchingPayments.filter(
@@ -509,14 +548,15 @@ export const Summaries: React.FC<SummariesProps> = ({
           childIds.push(newId);
         }
 
-        const isRemainderMonth = (idx === 0);
-        const monthAmount = isRemainderMonth ? (basePerMonth + remainder) : basePerMonth;
-
         const cleanCustomNote = (editNotes || '').trim();
-        const distributionSuffix = `(سداد مجمع موزع على ${count} شهور)`;
-        const finalNote = cleanCustomNote
-          ? (cleanCustomNote.includes('سداد مجمع') ? cleanCustomNote : `${cleanCustomNote} ${distributionSuffix}`)
-          : `سداد مجمع موزع على شهور: ${sortedMonths.map((x) => monthNamesArabic[parseInt(x, 10) - 1]).join('، ')}`;
+        const primaryMonthName = monthNamesArabic[parseInt(masterMonth, 10) - 1];
+        const recNum = (editReceiptNumber || masterPay.receiptNumber || '').trim();
+
+        const noteText = isMaster
+          ? (cleanCustomNote
+              ? `${cleanCustomNote} (سداد مجمع عن شهور: ${sortedMonths.map(x => monthNamesArabic[parseInt(x, 10) - 1]).join('، ')})`
+              : `سداد مجمع عن شهور: ${sortedMonths.map(x => monthNamesArabic[parseInt(x, 10) - 1]).join('، ')}`)
+          : `تم السداد في شهر ${primaryMonthName} ${currentYear} بإيصال رقم ${recNum || '—'}${cleanCustomNote ? ` (${cleanCustomNote})` : ''}`;
 
         return {
           id: newId,
@@ -526,13 +566,13 @@ export const Summaries: React.FC<SummariesProps> = ({
           residentName: occupant,
           flatNumber: masterPay.flatNumber,
           paymentType: editPaymentType || masterPay.paymentType || 'اشتراك شهري',
-          amount: monthAmount,
-          receiptNumber: (editReceiptNumber || masterPay.receiptNumber || '').trim(),
-          notes: finalNote,
+          amount: isMaster ? parsedAmount : 0,
+          receiptNumber: recNum,
+          notes: noteText,
           fileId: masterPay.fileId || '',
           fileUrl: masterPay.fileUrl || '',
           date: masterPay.date || new Date().toISOString().split('T')[0],
-          isManuallyPaid: false,
+          isManuallyPaid: true,
           status: (editPaymentStatus as any) || 'collected',
           isAggregatedCollection: isMaster,
           isDistributed: isMaster,
@@ -894,7 +934,7 @@ export const Summaries: React.FC<SummariesProps> = ({
 
       {/* Section 3: Interactive Collections Table Grouped by Floor */}
       <section className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-        <div className="px-3.5 py-2.5 border-b border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-2 bg-slate-50/70">
+        <div className="px-3.5 py-2.5 border-b border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-2.5 bg-slate-50/70">
           <div className="flex items-center gap-1.5 text-[10px] sm:text-[11px] text-slate-500 font-bold">
             <RefreshCw className="w-3.5 h-3.5 text-blue-900" />
             <span>
@@ -903,27 +943,60 @@ export const Summaries: React.FC<SummariesProps> = ({
                 : '* انقر على أي خانة لعرض تفاصيل وكشف المتحصلات المجمعة لهذا الشهر'}
             </span>
           </div>
-          <div className="flex items-center gap-2">
-            <Layers className="w-4 h-4 text-blue-900" />
-            <h3 className="text-xs sm:text-sm font-black text-slate-900">جدول كشف التحصيل الشهري للاشتراكات لعام {currentYear}</h3>
+
+          <div className="flex items-center gap-2 sm:gap-3 flex-wrap justify-end w-full sm:w-auto">
+            {/* Payment Type Filter Selector */}
+            <div className="flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-lg border border-slate-200 shadow-2xs">
+              <Filter className="w-3.5 h-3.5 text-blue-900 shrink-0" />
+              <label htmlFor="summaryPaymentTypeFilter" className="text-[10px] sm:text-xs font-bold text-slate-600 whitespace-nowrap">
+                نوع التحصيل:
+              </label>
+              <select
+                id="summaryPaymentTypeFilter"
+                value={selectedPaymentTypeFilter}
+                onChange={(e) => setSelectedPaymentTypeFilter(e.target.value)}
+                className="bg-transparent text-[10.5px] sm:text-xs font-black text-blue-950 focus:outline-hidden cursor-pointer pr-1"
+              >
+                <option value="اشتراك شهري">الاشتراك الشهري (افتراضي)</option>
+                {availablePaymentTypes
+                  .filter((t) => !matchesPaymentType(t, 'اشتراك شهري'))
+                  .map((type) => (
+                    <option key={type} value={type}>
+                      {type}
+                    </option>
+                  ))}
+                <option value="all">جميع أنواع التحصيل (الجميع)</option>
+              </select>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <Layers className="w-4 h-4 text-blue-900 shrink-0" />
+              <h3 className="text-xs sm:text-sm font-black text-slate-900 whitespace-nowrap">
+                {selectedPaymentTypeFilter === 'all'
+                  ? `جدول كشف التحصيل الشهري لكافة الأنواع لعام ${currentYear}`
+                  : selectedPaymentTypeFilter === 'اشتراك شهري'
+                  ? `جدول كشف التحصيل الشهري للاشتراكات لعام ${currentYear}`
+                  : `جدول كشف التحصيل الشهري (${selectedPaymentTypeFilter}) لعام ${currentYear}`}
+              </h3>
+            </div>
           </div>
         </div>
 
-        {/* Status Legend Bar - Compact to stay strictly within screen boundaries */}
-        <div className="px-1 sm:px-3 py-1 bg-slate-100/80 border-b border-slate-200 overflow-x-auto scrollbar-none flex items-center justify-between sm:justify-start gap-1 sm:gap-2 text-[7.5px] min-[360px]:text-[8px] min-[400px]:text-[9px] sm:text-[10.5px] font-black whitespace-nowrap">
-          <span className="text-slate-500 font-bold shrink-0 hidden md:inline ml-1">دليل الألوان:</span>
+        {/* Status Legend Bar - Compact with richer, darker colors */}
+        <div className="px-1 sm:px-3 py-1 bg-slate-100/90 border-b border-slate-200 overflow-x-auto scrollbar-none flex items-center justify-between sm:justify-start gap-1 sm:gap-2 text-[7.5px] min-[360px]:text-[8px] min-[400px]:text-[9px] sm:text-[10.5px] font-black whitespace-nowrap">
+          <span className="text-slate-600 font-extrabold shrink-0 hidden md:inline ml-1">دليل الألوان:</span>
           <div className="flex items-center justify-between sm:justify-start gap-0.5 sm:gap-1.5 w-full sm:w-auto">
-            <span className="inline-flex items-center gap-0.5 px-1 sm:px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-2xs shrink-0">
-              <Check className="w-2 h-2 sm:w-2.5 sm:h-2.5 stroke-[3.5]" /> مسدد (أخضر)
+            <span className="inline-flex items-center gap-0.5 px-1 sm:px-2 py-0.5 rounded bg-emerald-200 text-emerald-950 border border-emerald-400 shadow-2xs shrink-0 font-black">
+              <Check className="w-2 h-2 sm:w-2.5 sm:h-2.5 stroke-[3.5] text-emerald-800" /> مسدد (أخضر)
             </span>
-            <span className="inline-flex items-center gap-0.5 px-1 sm:px-2 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs shrink-0">
-              <Clock className="w-2 h-2 sm:w-2.5 sm:h-2.5 stroke-[2.5]" /> لم يحصل (برتقالي)
+            <span className="inline-flex items-center gap-0.5 px-1 sm:px-2 py-0.5 rounded bg-amber-200 text-amber-950 border border-amber-400 shadow-2xs shrink-0 font-black">
+              <Clock className="w-2 h-2 sm:w-2.5 sm:h-2.5 stroke-[2.5] text-amber-800" /> لم يحصل (أصفر)
             </span>
-            <span className="inline-flex items-center gap-0.5 px-1 sm:px-2 py-0.5 rounded bg-slate-200 text-slate-800 border border-slate-300 shadow-2xs shrink-0">
-              <Minus className="w-2 h-2 sm:w-2.5 sm:h-2.5 stroke-[3]" /> غير مطالبة (رمادي)
+            <span className="inline-flex items-center gap-0.5 px-1 sm:px-2 py-0.5 rounded bg-slate-300 text-slate-900 border border-slate-400 shadow-2xs shrink-0 font-black">
+              <Minus className="w-2 h-2 sm:w-2.5 sm:h-2.5 stroke-[3] text-slate-700" /> غير مطالبة (رمادي)
             </span>
-            <span className="inline-flex items-center gap-0.5 px-1 sm:px-2 py-0.5 rounded bg-red-100 text-red-800 border border-red-300 shadow-2xs shrink-0">
-              <AlertCircle className="w-2 h-2 sm:w-2.5 sm:h-2.5 stroke-[2.5]" /> غير مسدد (أحمر)
+            <span className="inline-flex items-center gap-0.5 px-1 sm:px-2 py-0.5 rounded bg-red-200 text-red-950 border border-red-400 shadow-2xs shrink-0 font-black">
+              <AlertCircle className="w-2 h-2 sm:w-2.5 sm:h-2.5 stroke-[2.5] text-red-700" /> غير مسدد (أحمر)
             </span>
           </div>
         </div>
@@ -987,7 +1060,7 @@ export const Summaries: React.FC<SummariesProps> = ({
                     const historical = getHistoricalOccupantForDate(res, `${currentYear}`);
                     const occupantName = historical.tenantName || historical.ownerName || res.name;
                     const residentYearTotal = payments
-                      .filter((p) => p.residentId === res.id && p.year === currentYear && p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل')
+                      .filter((p) => p.residentId === res.id && p.year === currentYear && p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل' && matchesPaymentType(p.paymentType, selectedPaymentTypeFilter))
                       .reduce((s, p) => s + p.amount, 0);
 
                     return (
@@ -1013,13 +1086,13 @@ export const Summaries: React.FC<SummariesProps> = ({
                             (histAct.monthlyFee === 0)
                           );
 
-                          let cellBgClass = 'bg-red-100/90 text-red-950 hover:bg-red-200 border-red-200/70';
+                          let cellBgClass = 'bg-red-200 text-red-950 hover:bg-red-300 border-red-300 shadow-2xs font-black';
                           if (status.paid) {
-                            cellBgClass = 'bg-emerald-100/90 text-emerald-950 hover:bg-emerald-200 border-emerald-200/70';
+                            cellBgClass = 'bg-emerald-200 text-emerald-950 hover:bg-emerald-300 border-emerald-300 shadow-2xs font-black';
                           } else if (status.pending) {
-                            cellBgClass = 'bg-amber-100/95 text-amber-950 hover:bg-amber-200 border-amber-300';
+                            cellBgClass = 'bg-amber-200 text-amber-950 hover:bg-amber-300 border-amber-400 shadow-2xs font-black';
                           } else if (isNoFeeActivity) {
-                            cellBgClass = 'bg-slate-200/90 text-slate-800 hover:bg-slate-300 border-slate-300';
+                            cellBgClass = 'bg-slate-300 text-slate-900 hover:bg-slate-400 border-slate-400 shadow-2xs font-black';
                           }
 
                           return (
@@ -1029,7 +1102,11 @@ export const Summaries: React.FC<SummariesProps> = ({
                                 const monthName = monthNamesArabic[idx];
                                 const defaultAmt = histAct.monthlyFee;
                                 setNewAmount(String(defaultAmt));
-                                setNewPaymentType(isNoFeeActivity ? 'تحصيلات اخرى' : 'اشتراك شهري');
+                                setNewPaymentType(
+                                  selectedPaymentTypeFilter !== 'all'
+                                    ? selectedPaymentTypeFilter
+                                    : (isNoFeeActivity ? 'تحصيلات اخرى' : 'اشتراك شهري')
+                                );
                                 setEditingPaymentId(null);
                                 setDeleteConfirmId(null);
                                 setSelectedCell({
@@ -1047,17 +1124,17 @@ export const Summaries: React.FC<SummariesProps> = ({
                                 {status.paid ? (
                                   <>
                                     <div className="flex items-center gap-0.5">
-                                      <Check className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-700 stroke-[3.5]" />
+                                      <Check className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-800 stroke-[3.5]" />
                                       {status.isDistributed && (
-                                        <span className="w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-emerald-300 animate-pulse" title="تم التوزيع من هذه الدفعة" />
+                                        <span className="w-2 h-2 rounded-full bg-emerald-600 ring-2 ring-emerald-300 animate-pulse" title="تم التوزيع من هذه الدفعة" />
                                       )}
                                       {!status.isDistributed && status.isAggregated && (
-                                        <span className="text-[7px] sm:text-[7.5px] font-black px-1 py-0.2 bg-amber-200 text-amber-950 rounded-xs" title="تحصيل مجمع">
+                                        <span className="text-[7px] sm:text-[7.5px] font-black px-1 py-0.2 bg-amber-300 text-amber-950 rounded-xs" title="تحصيل مجمع">
                                           مجمع ⚡
                                         </span>
                                       )}
                                       {isMulti && (
-                                        <span className="text-[7.5px] sm:text-[9px] font-black px-0.5 py-0.2 bg-blue-200 text-blue-900 rounded-xs">
+                                        <span className="text-[7.5px] sm:text-[9px] font-black px-0.5 py-0.2 bg-blue-300 text-blue-900 rounded-xs">
                                           {status.paymentsList.length}
                                         </span>
                                       )}
@@ -1071,17 +1148,17 @@ export const Summaries: React.FC<SummariesProps> = ({
                                 ) : status.pending ? (
                                   <>
                                     <div className="flex items-center gap-0.5">
-                                      <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-700 stroke-[2.5]" />
+                                      <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-800 stroke-[2.5]" />
                                       {status.isDistributed && (
-                                        <span className="w-2 h-2 rounded-full bg-amber-500 ring-2 ring-amber-300 animate-pulse" title="تم التوزيع من هذه الدفعة" />
+                                        <span className="w-2 h-2 rounded-full bg-amber-600 ring-2 ring-amber-300 animate-pulse" title="تم التوزيع من هذه الدفعة" />
                                       )}
                                       {!status.isDistributed && status.isAggregated && (
-                                        <span className="text-[7px] sm:text-[7.5px] font-black px-1 py-0.2 bg-amber-200 text-amber-950 rounded-xs" title="تحصيل مجمع">
+                                        <span className="text-[7px] sm:text-[7.5px] font-black px-1 py-0.2 bg-amber-300 text-amber-950 rounded-xs" title="تحصيل مجمع">
                                           مجمع ⚡
                                         </span>
                                       )}
                                       {isMulti && (
-                                        <span className="text-[7.5px] sm:text-[9px] font-black px-0.5 py-0.2 bg-blue-200 text-blue-900 rounded-xs">
+                                        <span className="text-[7.5px] sm:text-[9px] font-black px-0.5 py-0.2 bg-blue-300 text-blue-900 rounded-xs">
                                           {status.paymentsList.length}
                                         </span>
                                       )}
@@ -1095,15 +1172,15 @@ export const Summaries: React.FC<SummariesProps> = ({
                                   </>
                                 ) : isNoFeeActivity ? (
                                   <>
-                                    <Minus className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-slate-600 stroke-[3]" />
-                                    <span className="text-[9px] sm:text-[11px] font-black text-slate-800 whitespace-nowrap leading-none">
+                                    <Minus className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-slate-700 stroke-[3]" />
+                                    <span className="text-[9px] sm:text-[11px] font-black text-slate-900 whitespace-nowrap leading-none">
                                       معفي
                                     </span>
                                   </>
                                 ) : (
                                   <>
-                                    <AlertCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-red-600 stroke-[2.5]" />
-                                    <span className="text-[9px] sm:text-[11px] font-black text-red-700 leading-none whitespace-nowrap">
+                                    <AlertCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-red-700 stroke-[2.5]" />
+                                    <span className="text-[9px] sm:text-[11px] font-black text-red-950 leading-none whitespace-nowrap">
                                       غير مسدد
                                     </span>
                                   </>
