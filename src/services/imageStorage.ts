@@ -126,9 +126,31 @@ export async function deleteImageFromIndexedDB(id: string): Promise<void> {
   }
 }
 
+export async function getAllKeysFromIndexedDB(): Promise<string[]> {
+  try {
+    const db = await getDB();
+    return await new Promise<string[]>((resolve) => {
+      try {
+        const tx = db.transaction(STORE_NAME, 'readonly');
+        const store = tx.objectStore(STORE_NAME);
+        const req = store.getAllKeys();
+        req.onsuccess = () => {
+          resolve((req.result || []).map(String));
+        };
+        req.onerror = () => resolve([]);
+      } catch {
+        resolve([]);
+      }
+    });
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Hydrates missing images (fileUrl) for payments or expenses by querying IndexedDB.
  * Restores any images that were previously pruned from localStorage cache.
+ * High-performance: Fetches all stored keys once to avoid thousands of empty IndexedDB queries.
  */
 export async function restoreEntityImagesFromIndexedDB<T extends { id: string | number; fileUrl?: string; fileId?: string }>(
   items: T[]
@@ -136,29 +158,45 @@ export async function restoreEntityImagesFromIndexedDB<T extends { id: string | 
   if (!items || !Array.isArray(items) || items.length === 0) return items;
   if (typeof window === 'undefined' || !window.indexedDB) return items;
 
+  // 1. Check all stored image keys in a single fast call
+  const storedKeysList = await getAllKeysFromIndexedDB();
+  const storedKeys = new Set(storedKeysList);
+
   let hasRestoredAny = false;
   const updatedItems = await Promise.all(
     items.map(async (item) => {
+      const strId = String(item.id);
       if (item.fileUrl && item.fileUrl.startsWith('data:image/')) {
-        // Ensure image is also backed up in IndexedDB for resilience
-        saveImageToIndexedDB(String(item.id), item.fileUrl).catch(() => {});
+        // Ensure image is also backed up in IndexedDB for resilience if not already there
+        if (!storedKeys.has(strId)) {
+          saveImageToIndexedDB(strId, item.fileUrl).catch(() => {});
+        }
         return item;
       }
 
-      // If fileUrl is missing or empty, search IndexedDB
-      const strId = String(item.id);
-      const cached = await getImageFromIndexedDB(strId)
-        || await getImageFromIndexedDB(`${strId}_fileUrl`)
-        || await getImageFromIndexedDB(`${strId}_receiptImage`)
-        || await getImageFromIndexedDB(`${strId}_base64Image`);
-
-      if (cached && typeof cached === 'string' && cached.startsWith('data:image/')) {
-        hasRestoredAny = true;
-        return {
-          ...item,
-          fileUrl: cached
-        };
+      // If no stored keys exist in DB, skip querying completely
+      if (storedKeys.size === 0) {
+        return item;
       }
+
+      // If fileUrl is missing or empty, search IndexedDB ONLY if ID exists in stored keys
+      let matchKey: string | null = null;
+      if (storedKeys.has(strId)) matchKey = strId;
+      else if (storedKeys.has(`${strId}_fileUrl`)) matchKey = `${strId}_fileUrl`;
+      else if (storedKeys.has(`${strId}_receiptImage`)) matchKey = `${strId}_receiptImage`;
+      else if (storedKeys.has(`${strId}_base64Image`)) matchKey = `${strId}_base64Image`;
+
+      if (matchKey) {
+        const cached = await getImageFromIndexedDB(matchKey);
+        if (cached && typeof cached === 'string' && cached.startsWith('data:image/')) {
+          hasRestoredAny = true;
+          return {
+            ...item,
+            fileUrl: cached
+          };
+        }
+      }
+
       return item;
     })
   );
