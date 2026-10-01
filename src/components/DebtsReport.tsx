@@ -48,6 +48,7 @@ interface DebtsReportProps {
   floorConfigs?: FloorConfig[];
   currentYear?: number;
   onSetAllResidents?: (residents: Resident[]) => void;
+  onRefreshAllData?: () => Promise<void> | void;
 }
 
 export const DebtsReport: React.FC<DebtsReportProps> = ({
@@ -58,6 +59,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
   floorConfigs,
   currentYear = new Date().getFullYear(),
   onSetAllResidents,
+  onRefreshAllData,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedActivity, setSelectedActivity] = useState<string>('all');
@@ -66,6 +68,24 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [lastRefreshTime, setLastRefreshTime] = useState<string>(() => {
+    return new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+  });
+
+  const handleInstantRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      if (onRefreshAllData) {
+        await onRefreshAllData();
+      }
+      setLastRefreshTime(new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+    } catch (e) {
+      console.error('Instant refresh error:', e);
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 350);
+    }
+  };
   
   // Year selector for multi-year accounting rollover
   const [selectedYearFilter, setSelectedYearFilter] = useState<'all' | number>('all');
@@ -466,7 +486,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
     let defaultText = `مساء الخير أستاذ/ ${recipientName}،\nتحية طيبة من إدارة اتحاد ملاك عمارة بيراميدز فيو ١ 🏢\n\n`;
     defaultText += `نحيط سيادتكم علماً ببيان وتفصيل المبالغ المتأخرة على الوحدة رقم (${flatNumber}):\n`;
     if (unpaidMonthsCount > 0) {
-      defaultText += `• متأخرات اشتراك شهري: تأخير ${unpaidMonthsCount} شهور (المبلغ المتأخر: ${Math.round(unpaidMonthsDues).toLocaleString()} ج.م - الاشتراك الشهري: ${monthlyFee} ج.م)\n`;
+      defaultText += `• متأخرات اشتراك شهري: تأخير ${unpaidMonthsCount} شهور (المبلغ المتأخر: ${Math.round(unpaidMonthsDues).toLocaleString()} ج.م - اشتراك شهري: ${monthlyFee} ج.م)\n`;
     } else {
       defaultText += `• الاشتراكات الشهرية: مسددة بالكامل حتى تاريخه ✓\n`;
     }
@@ -524,7 +544,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
     const otherDebtTotal = Math.round(financials.otherCollectionsDebt || unpaidOtherPayments.reduce((s, p) => s + (p.amount || 0), 0));
 
     const breakdownList = [
-      { label: 'الاشتراك الشهري للوحدة', value: `${Math.round(claimBreakdown.currentMonthFee || financials.monthlyFee).toLocaleString()} ج.م` },
+      { label: 'اشتراك شهري للوحدة', value: `${Math.round(claimBreakdown.currentMonthFee || financials.monthlyFee).toLocaleString()} ج.م` },
       { 
         label: `اشتراك الشهر الحالي (${monthNamesArabic[currentMonthNum - 1]} ${currentYearNum})`, 
         value: currentMonthStatusText,
@@ -692,16 +712,28 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
           </div>
         </div>
 
-        {role === 'ADMIN' && onSetAllResidents && (
+        <div className="flex items-center gap-1.5 shrink-0">
           <button
-            onClick={() => setShowExportModal(true)}
-            className="px-2.5 py-1.5 bg-white/15 hover:bg-white/25 active:scale-95 text-white border border-white/20 rounded-xl text-[10px] sm:text-xs font-black transition flex items-center gap-1 cursor-pointer shrink-0 shadow-2xs whitespace-nowrap"
-            title="تثبيت تصدير الأرصدة لسنة مالية قادمة"
+            onClick={handleInstantRefresh}
+            disabled={isRefreshing}
+            className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white border border-emerald-500 rounded-xl text-[10px] sm:text-xs font-black transition flex items-center gap-1 cursor-pointer shrink-0 shadow-2xs whitespace-nowrap"
+            title="تحديث حالات السداد والمديونيات فورياً طبقاً لآخر التحصيلات المسجلة"
           >
-            <RefreshCw className="w-3 h-3 text-amber-300" />
-            <span>تثبيت التصدير</span>
+            <RefreshCw className={`w-3 h-3 text-white ${isRefreshing ? 'animate-spin' : ''}`} />
+            <span>{isRefreshing ? 'جاري التحديث...' : 'تحديث واحتساب فوري'}</span>
           </button>
-        )}
+
+          {role === 'ADMIN' && onSetAllResidents && (
+            <button
+              onClick={() => setShowExportModal(true)}
+              className="px-2.5 py-1.5 bg-white/15 hover:bg-white/25 active:scale-95 text-white border border-white/20 rounded-xl text-[10px] sm:text-xs font-black transition flex items-center gap-1 cursor-pointer shrink-0 shadow-2xs whitespace-nowrap"
+              title="تثبيت تصدير الأرصدة لسنة مالية قادمة"
+            >
+              <RefreshCw className="w-3 h-3 text-amber-300" />
+              <span>تثبيت التصدير</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Search, View Modes, Activity Dropdown & Year Filters Bar */}
@@ -802,8 +834,23 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
           </div>
         </div>
 
-        {/* Quick Actions - 3 Equal Width Buttons in 1 Row */}
-        <div className="grid grid-cols-3 gap-2 w-full pt-2 border-t border-slate-100">
+        {/* Quick Actions - 4 Equal Width Buttons in 1 Row */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 w-full pt-2 border-t border-slate-100">
+          {/* Instant Recalculate & Refresh */}
+          <button
+            onClick={handleInstantRefresh}
+            disabled={isRefreshing}
+            className={`w-full py-2 px-1 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs ${
+              isRefreshing 
+                ? 'bg-blue-100 text-blue-900 border border-blue-300' 
+                : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200'
+            }`}
+            title="تحديث كشف المديونيات وإعادة احتساب حالات السداد والمتأخرات فورياً"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 shrink-0 ${isRefreshing ? 'animate-spin text-blue-700' : 'text-emerald-600'}`} />
+            <span className="truncate">{isRefreshing ? 'جاري الاحتساب...' : 'تحديث واحتساب فوري'}</span>
+          </button>
+
           {/* WhatsApp Group Report */}
           <button
             onClick={handleCopyConsolidatedReport}
@@ -904,7 +951,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                   <th className="w-16 sm:w-20 px-1 py-1.5 text-center whitespace-nowrap text-[10px]">مبلغ متأخر</th>
 
                   {/* Total Paid */}
-                  <th className="w-16 sm:w-20 px-1 py-1.5 text-center whitespace-nowrap text-[10px]">المدفوع</th>
+                  <th className="w-16 sm:w-20 px-1 py-1.5 text-center whitespace-nowrap text-[10px]">المسدد</th>
 
                   {/* Net Debt (Sorted) */}
                   <th 
@@ -1319,7 +1366,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                           {/* Financial Breakdown Box */}
                           <div className="p-2.5 bg-slate-50/90 rounded-xl border border-slate-100 space-y-1.5 text-[11px]">
                             <div className="flex items-center justify-between">
-                              <span className="text-slate-500 font-bold">الاشتراك الشهري:</span>
+                              <span className="text-slate-500 font-bold">اشتراك شهري:</span>
                               <span className="font-black text-slate-800">{financials.monthlyFee} ج.م</span>
                             </div>
 
@@ -1348,7 +1395,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                             </div>
 
                             <div className="flex items-center justify-between">
-                              <span className="text-slate-500 font-bold">المبلغ المدفوع:</span>
+                              <span className="text-slate-500 font-bold">المبلغ المسدد:</span>
                               <span className="font-bold text-emerald-700" dir="ltr">
                                 {Math.round(financials.totalPaid).toLocaleString()} ج.م {financials.paidMonthsCount > 0 ? `(${financials.paidMonthsCount} شهر)` : ''}
                               </span>
@@ -1466,7 +1513,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
           </p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
             <div className="bg-white p-3 rounded-xl border border-blue-100 space-y-1">
-              <span className="text-blue-950 font-black block text-xs">١. الاشتراك الشهري (دوري مستمر):</span>
+              <span className="text-blue-950 font-black block text-xs">١. اشتراك شهري (دوري مستمر):</span>
               <p className="text-slate-600 leading-normal">
                 هو الاشتراك الذي يُسدد بصورة شهرية منتظمة؛ وبناءً عليه يتم احتساب <span className="text-blue-900 font-black">الشهور المتأخرة</span> و<span className="text-blue-900 font-black">المبلغ المتأخر</span> طبقاً للشهور المنقضية من تاريخ بدء المحاسبة ({accountingStartDate}).
               </p>
@@ -1474,7 +1521,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
             <div className="bg-white p-3 rounded-xl border border-amber-100 space-y-1">
               <span className="text-amber-950 font-black block text-xs">٢. تحصيلات أخرى (بنود مستقلة حسب الحاجة):</span>
               <p className="text-slate-600 leading-normal">
-                تشمل صيانة المصعد، طوارئ، تجديدات، إلخ؛ <span className="text-amber-900 font-black">تحسب كبند منفصل تماماً</span>، وإذا سُددت لا تخصم من قيمة تأخيرات الاشتراك الشهري، وإذا كانت غير مسددة تُحسب كمديونية تحصيلات أخرى مستقلة.
+                تشمل صيانة المصعد، طوارئ، تجديدات، إلخ؛ <span className="text-amber-900 font-black">تحسب كبند منفصل تماماً</span>، وإذا سُددت لا تخصم من قيمة تأخيرات اشتراك شهري، وإذا كانت غير مسددة تُحسب كمديونية تحصيلات أخرى مستقلة.
               </p>
             </div>
           </div>
@@ -1599,7 +1646,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
               <th className="border border-slate-400 p-2 text-center">رصيد سابق مرحل</th>
               <th className="border border-slate-400 p-2 text-center">الشهور المتأخرة</th>
               <th className="border border-slate-400 p-2 text-center">المبلغ المتأخر</th>
-              <th className="border border-slate-400 p-2 text-center">المبلغ المدفوع</th>
+              <th className="border border-slate-400 p-2 text-center">المبلغ المسدد</th>
               <th className="border border-slate-400 p-2 text-center bg-red-50 text-red-900 font-extrabold">صافي المديونية</th>
             </tr>
           </thead>

@@ -435,7 +435,7 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
                     {group.residents.map((res) => {
-                    const fin = calculateResidentFinancials(res, paymentIndex, config?.accountingStartDate, config?.defaultMonthlyFee, config?.activityDefaultFees);
+                    const fin = calculateResidentFinancials(res, paymentIndex, config?.accountingStartDate, config?.defaultMonthlyFee, config?.activityDefaultFees, new Date().getFullYear());
                     const isDebt = fin.netBalance < 0;
                     const isSurplus = fin.netBalance > 0;
 
@@ -727,7 +727,7 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                         </tr>
                       ) : (
                         group.residents.map((res) => {
-                        const fin = calculateResidentFinancials(res, paymentIndex, config?.accountingStartDate, config?.defaultMonthlyFee, config?.activityDefaultFees);
+                        const fin = calculateResidentFinancials(res, paymentIndex, config?.accountingStartDate, config?.defaultMonthlyFee, config?.activityDefaultFees, new Date().getFullYear());
                         const isDebt = fin.netBalance < 0;
                         const isSurplus = fin.netBalance > 0;
                         const displayNotes = (res.notes || '').includes('توليد تلقائي') ? '' : (res.notes || '');

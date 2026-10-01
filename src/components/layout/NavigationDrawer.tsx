@@ -127,7 +127,7 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
                       activeTab === 'summaries' ? 'bg-emerald-700 text-white font-black' : 'text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700'
                     }`}
                   >
-                    <span>كشف التحصيل الشهري والحساب الختامي</span>
+                    <span>كشف اشتراك شهري والحساب الختامي</span>
                     <span className="text-[10px] opacity-70">ملخصات</span>
                   </button>
                   <button

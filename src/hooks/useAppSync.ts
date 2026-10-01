@@ -18,6 +18,7 @@ import {
   UserRole 
 } from '../types';
 import { deduplicateResidents } from '../utils/buildingStructure';
+import { filterAndDeduplicatePayments } from '../utils/financialCalculations';
 
 interface UseAppSyncOptions {
   userEmail?: string | null;
@@ -135,9 +136,10 @@ export function useAppSync({
       if (!isMounted || !Array.isArray(items)) return;
       const validItems = items.filter(p => p && p.id);
       const hydrated = await restoreEntityImagesFromIndexedDB(validItems);
+      const cleanPayments = filterAndDeduplicatePayments(hydrated);
       if (!isMounted) return;
-      setPayments(hydrated);
-      offlineSync.saveCachedData('payments', hydrated);
+      setPayments(cleanPayments);
+      offlineSync.saveCachedData('payments', cleanPayments);
     });
 
     const unsubExpenses = firestoreService.subscribeToExpenses(async (items) => {

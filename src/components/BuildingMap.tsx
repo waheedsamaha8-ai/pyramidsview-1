@@ -663,7 +663,7 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
       remainingBalance: financials.oldDebtVal,
       claimBreakdown: financials.claimBreakdown,
       breakdown: [
-        { label: 'الاشتراك الشهري للوحدة', value: `${Math.round(financials.monthlyFee).toLocaleString()} ج.م` },
+        { label: 'اشتراك شهري للوحدة', value: `${Math.round(financials.monthlyFee).toLocaleString()} ج.م` },
         { label: `متأخرات ${payCategory}`, value: `تأخير ${financials.unpaidMonthsCount} شهور (${Math.round(financials.unpaidMonthsDues).toLocaleString()} ج.م)` },
         ...(financials.oldDebtVal > 0 ? [{
           label: 'مديونيات قديمة ومرحلة',
@@ -1099,7 +1099,7 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
                             </div>
                             <div className="text-[11px] text-amber-950 pr-5 space-y-0.5 font-bold">
                               {financials.unpaidMonthsCount > 0 && (
-                                <div>• متأخرات تحصيلات شهرية: تأخير {financials.unpaidMonthsCount} شهور ({Math.round(financials.unpaidMonthsDues).toLocaleString()} ج.م)</div>
+                                <div>• متأخرات اشتراكات شهرية: تأخير {financials.unpaidMonthsCount} شهور ({Math.round(financials.unpaidMonthsDues).toLocaleString()} ج.م)</div>
                               )}
                               {financials.oldDebtVal > 0 && (
                                 <div>• مديونيات قديمة مرحلة من فترات سابقة: <span className="underline font-black text-rose-700">{financials.oldDebtVal.toLocaleString()} ج.م</span></div>

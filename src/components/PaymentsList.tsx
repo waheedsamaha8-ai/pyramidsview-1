@@ -1075,6 +1075,11 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
           ? (notes.includes('سداد عن شهر') || notes.includes('سداد مجمع عن شهور') ? notes : `${notes} (${noteHeader})`)
           : noteHeader;
 
+        const totalCoveredCount = targetCoveredMonths.length;
+        const basePerMonth = Math.floor(numAmount / totalCoveredCount);
+        const remainder = numAmount - (basePerMonth * totalCoveredCount);
+        const masterAmountAllocated = basePerMonth + remainder;
+
         const masterPaymentData: Payment = {
           id: masterPaymentId,
           year: currentYear,
@@ -1083,7 +1088,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
           residentName: hist0.occupantName || resident.name,
           flatNumber: resident.flatNumber,
           paymentType,
-          amount: numAmount,
+          amount: masterAmountAllocated,
           receiptNumber: (receiptNumber || '').trim(),
           notes: cleanNotes,
           fileId: base64Image ? '' : (existingFileUrl ? (selectedPayment?.fileId || '') : ''),
@@ -1102,7 +1107,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
           const hist = getHistoricalOccupantForDate(resident, `${currentYear}-${m}`);
           const recNum = (receiptNumber || '').trim();
           const baseUserNotes = notes ? notes.replace(/\(سداد.*?\)/g, '').trim() : '';
-          const noteText = `تم السداد في شهر ${primaryMonthName} ${currentYear} بإيصال رقم ${recNum || '—'}${baseUserNotes ? ` (${baseUserNotes})` : ''}`;
+          const noteText = `تم السداد في شهر ${primaryMonthName} ${currentYear} بإيصال رقم ${recNum || '—'} (القيمة الموزعة للشهر: ${basePerMonth.toLocaleString()} ج.م)${baseUserNotes ? ` (${baseUserNotes})` : ''}`;
           return {
             id: otherIds[idx],
             year: currentYear,
@@ -1111,7 +1116,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
             residentName: hist.occupantName || resident.name,
             flatNumber: resident.flatNumber,
             paymentType,
-            amount: 0,
+            amount: basePerMonth,
             receiptNumber: recNum,
             notes: noteText,
             fileId: base64Image ? '' : (existingFileUrl ? (selectedPayment?.fileId || '') : ''),
@@ -1188,6 +1193,11 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
           ? (notes.includes('سداد عن شهر') || notes.includes('سداد مجمع عن شهور') ? notes : `${notes} (${noteHeader})`)
           : noteHeader;
 
+        const totalCoveredCount = targetCoveredMonths.length;
+        const basePerMonth = Math.floor(numAmount / totalCoveredCount);
+        const remainder = numAmount - (basePerMonth * totalCoveredCount);
+        const masterAmountAllocated = basePerMonth + remainder;
+
         const masterPayment: Payment = {
           id: masterId,
           year: currentYear,
@@ -1196,7 +1206,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
           residentName: histMaster.occupantName || resident.name,
           flatNumber: resident.flatNumber,
           paymentType,
-          amount: numAmount,
+          amount: masterAmountAllocated,
           receiptNumber: (receiptNumber || '').trim(),
           notes: cleanNotes,
           fileId: base64Image ? '' : (existingFileUrl ? (selectedPayment?.fileId || '') : ''),
@@ -1215,7 +1225,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
           const hist = getHistoricalOccupantForDate(resident, `${currentYear}-${m}`);
           const recNum = (receiptNumber || '').trim();
           const baseUserNotes = notes ? notes.replace(/\(سداد.*?\)/g, '').trim() : '';
-          const noteText = `تم السداد في شهر ${primaryMonthName} ${currentYear} بإيصال رقم ${recNum || '—'}${baseUserNotes ? ` (${baseUserNotes})` : ''}`;
+          const noteText = `تم السداد في شهر ${primaryMonthName} ${currentYear} بإيصال رقم ${recNum || '—'} (القيمة الموزعة للشهر: ${basePerMonth.toLocaleString()} ج.م)${baseUserNotes ? ` (${baseUserNotes})` : ''}`;
           return {
             id: otherIds[idx],
             year: currentYear,
@@ -1224,7 +1234,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
             residentName: hist.occupantName || resident.name,
             flatNumber: resident.flatNumber,
             paymentType,
-            amount: 0,
+            amount: basePerMonth,
             receiptNumber: recNum,
             notes: noteText,
             fileId: base64Image ? '' : (existingFileUrl ? (selectedPayment?.fileId || '') : ''),
@@ -2119,79 +2129,79 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
             <form onSubmit={handleSubmit} className="space-y-2.5 sm:space-y-3">
               <div className="space-y-1">
                 <label className="text-[11px] font-bold text-slate-500">الساكن / الوحدة <span className="text-red-500">*</span></label>
-                <select
-                  value={residentId}
-                  onChange={(e) => handleResidentSelect(e.target.value)}
-                  disabled={role === 'ASSISTANT' && !!selectedPayment}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 focus:bg-white rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-500/10 outline-none text-right font-bold transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
-                  required
-                >
-                  {residentFloorGroups.map((group, idx) => (
-                    <optgroup key={idx} label={`📍 ${group.floorLabel}`}>
-                      {group.residents.map((r) => (
-                        <option key={r.id} value={r.id}>
-                          {formatResidentOptionLabel(r, `${currentYear}-${month}`)}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ))}
-                </select>
+                <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 w-full">
+                  <select
+                    value={residentId}
+                    onChange={(e) => handleResidentSelect(e.target.value)}
+                    disabled={role === 'ASSISTANT' && !!selectedPayment}
+                    className="flex-1 min-w-0 px-2 sm:px-3 py-2 bg-slate-50 border border-slate-200 focus:bg-white rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-500/10 outline-none text-right font-bold transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed h-[38px] truncate"
+                    required
+                  >
+                    {residentFloorGroups.map((group, idx) => (
+                      <optgroup key={idx} label={`📍 ${group.floorLabel}`}>
+                        {group.residents.map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {formatResidentOptionLabel(r, `${currentYear}-${month}`)}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+
+                  <button
+                    type="button"
+                    disabled={role === 'ASSISTANT' && !!selectedPayment}
+                    onClick={() => {
+                      const nextState = !isAggregatedCollection;
+                      setIsAggregatedCollection(nextState);
+                      if (!nextState) {
+                        setCoveredMonths([month]);
+                        setShowMultiMonthPicker(false);
+                        const selectedRes = residents.find(r => r.id === residentId);
+                        if (selectedRes && (!paymentType || paymentType === 'اشتراك شهري' || paymentType.includes('اشتراك'))) {
+                          const fee = targetActivityType !== selectedRes.activityType
+                            ? getActivityDefaultFee(targetActivityType)
+                            : getResidentMonthlyFee(selectedRes, defaultMonthlyFee, activityDefaultFees);
+                          setAmount(fee);
+                        }
+                      } else {
+                        setShowMultiMonthPicker(true);
+                        if (coveredMonths.length === 0) {
+                          setCoveredMonths([month]);
+                        }
+                        const selectedRes = residents.find(r => r.id === residentId);
+                        if (selectedRes && (!paymentType || paymentType === 'اشتراك شهري' || paymentType.includes('اشتراك'))) {
+                          const fee = targetActivityType !== selectedRes.activityType
+                            ? getActivityDefaultFee(targetActivityType)
+                            : getResidentMonthlyFee(selectedRes, defaultMonthlyFee, activityDefaultFees);
+                          const totalMonthsCount = coveredMonths.length > 0 ? coveredMonths.length : 1;
+                          setAmount(fee * totalMonthsCount);
+                        }
+                      }
+                    }}
+                    className={`h-[38px] px-2.5 sm:px-3 text-xs font-black rounded-xl border transition flex items-center justify-center gap-1 shrink-0 cursor-pointer shadow-2xs active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap ${
+                      isAggregatedCollection
+                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 ring-2 ring-emerald-500/20 shadow-emerald-600/10'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                    }`}
+                    title={isAggregatedCollection ? 'سداد مجمع مفعل (انقر لإلغاء التفعيل أو تعديل الشهور)' : 'انقر لتفعيل سداد مجمع على عدة شهور'}
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full ${isAggregatedCollection ? 'bg-white animate-pulse' : 'bg-slate-400'}`}></span>
+                    <span>مجمع</span>
+                    {isAggregatedCollection && (
+                      <span className="text-[9px] bg-white/25 px-1 py-0.2 rounded font-black">
+                        {coveredMonths.length > 0 ? `(${coveredMonths.length})` : '✓'}
+                      </span>
+                    )}
+                  </button>
+                </div>
               </div>
 
               {/* Row 1: Target Month & Payment Type in EXACT SAME ROW */}
               <div className="grid grid-cols-2 gap-2 sm:gap-3 items-start">
-                {/* Target Month + Multi-Month / Aggregated toggle */}
+                {/* Target Month */}
                 <div className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <label className="text-[11px] font-bold text-slate-500">شهر التحصيل الفعلي</label>
-                    <button
-                      type="button"
-                      disabled={role === 'ASSISTANT' && !!selectedPayment}
-                      onClick={() => {
-                        const nextState = !isAggregatedCollection;
-                        setIsAggregatedCollection(nextState);
-                        if (!nextState) {
-                          setCoveredMonths([month]);
-                          setShowMultiMonthPicker(false);
-                          const selectedRes = residents.find(r => r.id === residentId);
-                          if (selectedRes && (!paymentType || paymentType === 'اشتراك شهري' || paymentType.includes('اشتراك'))) {
-                            const fee = targetActivityType !== selectedRes.activityType
-                              ? getActivityDefaultFee(targetActivityType)
-                              : getResidentMonthlyFee(selectedRes, defaultMonthlyFee, activityDefaultFees);
-                            setAmount(fee);
-                          }
-                        } else {
-                          setShowMultiMonthPicker(true);
-                          if (coveredMonths.length === 0) {
-                            setCoveredMonths([month]);
-                          }
-                          const selectedRes = residents.find(r => r.id === residentId);
-                          if (selectedRes && (!paymentType || paymentType === 'اشتراك شهري' || paymentType.includes('اشتراك'))) {
-                            const fee = targetActivityType !== selectedRes.activityType
-                              ? getActivityDefaultFee(targetActivityType)
-                              : getResidentMonthlyFee(selectedRes, defaultMonthlyFee, activityDefaultFees);
-                            const totalMonthsCount = coveredMonths.length > 0 ? coveredMonths.length : 1;
-                            setAmount(fee * totalMonthsCount);
-                          }
-                        }
-                      }}
-                      className={`text-[10px] sm:text-[10.5px] font-black flex items-center gap-1.5 px-2 py-0.5 rounded-md border transition cursor-pointer shadow-2xs active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed ${
-                        isAggregatedCollection
-                          ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 ring-2 ring-emerald-500/20 shadow-emerald-600/10'
-                          : 'bg-slate-100 hover:bg-slate-200 text-slate-600 border-slate-200'
-                      }`}
-                      title={isAggregatedCollection ? 'التوزيع / التحصيل المجمع مفعل (انقر لإلغاء التفعيل أو تعديل الشهور)' : 'انقر لتفعيل توزيع التحصيل على شهور محددة'}
-                    >
-                      <span className={`w-1.5 h-1.5 rounded-full ${isAggregatedCollection ? 'bg-white animate-pulse' : 'bg-slate-400'}`}></span>
-                      <span>توزيع / تحصيل مجمع</span>
-                      {isAggregatedCollection && (
-                        <span className="text-[8.5px] bg-white/25 px-1 py-0.2 rounded-xs font-black">
-                          {coveredMonths.length > 0 ? `(${coveredMonths.length} شهور)` : 'مفعل ✓'}
-                        </span>
-                      )}
-                    </button>
-                  </div>
-
+                  <label className="text-[11px] font-bold text-slate-500">شهر التحصيل الفعلي</label>
                   <select
                     value={month}
                     onChange={(e) => {
@@ -2235,37 +2245,60 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                   </select>
                 </div>
 
+                {/* Cancel Distribution & Restore Full Amount Button for Edit Mode */}
+                {selectedPayment && (isAggregatedCollection || coveredMonths.length > 1) && (
+                  <div className="col-span-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        let totalRestoredAmount = typeof amount === 'number' && amount > 0 ? amount : selectedPayment.amount;
+                        const cleanPaymentId = String(selectedPayment.id);
+                        const sourceId = selectedPayment.distributionSourceId ? String(selectedPayment.distributionSourceId) : null;
+                        const masterPayment = sourceId ? (payments.find(p => String(p.id) === sourceId) || selectedPayment) : selectedPayment;
+                        const targetMasterId = String(masterPayment.id);
+
+                        const linkedChildren = payments.filter(p => 
+                          String(p.id) !== targetMasterId && (
+                            String(p.distributionSourceId || '') === targetMasterId ||
+                            (Array.isArray(masterPayment.distributedPaymentIds) && masterPayment.distributedPaymentIds.map(String).includes(String(p.id)))
+                          )
+                        );
+
+                        if (masterPayment.originalAmountBeforeDistribution && masterPayment.originalAmountBeforeDistribution > 0) {
+                          totalRestoredAmount = masterPayment.originalAmountBeforeDistribution;
+                        } else {
+                          totalRestoredAmount = masterPayment.amount + linkedChildren.reduce((s, cp) => s + (Number(cp.amount) || 0), 0);
+                        }
+
+                        setIsAggregatedCollection(false);
+                        setCoveredMonths([month]);
+                        setShowMultiMonthPicker(false);
+                        setAmount(totalRestoredAmount);
+
+                        const cleanUserNotes = (notes || masterPayment.notes || '')
+                          .replace(/\(سداد مجمع عن شهور:.*?\)/g, '')
+                          .replace(/سداد مجمع عن شهور:.*$/g, '')
+                          .replace(/تم السداد في شهر.*?إيصال رقم [^\s)]*/g, '')
+                          .trim();
+                        setNotes(cleanUserNotes);
+                      }}
+                      className="w-full py-2 px-3 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-xl text-xs font-black transition flex items-center justify-center gap-2 cursor-pointer shadow-2xs active:scale-98"
+                      title="إلغاء توزيع الشهور واستعادة إجمالي المبلغ المجمع كاملاً في شهر التحصيل الفعلي"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                      <span>🔄 إلغاء التوزيع واستعادة المبلغ كاملاً ({typeof amount === 'number' ? amount.toLocaleString() : '—'} ج.م)</span>
+                    </button>
+                  </div>
+                )}
+
                 {/* Multi-Month Expandable Selector & Badges (Spans Full Width across 2 columns) */}
                 {isAggregatedCollection && showMultiMonthPicker && (
                   <div className="col-span-2 p-2.5 bg-blue-50/80 border border-blue-200 rounded-xl space-y-2 animate-scale-up">
                     <div className="flex items-center justify-between text-[10.5px] font-black text-blue-950">
                       <span className="flex items-center gap-1.5">
                         <span>📅 اختر الشهور المستحقة المسددة بهذه الدفعة:</span>
-                        {selectedPayment && (
-                          <span className="text-[9px] text-emerald-800 bg-emerald-100 px-1.5 py-0.2 rounded font-black border border-emerald-200">
-                            تعديل التوزيع
-                          </span>
-                        )}
                       </span>
                       <div className="flex items-center gap-2">
-                        {coveredMonths.length > 0 && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setCoveredMonths([]);
-                              const selectedRes = residents.find(r => r.id === residentId);
-                              if (selectedRes && (!paymentType || paymentType === 'اشتراك شهري' || paymentType.includes('اشتراك'))) {
-                                const fee = targetActivityType !== selectedRes.activityType
-                                  ? getActivityDefaultFee(targetActivityType)
-                                  : getResidentMonthlyFee(selectedRes, defaultMonthlyFee, activityDefaultFees);
-                                setAmount(fee);
-                              }
-                            }}
-                            className="text-[10px] text-red-600 hover:underline font-bold cursor-pointer"
-                          >
-                            إلغاء التحديد
-                          </button>
-                        )}
                         <button
                           type="button"
                           onClick={() => setShowMultiMonthPicker(false)}
@@ -2276,13 +2309,13 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                       </div>
                     </div>
 
-                    {/* Fast Presets for Quick Aggregated Months Selection */}
-                    <div className="flex items-center gap-1.5 flex-wrap pt-0.5 pb-1 border-b border-blue-200/60">
-                      <span className="text-[9.5px] font-black text-blue-900">اختيار سريع:</span>
+                    {/* Fast Presets for Quick Aggregated Months Selection (Single Horizontal Row) */}
+                    <div className="flex items-center gap-1 sm:gap-1.5 w-full flex-nowrap overflow-x-auto pt-0.5 pb-1 border-b border-blue-200/60 no-scrollbar">
+                      <span className="text-[9px] sm:text-[9.5px] font-black text-blue-900 shrink-0 whitespace-nowrap">اختيار سريع:</span>
                       <button
                         type="button"
                         onClick={handleSelectSameMonthOnly}
-                        className="px-2 py-0.5 bg-white hover:bg-blue-100 text-blue-900 border border-blue-200 rounded-md text-[9px] font-bold transition cursor-pointer shadow-3xs active:scale-95"
+                        className="px-1.5 sm:px-2 py-0.5 bg-white hover:bg-blue-100 text-blue-900 border border-blue-200 rounded-md text-[8.5px] sm:text-[9.5px] font-bold transition cursor-pointer shadow-3xs active:scale-95 shrink-0 whitespace-nowrap flex-1 text-center"
                         title="تحديد شهر التحصيل فقط"
                       >
                         ⚡ شهر التحصيل فقط
@@ -2290,7 +2323,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                       <button
                         type="button"
                         onClick={handleSelectQuarter}
-                        className="px-2 py-0.5 bg-white hover:bg-blue-100 text-blue-900 border border-blue-200 rounded-md text-[9px] font-bold transition cursor-pointer shadow-3xs active:scale-95"
+                        className="px-1.5 sm:px-2 py-0.5 bg-white hover:bg-blue-100 text-blue-900 border border-blue-200 rounded-md text-[8.5px] sm:text-[9.5px] font-bold transition cursor-pointer shadow-3xs active:scale-95 shrink-0 whitespace-nowrap flex-1 text-center"
                         title="تحديد 3 شهور متتالية من شهر التحصيل"
                       >
                         ⚡ 3 شهور
@@ -2298,7 +2331,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                       <button
                         type="button"
                         onClick={handleSelectHalfYear}
-                        className="px-2 py-0.5 bg-white hover:bg-blue-100 text-blue-900 border border-blue-200 rounded-md text-[9px] font-bold transition cursor-pointer shadow-3xs active:scale-95"
+                        className="px-1.5 sm:px-2 py-0.5 bg-white hover:bg-blue-100 text-blue-900 border border-blue-200 rounded-md text-[8.5px] sm:text-[9.5px] font-bold transition cursor-pointer shadow-3xs active:scale-95 shrink-0 whitespace-nowrap flex-1 text-center"
                         title="تحديد 6 شهور متتالية من شهر التحصيل"
                       >
                         ⚡ 6 شهور
@@ -2306,7 +2339,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                       <button
                         type="button"
                         onClick={handleSelectRestOfYear}
-                        className="px-2 py-0.5 bg-white hover:bg-blue-100 text-blue-900 border border-blue-200 rounded-md text-[9px] font-bold transition cursor-pointer shadow-3xs active:scale-95"
+                        className="px-1.5 sm:px-2 py-0.5 bg-white hover:bg-blue-100 text-blue-900 border border-blue-200 rounded-md text-[8.5px] sm:text-[9.5px] font-bold transition cursor-pointer shadow-3xs active:scale-95 shrink-0 whitespace-nowrap flex-1 text-center"
                         title="تحديد كافة الشهور المتبقية من السنة الحالية"
                       >
                         ⚡ باقي السنة
@@ -2314,7 +2347,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                       <button
                         type="button"
                         onClick={handleSelectAllYear}
-                        className="px-2 py-0.5 bg-white hover:bg-blue-100 text-blue-900 border border-blue-200 rounded-md text-[9px] font-bold transition cursor-pointer shadow-3xs active:scale-95"
+                        className="px-1.5 sm:px-2 py-0.5 bg-white hover:bg-blue-100 text-blue-900 border border-blue-200 rounded-md text-[8.5px] sm:text-[9.5px] font-bold transition cursor-pointer shadow-3xs active:scale-95 shrink-0 whitespace-nowrap flex-1 text-center"
                         title="تحديد كامل شهور السنة (12 شهر)"
                       >
                         ⚡ السنة كاملة (12 شهر)
@@ -2345,9 +2378,9 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                             title={isCollectionMonth ? `شهر التحصيل الفعلي: ${name}` : `سداد شهر ${name}`}
                           >
                             {name}
-                            {isCovered && isCollectionMonth && <span className="block text-[7.5px] opacity-90">✓ (التحصيل والسداد)</span>}
-                            {isCovered && !isCollectionMonth && <span className="block text-[7.5px] opacity-90">✓ (مسدد بدون قيمة)</span>}
-                            {!isCovered && isCollectionMonth && <span className="block text-[7.5px] opacity-80">(شهر التحصيل فقط)</span>}
+                            {isCovered && isCollectionMonth && <span className="block text-[7.5px] opacity-90">✓ (التحصيل الرئيسي)</span>}
+                            {isCovered && !isCollectionMonth && <span className="block text-[7.5px] opacity-90">✓ (قيمة موزعة)</span>}
+                            {!isCovered && isCollectionMonth && <span className="block text-[7.5px] opacity-80">(شهر التحصيل)</span>}
                           </button>
                         );
                       })}
@@ -2359,10 +2392,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                         <span>إجمالي الشهور المسددة: <strong className="text-emerald-700 font-black">{coveredMonths.length} شهور</strong> ({coveredMonths.map(x => monthNamesArabic[parseInt(x,10)-1]).join('، ')})</span>
                       </div>
                       <p className="text-slate-500 text-[9.5px] font-semibold">
-                        {coveredMonths.length === 1 && coveredMonths[0] !== String(parseInt(month, 10)).padStart(2, '0')
-                          ? `💡 يتم حفظ القيمة كاملة في شهر ${monthNamesArabic[parseInt(month, 10) - 1]}، وإنشاء دفعة مسددة بدون قيمة في شهر ${monthNamesArabic[parseInt(coveredMonths[0], 10) - 1]} مع كتابة «تم السداد في شهر ${monthNamesArabic[parseInt(month, 10) - 1]} بإيصال رقم ${receiptNumber || '—'}».`
-                          : `💡 يتم حفظ إجمالي المبلغ مجمعاً في شهر ${monthNamesArabic[parseInt(month, 10) - 1]} مع تسجيل باقي الشهور كدفعات مسددة بدون قيمة مع توثيق السداد في الملاحظات.`
-                        }
+                        💡 يتم تقسيم وتوزيع القيمة المسددة بالتساوي على الشهور المختارة ({coveredMonths.length} شهور) مع توثيق إيصال السداد لجميع الشهور.
                       </p>
                     </div>
                   </div>
@@ -2658,7 +2688,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
               {confirmData.type === 'delete' 
                 ? 'هل أنت متأكد من حذف هذه العملية؟ سيؤدي هذا إلى مسح سجل التحصيل المحدد بالكامل ولا يمكن التراجع عن هذا الإجراء.'
                 : confirmData.multiplePayments && confirmData.multiplePayments.length > 0
-                ? `أنت على وشك ${confirmData.type === 'edit' ? 'حفظ تعديل' : 'تسجيل'} سداد للوحدة ${confirmData.multiplePayments[0]?.flatNumber} بمبلغ ${confirmData.multiplePayments[0]?.amount} ج.م تم تحصيله في شهر ${monthNamesArabic[parseInt(confirmData.multiplePayments[0]?.month, 10) - 1]}${confirmData.multiplePayments.length === 2 && confirmData.multiplePayments[1]?.amount === 0 ? ` وتوزيعه لسداد شهر ${monthNamesArabic[parseInt(confirmData.multiplePayments[1]?.month, 10) - 1]} (دفعة مسددة بدون قيمة مع توثيق السداد في الملاحظات).` : ` وتوزيعه على ${confirmData.multiplePayments.length} شهور (${confirmData.multiplePayments.map(p => monthNamesArabic[parseInt(p.month, 10) - 1]).join('، ')}) كدفعات مسددة بدون قيمة مع توثيق السداد في الملاحظات.`}${confirmData.residentToUpdate ? ` (مع حفظ نشاط الوحدة الجديد: ${confirmData.residentToUpdate.activityType})` : ''} هل تود التأكيد؟`
+                ? `أنت على وشك ${confirmData.type === 'edit' ? 'حفظ تعديل' : 'تسجيل'} سداد مجمع للوحدة ${confirmData.multiplePayments[0]?.flatNumber} وتوزيع القيمة بالتساوي بقيمة (${confirmData.multiplePayments[0]?.amount} ج.م لكل شهر) على ${confirmData.multiplePayments.length} شهور (${confirmData.multiplePayments.map(p => monthNamesArabic[parseInt(p.month, 10) - 1]).join('، ')}).${confirmData.residentToUpdate ? ` (مع حفظ نشاط الوحدة الجديد: ${confirmData.residentToUpdate.activityType})` : ''} هل تود التأكيد؟`
                 : `أنت على وشك ${confirmData.type === 'edit' ? 'حفظ تعديل' : 'إضافة'} عملية تحصيل للوحدة ${confirmData.paymentData?.flatNumber} بمبلغ ${confirmData.paymentData?.amount} ج.م في شهر ${monthNamesArabic[parseInt(confirmData.paymentData?.month || '1', 10) - 1]}.${confirmData.residentToUpdate ? ` (مع حفظ نشاط الوحدة الجديد: ${confirmData.residentToUpdate.activityType})` : ''} هل تود التأكيد؟`}
             </p>
             <div className="flex items-center justify-center gap-2">
@@ -2831,7 +2861,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                 </div>
               </div>
               <div className="text-center space-y-1">
-                <span className="font-extrabold text-slate-500">متوسط التحصيل الشهري</span>
+                <span className="font-extrabold text-slate-500">متوسط اشتراك شهري</span>
                 <div className="text-base font-black text-blue-900">
                   {monthlyAverage.toLocaleString()} ج.م
                 </div>

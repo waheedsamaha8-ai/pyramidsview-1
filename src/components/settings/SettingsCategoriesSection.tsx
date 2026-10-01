@@ -395,7 +395,7 @@ export const SettingsCategoriesSection: React.FC<SettingsCategoriesSectionProps>
               {editingModal.key === 'activityTypes' && (
                 <div className="space-y-1.5">
                   <label className="block text-xs font-black text-slate-800">
-                    الاشتراك الشهري الافتراضي لهذا النشاط:
+                    اشتراك شهري افتراضي لهذا النشاط:
                   </label>
                   <div className="flex items-center gap-2">
                     <input

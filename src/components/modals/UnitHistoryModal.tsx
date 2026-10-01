@@ -1082,7 +1082,7 @@ export const UnitHistoryModal: React.FC<UnitHistoryModalProps> = ({
                       </div>
 
                       <div>
-                        <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 block mb-0.5">قيمة الاشتراك الشهري لهذه الفترة (ج.م):</span>
+                        <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 block mb-0.5">قيمة اشتراك شهري لهذه الفترة (ج.م):</span>
                         <input
                           type="number"
                           value={formActivityFee}
@@ -1094,7 +1094,7 @@ export const UnitHistoryModal: React.FC<UnitHistoryModalProps> = ({
                           required
                         />
                         <span className="text-[9px] text-slate-400 block mt-0.5">
-                          تُطبق هذه القيمة على التحصيلات الشهرية للوحدة طوال هذه الفترة المحددة.
+                          تُطبق هذه القيمة على الاشتراكات الشهرية للوحدة طوال هذه الفترة المحددة.
                         </span>
                       </div>
                     </div>
@@ -1181,7 +1181,7 @@ export const UnitHistoryModal: React.FC<UnitHistoryModalProps> = ({
                   <p className="text-[11px] text-slate-500 max-w-md mx-auto leading-relaxed">
                     تعمل الوحدة حالياً بالنشاط المسجل بالدليل (<strong>{resident.activityType || 'سكني'}</strong>) باشتراك شهري (<strong>{(resident.monthlyFee ?? getDefaultFeeForActivity(resident.activityType || 'سكني')).toLocaleString()} ج.م</strong>).
                     <br />
-                    يمكنك تسجيل التدرج الزمني لنشاط الوحدة (مثال: من بدون تشطيب إلى تحت التشطيب ثم إلى سكني أو إداري) مع تحديد الفترة الزمنية والاشتراك الشهري لكل مرحلة.
+                    يمكنك تسجيل التدرج الزمني لنشاط الوحدة (مثال: من بدون تشطيب إلى تحت التشطيب ثم إلى سكني أو إداري) مع تحديد الفترة الزمنية واشتراك شهري لكل مرحلة.
                   </p>
                   <div className="pt-2 flex items-center justify-center gap-2 flex-wrap">
                     <button
@@ -1274,7 +1274,7 @@ export const UnitHistoryModal: React.FC<UnitHistoryModalProps> = ({
                           {/* Fee and Date Details */}
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                             <div className="p-2 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-150 dark:border-slate-700/60 flex items-center justify-between">
-                              <span className="text-slate-500 dark:text-slate-400 font-bold text-[10.5px]">الاشتراك الشهري المعتمد:</span>
+                              <span className="text-slate-500 dark:text-slate-400 font-bold text-[10.5px]">اشتراك شهري معتمد:</span>
                               <span className="font-black text-xs text-slate-900 dark:text-white font-mono bg-white dark:bg-slate-900 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700">
                                 {fee > 0 ? `${fee.toLocaleString()} ج.م / شهر` : '0 ج.م (بدون تحصيل)'}
                               </span>

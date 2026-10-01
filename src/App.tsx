@@ -95,7 +95,7 @@ import { PwaInstallPrompt } from './components/pwa/PwaInstallPrompt';
 import { ImagePreviewModal } from './components/modals/ImagePreviewModal';
 import { BuildingRulesModal } from './components/modals/BuildingRulesModal';
 import { ActivityUnitsModal } from './components/modals/ActivityUnitsModal';
-import { calculateResidentFinancials } from './utils/financialCalculations';
+import { calculateResidentFinancials, filterAndDeduplicatePayments, registerDeletedPaymentIds, unregisterDeletedPaymentIds } from './utils/financialCalculations';
 import { removeUnitFromBuildingLayout, addUnitToBuildingLayout, compareFlatNumbers, isSameFlatNumber, parseFlatNumber, getUnitNumbersForFloor, deriveFloorConfigsFromResidents, deduplicateResidents, syncResidentCurrentOccupant, syncResidentCurrentActivity } from './utils/buildingStructure';
 import { formatMobileNumber, formatPhoneForDisplay } from './utils/phoneUtils';
 import { 
@@ -1082,8 +1082,9 @@ export default function App() {
       }
 
       if (loadedPayments) {
-        setPayments(loadedPayments);
-        offlineSync.saveCachedData('payments', loadedPayments);
+        const cleanPayments = filterAndDeduplicatePayments(loadedPayments);
+        setPayments(cleanPayments);
+        offlineSync.saveCachedData('payments', cleanPayments);
       }
 
       if (loadedExpenses) {
@@ -1381,7 +1382,8 @@ export default function App() {
     }
     
     // Immediately persist in local state and offline cache
-    const updatedPayments = [...payments.filter(p => p.id !== cleanPayment.id), localPayment];
+    unregisterDeletedPaymentIds(cleanPayment.id);
+    const updatedPayments = filterAndDeduplicatePayments([...payments.filter(p => p.id !== cleanPayment.id), localPayment]);
     setPayments(updatedPayments);
     offlineSync.saveCachedData('payments', updatedPayments);
 
@@ -1413,7 +1415,8 @@ export default function App() {
       saveImageToIndexedDB(String(cleanPayment.id), localPayment.fileUrl).catch(() => {});
     }
 
-    const updatedPayments = payments.map((p) => p.id === cleanPayment.id ? localPayment : p);
+    unregisterDeletedPaymentIds(cleanPayment.id);
+    const updatedPayments = filterAndDeduplicatePayments(payments.map((p) => p.id === cleanPayment.id ? localPayment : p));
     setPayments(updatedPayments);
     offlineSync.saveCachedData('payments', updatedPayments);
 
@@ -1430,6 +1433,10 @@ export default function App() {
 
   const distributePayment = (originalPaymentId: string, distributedPayments: Payment[], deletedPaymentIds?: string[]) => {
     const cleanOrigId = String(originalPaymentId);
+    
+    // Ensure all incoming distributed payments are unregistered from deleted set so they are never hidden
+    unregisterDeletedPaymentIds(distributedPayments.map(p => String(p.id)));
+
     offlineSync.purgeEntityFromQueue(cleanOrigId);
 
     // Find original payment object to check its stored distributedPaymentIds
@@ -1446,7 +1453,7 @@ export default function App() {
       .map(p => String(p.id));
 
     const allIdsToRemove = new Set<string>([
-      cleanOrigId,
+      ...(origPayment ? [cleanOrigId] : []),
       ...linkedChildIds,
       ...(deletedPaymentIds ? deletedPaymentIds.map(String) : [])
     ]);
@@ -1454,6 +1461,8 @@ export default function App() {
     const idsToDelete = Array.from(allIdsToRemove).filter(id => !distributedPayments.some(dp => String(dp.id) === id));
 
     if (idsToDelete.length > 0) {
+      registerDeletedPaymentIds(idsToDelete);
+      idsToDelete.forEach(id => offlineSync.purgeEntityFromQueue(id));
       firestoreService.deleteBatchPaymentsFromFirestore(idsToDelete).catch(err => {
         logError(err, 'distributePayment:deleteBatch');
         idsToDelete.forEach(id => offlineSync.enqueueAction('DELETE_PAYMENT', { id }));
@@ -1468,7 +1477,7 @@ export default function App() {
 
     // 1. Remove original payment and any removed child payments, then insert new distributed payments in a single atomic update
     const filteredPayments = payments.filter((p) => !allIdsToRemove.has(String(p.id)));
-    const updatedPayments = [...filteredPayments, ...distributedPayments];
+    const updatedPayments = filterAndDeduplicatePayments([...filteredPayments, ...distributedPayments]);
     setPayments(updatedPayments);
     offlineSync.saveCachedData('payments', updatedPayments);
 
@@ -1490,9 +1499,10 @@ export default function App() {
     const cleanId = String(id);
     const target = payments.find(p => String(p.id) === cleanId);
     
+    registerDeletedPaymentIds(cleanId);
     offlineSync.purgeEntityFromQueue(cleanId);
 
-    const updatedPayments = payments.filter((p) => String(p.id) !== cleanId);
+    const updatedPayments = filterAndDeduplicatePayments(payments.filter((p) => String(p.id) !== cleanId));
     setPayments(updatedPayments);
     offlineSync.saveCachedData('payments', updatedPayments);
 
@@ -2964,6 +2974,7 @@ export default function App() {
             floorConfigs={buildingLayout}
             currentYear={currentYear}
             onSetAllResidents={setAllResidents}
+            onRefreshAllData={refreshAllData}
           />
         )}
 

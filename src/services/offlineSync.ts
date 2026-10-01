@@ -54,15 +54,19 @@ export function saveOfflineQueue(queue: OfflineAction[]) {
 // Proactively purge any queued actions for a specific entity ID so it never resurrects
 export function purgeEntityFromQueue(entityId: string) {
   if (!entityId) return;
-  const cleanId = String(entityId);
+  const cleanId = String(entityId).trim();
+  if (!cleanId) return;
   const queue = getOfflineQueue();
   const filtered = queue.filter(action => {
     if (!action || !action.payload) return true;
     const p = action.payload;
-    if (typeof p === 'string' && String(p) === cleanId) return false;
-    if (p.id && String(p.id) === cleanId) return false;
-    if (p.residentId && String(p.residentId) === cleanId) return false;
-    if (p.messageId && String(p.messageId) === cleanId) return false;
+    if (typeof p === 'string' && String(p).trim() === cleanId) return false;
+    if (p && typeof p === 'object') {
+      if (p.id && String(p.id).trim() === cleanId) return false;
+      if (p.distributionSourceId && String(p.distributionSourceId).trim() === cleanId) return false;
+      if (Array.isArray(p.distributedPaymentIds) && p.distributedPaymentIds.map(String).includes(cleanId)) return false;
+      if (p.messageId && String(p.messageId).trim() === cleanId) return false;
+    }
     return true;
   });
   if (filtered.length !== queue.length) {
@@ -439,7 +443,7 @@ export function clearResidentActionsFromQueue() {
   }
 }
 
-// Synchronize all queued actions to Firebase Firestore sequentially
+// Synchronize all queued actions to Firebase Firestore in optimized batches
 export async function syncOfflineQueue(onProgress?: (msg: string) => void): Promise<number> {
   const queue = getOfflineQueue();
   if (queue.length === 0) return 0;
@@ -449,8 +453,62 @@ export async function syncOfflineQueue(onProgress?: (msg: string) => void): Prom
   let successCount = 0;
   const remainingActions: OfflineAction[] = [];
 
-  for (let i = 0; i < queue.length; i++) {
-    const action = queue[i];
+  // 1. Group payment additions/edits and deletes for high-speed batch operations
+  const paymentSaves: { action: OfflineAction; payment: Payment }[] = [];
+  const paymentDeletes: { action: OfflineAction; id: string }[] = [];
+  const otherActions: OfflineAction[] = [];
+
+  for (const action of queue) {
+    if (action.type === 'ADD_PAYMENT' || action.type === 'EDIT_PAYMENT') {
+      paymentSaves.push({ action, payment: action.payload });
+    } else if (action.type === 'DELETE_PAYMENT') {
+      paymentDeletes.push({ action, id: action.payload.id || action.payload });
+    } else {
+      otherActions.push(action);
+    }
+  }
+
+  // Execute Batch Payment Deletes
+  if (paymentDeletes.length > 0) {
+    onProgress?.(`مزامنة دفعة حذف ${paymentDeletes.length} تحصيلات...`);
+    try {
+      await firestoreService.deleteBatchPaymentsFromFirestore(paymentDeletes.map(p => p.id));
+      successCount += paymentDeletes.length;
+    } catch (err) {
+      console.warn('[Offline Sync] Batch payment deletes failed, falling back to sequential:', err);
+      for (const item of paymentDeletes) {
+        try {
+          await firestoreService.deletePaymentFromFirestore(item.id);
+          successCount++;
+        } catch {
+          remainingActions.push(item.action);
+        }
+      }
+    }
+  }
+
+  // Execute Batch Payment Saves
+  if (paymentSaves.length > 0) {
+    onProgress?.(`مزامنة دفعة حفظ ${paymentSaves.length} تحصيلات...`);
+    try {
+      await firestoreService.saveBatchPaymentsToFirestore(paymentSaves.map(p => p.payment));
+      successCount += paymentSaves.length;
+    } catch (err) {
+      console.warn('[Offline Sync] Batch payment saves failed, falling back to sequential:', err);
+      for (const item of paymentSaves) {
+        try {
+          await firestoreService.savePaymentToFirestore(item.payment);
+          successCount++;
+        } catch {
+          remainingActions.push(item.action);
+        }
+      }
+    }
+  }
+
+  // Execute remaining non-payment actions
+  for (let i = 0; i < otherActions.length; i++) {
+    const action = otherActions[i];
     try {
       onProgress?.(`مزامنة: ${translateActionType(action.type)}...`);
       
@@ -461,13 +519,6 @@ export async function syncOfflineQueue(onProgress?: (msg: string) => void): Prom
           break;
         case 'DELETE_RESIDENT':
           await firestoreService.deleteResidentFromFirestore(action.payload.id || action.payload);
-          break;
-        case 'ADD_PAYMENT':
-        case 'EDIT_PAYMENT':
-          await firestoreService.savePaymentToFirestore(action.payload);
-          break;
-        case 'DELETE_PAYMENT':
-          await firestoreService.deletePaymentFromFirestore(action.payload.id || action.payload);
           break;
         case 'ADD_EXPENSE':
         case 'EDIT_EXPENSE':

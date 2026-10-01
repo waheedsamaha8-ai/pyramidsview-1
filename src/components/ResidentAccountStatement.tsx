@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { generateElementImage, generateElementImageBlob, GeneratedImageResult } from '../utils/imageExport';
 import { Resident, Payment, AppConfig, FloorConfig } from '../types';
-import { calculateResidentFinancials, getCarriedPreviousBalance } from '../utils/financialCalculations';
+import { calculateResidentFinancials, getCarriedPreviousBalance, isMonthlySubscriptionType, getPrescribedFeeForMonth, isValidPaidPayment, isPendingUnpaidPayment, isPaymentForYearAndMonth } from '../utils/financialCalculations';
 import { compareFlatNumbers, isSameFlatNumber, deriveFloorConfigsFromResidents, getUnitNumbersForFloor, getLatestOccupantFromHistory, getHistoricalActivityForDate, formatResidentOptionLabel } from '../utils/buildingStructure';
 import { formatMobileNumber, formatPhoneForDisplay, toWhatsAppNumber } from '../utils/phoneUtils';
 import { 
@@ -46,10 +46,10 @@ export const getPaymentStatusDisplay = (status?: string) => {
       icon: X,
     };
   }
-  if (s === 'pending' || s === 'لم يتم التحصيل' || s === 'uncollected' || s === 'معلق' || s === 'غير محصل') {
+  if (s === 'pending' || s === 'لم يتم التحصيل' || s === 'uncollected' || s === 'معلق' || s === 'غير محصل' || s === 'غير مسدد') {
     return {
       type: 'pending' as const,
-      label: 'غير محصل',
+      label: 'غير مسدد',
       badgeClass: 'bg-amber-50 text-amber-700 border-amber-200/80',
       textClass: 'text-amber-700',
       amountClass: 'text-amber-600 font-bold',
@@ -58,7 +58,7 @@ export const getPaymentStatusDisplay = (status?: string) => {
   }
   return {
     type: 'collected' as const,
-    label: 'مدفوع',
+    label: 'مسدد',
     badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200/80',
     textClass: 'text-emerald-700',
     amountClass: 'text-emerald-700 font-black',
@@ -236,15 +236,27 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
     );
   }, [activeResident, currentYear, payments, accountingStartDate, defaultMonthlyFee, activityDefaultFees]);
 
-  // Calculate high-level financials
-  const financials = useMemo(() => {
+  // Calculate high-level financials matching Debts page logic & synchronized with monthsTimeline
+  const rawFinancials = useMemo(() => {
     if (!activeResident) {
       return {
         monthlyFee: defaultMonthlyFee,
         monthsElapsed: 1,
+        billableMonthsCount: 1,
+        paidMonthsCount: 0,
+        unpaidMonthsCount: 1,
+        unpaidMonthsDues: defaultMonthlyFee,
+        periodExpectedDues: defaultMonthlyFee,
+        oldDebtAmount: 0,
         expectedDues: defaultMonthlyFee,
         totalPaid: 0,
+        monthlyPaid: 0,
+        otherCollectionsPaid: 0,
+        otherCollectionsDebt: 0,
         netBalance: -defaultMonthlyFee,
+        carriedPreviousBalance: 0,
+        isDebt: true,
+        isSurplus: false,
       };
     }
     return calculateResidentFinancials(
@@ -252,16 +264,42 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
       payments,
       accountingStartDate,
       defaultMonthlyFee,
-      activityDefaultFees
+      activityDefaultFees,
+      currentYear
     );
-  }, [activeResident, payments, accountingStartDate, defaultMonthlyFee, activityDefaultFees]);
+  }, [activeResident, payments, accountingStartDate, defaultMonthlyFee, activityDefaultFees, currentYear]);
 
-  // All payments belonging to this unit
+  // All payments belonging to this unit (excluding zero-value distribution payments, ordered Jan to Dec)
   const unitPayments = useMemo(() => {
     if (!activeResident) return [];
     return payments
-      .filter(p => isSameFlatNumber(p.flatNumber, activeResident.flatNumber) || (p.residentId && p.residentId === activeResident.id))
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      .filter(p => {
+        const matchesUnit = isSameFlatNumber(p.flatNumber, activeResident.flatNumber) || (p.residentId && p.residentId === activeResident.id);
+        if (!matchesUnit) return false;
+        
+        // Exclude zero-value distribution payments or zero amount records
+        if (p.amount === 0 || !p.amount) {
+          return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        const yearA = Number(a.year) || 2026;
+        const yearB = Number(b.year) || 2026;
+        if (yearA !== yearB) return yearA - yearB;
+
+        const monthA = parseInt(String(a.month), 10) || 1;
+        const monthB = parseInt(String(b.month), 10) || 1;
+        if (monthA !== monthB) return monthA - monthB; // Jan (1) to Dec (12)
+
+        // Monthly Subscription first, Other Collections second
+        const isSubA = isMonthlySubscriptionType(a.paymentType) || !a.paymentType || a.paymentType === 'اشتراك شهري';
+        const isSubB = isMonthlySubscriptionType(b.paymentType) || !b.paymentType || b.paymentType === 'اشتراك شهري';
+        if (isSubA && !isSubB) return -1;
+        if (!isSubA && isSubB) return 1;
+
+        return new Date(a.date).getTime() - new Date(b.date).getTime();
+      });
   }, [activeResident, payments]);
 
   // Generate detailed breakdown of all months from accounting start date up to current date
@@ -302,20 +340,22 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
       const monthLabel = `${monthNamesArabic[m]} ${y}`;
 
       // Find matching payments for this exact month and year
-      const matching = unitPayments.filter(p => {
-        const pMonth = parseInt(p.month, 10);
-        const pYear = Number(p.year);
-        return pMonth === monthNum && pYear === y;
-      });
+      const matching = unitPayments.filter(p => isPaymentForYearAndMonth(p, y, monthNum));
 
-      const validPaidMatching = matching.filter(
-        p => p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل'
+      // Subscription payments only for evaluating monthly subscription status and subscription paid amount
+      const matchingSubPayments = matching.filter(
+        p => isMonthlySubscriptionType(p.paymentType) || !p.paymentType || p.paymentType === 'اشتراك شهري'
       );
 
-      const paidAmount = validPaidMatching.reduce((sum, p) => sum + (p.amount || 0), 0);
-      const monthActivity = getHistoricalActivityForDate(activeResident, `${y}-${monthStr}`, defaultMonthlyFee, activityDefaultFees);
-      const effectiveFee = monthActivity.monthlyFee;
-      const isPaid = paidAmount >= effectiveFee;
+      const validPaidSubsMatching = matchingSubPayments.filter(isValidPaidPayment);
+      const pendingSubsMatching = matchingSubPayments.filter(isPendingUnpaidPayment);
+
+      const paidSubAmount = validPaidSubsMatching.reduce((sum, p) => sum + (p.amount || 0), 0);
+      const prescribed = getPrescribedFeeForMonth(activeResident, y, monthNum, unitPayments, defaultMonthlyFee, activityDefaultFees);
+      const effectiveFee = prescribed.monthlyFee;
+      const effectiveActivityType = prescribed.activityType;
+      const hasValidPaidPayment = validPaidSubsMatching.some(p => ((p.amount || 0) > 0 || p.isManuallyPaid));
+      const isPaid = pendingSubsMatching.length === 0 && hasValidPaidPayment;
 
       timeline.push({
         monthNum,
@@ -323,9 +363,9 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
         year: y,
         monthLabel,
         fee: effectiveFee,
-        activityType: monthActivity.activityType,
+        activityType: effectiveActivityType,
         isPaid,
-        paidAmount,
+        paidAmount: paidSubAmount,
         matchingPayments: matching,
         isFuture: false,
       });
@@ -342,7 +382,32 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
   }, [activeResident, accountingStartDate, currentYear, unitPayments, defaultMonthlyFee, activityDefaultFees]);
 
   const paidMonthsList = useMemo(() => monthsTimeline.filter(m => m.isPaid), [monthsTimeline]);
-  const unpaidMonthsList = useMemo(() => monthsTimeline.filter(m => !m.isPaid), [monthsTimeline]);
+  const unpaidMonthsList = useMemo(() => monthsTimeline.filter(m => !m.isPaid && !m.isFuture), [monthsTimeline]);
+
+  // Synchronize top-level summary financials with monthsTimeline
+  const financials = useMemo(() => {
+    if (monthsTimeline.length === 0) return rawFinancials;
+
+    const timelineUnpaidCount = unpaidMonthsList.length;
+    const timelineUnpaidDues = unpaidMonthsList.reduce((sum, m) => sum + m.fee, 0);
+
+    const prevDebt = rawFinancials.carriedPreviousBalance < 0 ? Math.abs(rawFinancials.carriedPreviousBalance) : 0;
+    const prevSurplus = rawFinancials.carriedPreviousBalance > 0 ? rawFinancials.carriedPreviousBalance : 0;
+    const totalArrears = timelineUnpaidDues + rawFinancials.otherCollectionsDebt;
+    const totalDueForPayment = Math.max(0, totalArrears + prevDebt - prevSurplus);
+    const netBal = (prevSurplus > totalArrears) ? (prevSurplus - totalArrears) : -totalDueForPayment;
+
+    return {
+      ...rawFinancials,
+      unpaidMonthsCount: timelineUnpaidCount,
+      unpaidMonthsDues: timelineUnpaidDues,
+      totalArrears,
+      totalDueForPayment,
+      netBalance: netBal,
+      isDebt: netBal < 0,
+      isSurplus: netBal > 0,
+    };
+  }, [rawFinancials, monthsTimeline, unpaidMonthsList]);
 
   const displayedMonths = useMemo(() => {
     if (monthFilter === 'paid') return paidMonthsList;
@@ -396,7 +461,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
     if (target === 'owner' && activeTenantName) {
       text += `🏠 *المستأجر:* ${activeTenantName}\n`;
     }
-    text += `💵 *قيمة الاشتراك الشهري:* ${financials.monthlyFee.toLocaleString()} ج.م\n`;
+    text += `💵 *قيمة اشتراك شهري:* ${financials.monthlyFee.toLocaleString()} ج.م\n`;
     text += `📅 *تاريخ بدء المحاسبة:* ${accountingStartDate}\n`;
     text += `🗓 *تاريخ التقرير:* ${todayStr}\n`;
     text += `------------------------------------\n`;
@@ -421,13 +486,19 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
       ? `🟢 *رصيد دائن فائض لصالحكم:* (+${Math.round(financials.netBalance).toLocaleString()} ج.م)\n` 
       : `✨ *الحساب مسدد بالكامل (0 ج.م)*\n`;
 
-    if (unpaidMonthsList.length > 0) {
-      text += `\n⚠️ *الشهور غير المسددة بالتفصيل (${unpaidMonthsList.length} شهر):*\n`;
-      unpaidMonthsList.forEach(m => {
-        text += `• ${m.monthLabel}: ${m.paidAmount > 0 ? `سداد جزئي (${m.paidAmount.toLocaleString()} من ${m.fee.toLocaleString()} ج.م)` : `مستحق ${m.fee.toLocaleString()} ج.م`}\n`;
-      });
+    if (unpaidMonthsList.length > 0 || financials.otherCollectionsDebt > 0) {
+      text += `\n⚠️ *تفاصيل المتأخرات والشهور غير المسددة:*\n`;
+      if (financials.unpaidMonthsCount > 0) {
+        text += `• *شهور اشتراك شهري غير المسددة (${financials.unpaidMonthsCount} شهر):* ${financials.unpaidMonthsDues.toLocaleString()} ج.م\n`;
+        unpaidMonthsList.forEach(m => {
+          text += `  - ${m.monthLabel}: ${m.paidAmount > 0 ? `سداد جزئي (${m.paidAmount.toLocaleString()} من ${m.fee.toLocaleString()} ج.م)` : `مستحق ${m.fee.toLocaleString()} ج.م`}\n`;
+        });
+      }
+      if (financials.otherCollectionsDebt > 0) {
+        text += `• *التحصيلات الأخرى غير المسددة:* ${financials.otherCollectionsDebt.toLocaleString()} ج.م\n`;
+      }
     } else {
-      text += `\n🎉 *جميع الشهور مسددة بالكامل حتى تاريخه.*\n`;
+      text += `\n🎉 *جميع الشهور والاشتراكات مسددة بالكامل حتى تاريخه.*\n`;
     }
 
     text += `\nشاكرين لكم حسن تعاونكم وحرصكم الدائم.\n`;
@@ -943,7 +1014,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
           
           {/* 1. Monthly Fee */}
           <div className="bg-slate-50/90 border border-slate-200/80 rounded-2xl p-3 sm:p-4 text-center flex flex-col items-center justify-center space-y-1 shadow-2xs">
-            <span className="text-[11px] font-bold text-slate-500 block">الاشتراك الشهري</span>
+            <span className="text-[11px] font-bold text-slate-500 block">اشتراك شهري</span>
             <div className="flex items-baseline justify-center gap-1 font-black text-slate-800" dir="ltr">
               <span className="text-base sm:text-xl font-black">{financials.monthlyFee.toLocaleString()}</span>
               <span className="text-[10px] sm:text-[11px] font-bold text-slate-400">ج.م</span>
@@ -1016,13 +1087,14 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
               <AlertTriangle className="w-4 h-4" />
             </div>
             <div className="flex-1 text-xs">
-              <span className="font-extrabold text-rose-950 block">يوجد متبقي مديونية على الوحدة بقيمة {Math.abs(financials.netBalance).toLocaleString()} ج.م</span>
+              <span className="font-extrabold text-rose-950 block">يوجد متأخرات على الوحدة بقيمة {Math.abs(Math.round(financials.netBalance)).toLocaleString()} ج.م</span>
               <span className="text-rose-700 text-[11px] font-semibold leading-relaxed">
-                تفصيل المديونية الحالية: شهور غير مسددة ({unpaidMonthsList.length} شهر = {(unpaidMonthsList.length * financials.monthlyFee).toLocaleString()} ج.م)
-                {(activeResident.initialBalance || 0) < 0 
-                  ? ` بالإضافة إلى مديونية قديمة سابقة (${Math.abs(activeResident.initialBalance || 0).toLocaleString()} ج.م) تم جمعها على الحساب.`
-                  : (activeResident.initialBalance || 0) > 0 
-                  ? ` بعد خصم رصيد دائن سابق بقيمة (${(activeResident.initialBalance || 0).toLocaleString()} ج.م).`
+                تفاصيل المتأخرات: شهور اشتراك شهري غير المسددة ({financials.unpaidMonthsCount} شهر = {financials.unpaidMonthsDues.toLocaleString()} ج.م)
+                {financials.otherCollectionsDebt > 0 ? ` + تحصيلات أخرى غير مسددة (${financials.otherCollectionsDebt.toLocaleString()} ج.م)` : ''}
+                {effectiveCarriedBalance < 0 
+                  ? ` بالإضافة إلى مديونية سابقة مرحلة (${Math.abs(effectiveCarriedBalance).toLocaleString()} ج.م).`
+                  : effectiveCarriedBalance > 0 
+                  ? ` بعد خصم رصيد دائن سابق مرحل (${effectiveCarriedBalance.toLocaleString()} ج.م).`
                   : ' (لا يوجد رصيد سابق مرحل).'}
                 {' '}يرجى التكرم بسرعة السداد لضمان استمرار أعمال الصيانة والخدمات بالعمارة.
               </span>
@@ -1054,12 +1126,12 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
           </div>
         )}
 
-        {/* Section: Months Breakdown (الشهور المدفوعة وغير المدفوعة) */}
+        {/* Section: Months Breakdown (الشهور المسددة وغير المسددة) */}
         <div className="space-y-3 pt-2 w-full">
           <div>
             <h3 className="text-sm sm:text-base font-black text-slate-950 flex items-center gap-2">
               <Calendar className="w-4 h-4 text-blue-900" />
-              <span>كشف الشهور تفصيلياً (المدفوعة وغير المدفوعة)</span>
+              <span>كشف الشهور تفصيلياً (الشهور المسددة وغير المسددة)</span>
             </h3>
             <p className="text-[11px] text-slate-400 font-semibold mt-0.5">
               متابعة حالة كل شهر من تاريخ بدء المحاسبة حتى الشهر الحالي
@@ -1095,7 +1167,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                     : 'text-emerald-800 hover:text-emerald-900 bg-emerald-50/70 font-bold border border-emerald-100/80'
                 }`}
               >
-                <span>المدفوعة</span>
+                <span>المسددة</span>
                 <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-extrabold ${
                   monthFilter === 'paid' ? 'bg-emerald-700/60 text-white' : 'bg-emerald-200/80 text-emerald-900'
                 }`}>
@@ -1112,7 +1184,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                     : 'text-rose-800 hover:text-rose-900 bg-rose-50/70 font-bold border border-rose-100/80'
                 }`}
               >
-                <span>غير المدفوعة</span>
+                <span>غير المسددة</span>
                 <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-extrabold ${
                   monthFilter === 'unpaid' ? 'bg-rose-700/60 text-white' : 'bg-rose-200/80 text-rose-900'
                 }`}>
@@ -1219,140 +1291,106 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                     </tr>
                   ) : (
                     displayedMonths.map((m, idx) => {
-                      const count = m.matchingPayments.length;
+                      const monthlySubPayments = m.matchingPayments.filter(p =>
+                        isMonthlySubscriptionType(p.paymentType) || !p.paymentType || p.paymentType === 'اشتراك شهري'
+                      );
+                      const otherCollectionPayments = m.matchingPayments.filter(p =>
+                        !isMonthlySubscriptionType(p.paymentType) && p.paymentType && p.paymentType !== 'اشتراك شهري'
+                      );
+
+                      const totalSubRows = 1 + otherCollectionPayments.length;
+
+                      const validMonthlySubPayments = monthlySubPayments.filter(
+                        p => p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل'
+                      );
+                      const monthlySubPaidAmount = validMonthlySubPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
+                      const isMonthlySubPaid = validMonthlySubPayments.length > 0 && (monthlySubPaidAmount >= m.fee || validMonthlySubPayments.some(p => p.isManuallyPaid));
+                      const isMonthlySubPartial = monthlySubPaidAmount > 0 && monthlySubPaidAmount < m.fee && !validMonthlySubPayments.some(p => p.isManuallyPaid);
+
+                      let subStatusInfo;
+                      if (isMonthlySubPaid) {
+                        subStatusInfo = getPaymentStatusDisplay('collected');
+                      } else if (isMonthlySubPartial) {
+                        subStatusInfo = {
+                          type: 'pending' as const,
+                          label: 'سداد جزئي',
+                          badgeClass: 'bg-amber-50 text-amber-800 border-amber-200/80',
+                          textClass: 'text-amber-800',
+                          amountClass: 'text-amber-700 font-bold',
+                          icon: Clock,
+                        };
+                      } else if (validMonthlySubPayments.length > 0) {
+                        subStatusInfo = getPaymentStatusDisplay(validMonthlySubPayments[0].status);
+                      } else {
+                        subStatusInfo = {
+                          type: 'pending' as const,
+                          label: 'غير مسدد',
+                          badgeClass: 'bg-rose-50 text-rose-700 border-rose-200/80',
+                          textClass: 'text-rose-700',
+                          amountClass: 'text-rose-600 font-bold',
+                          icon: AlertTriangle,
+                        };
+                      }
+
+                      const firstMonthlySubPay = monthlySubPayments[0];
+
                       return (
-                        <tr key={idx} className={`group hover:bg-slate-50/70 transition ${!m.isPaid ? 'bg-rose-50/20' : ''}`}>
-                          <td className={`sticky right-0 z-10 ${!m.isPaid ? 'bg-[#fef8f8] group-hover:bg-[#fcf2f2]' : 'bg-white group-hover:bg-slate-50'} px-1 py-1 whitespace-nowrap leading-tight border-l border-slate-200/80 shadow-[-2px_0_4px_rgba(0,0,0,0.03)] text-center align-middle`}>
-                            <div className="font-bold text-slate-900 text-[11px] sm:text-xs">
-                              {monthNamesArabic[m.monthNum - 1]}
-                            </div>
-                            <div className="text-[9px] font-medium text-slate-400 leading-none mt-0.5">
-                              {m.year}
-                            </div>
-                          </td>
-                          <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-slate-600 font-bold text-[11px] sm:text-xs align-middle">
-                            <div>{m.fee.toLocaleString()} ج.م</div>
-                            {m.activityType && (
-                              <div className="text-[9px] text-slate-400 font-normal">{m.activityType}</div>
-                            )}
-                          </td>
-                          <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-[11px] sm:text-xs align-middle">
-                            {count === 0 ? (
-                              <span className="text-slate-400 font-normal">0 ج.م</span>
-                            ) : count === 1 ? (
-                              (() => {
-                                const statusInfo = getPaymentStatusDisplay(m.matchingPayments[0].status);
-                                return (
-                                  <span className={statusInfo.amountClass}>
-                                    {m.matchingPayments[0].amount.toLocaleString()} ج.م
-                                  </span>
-                                );
-                              })()
-                            ) : (
-                              <div className="flex flex-col gap-1 py-0.5">
-                                {m.matchingPayments.map((p, pIdx) => {
-                                  const statusInfo = getPaymentStatusDisplay(p.status);
-                                  return (
-                                    <div key={p.id || pIdx} className="h-5 sm:h-6 flex items-center">
-                                      <span className={statusInfo.amountClass}>
-                                        {p.amount.toLocaleString()} ج.م
-                                      </span>
-                                    </div>
-                                  );
-                                })}
+                        <React.Fragment key={`sub-${m.year}-${m.monthNum}-${idx}`}>
+                          {/* Main Row: Monthly Subscription (Present for every month) */}
+                          <tr className={`group hover:bg-slate-50/70 transition ${!isMonthlySubPaid ? 'bg-rose-50/20' : ''} ${totalSubRows === 1 ? 'border-b border-slate-100' : ''}`}>
+                            <td
+                              rowSpan={totalSubRows}
+                              className={`sticky right-0 z-10 ${!isMonthlySubPaid ? 'bg-[#fef8f8] group-hover:bg-[#fcf2f2]' : 'bg-white group-hover:bg-slate-50'} px-1 py-1 whitespace-nowrap leading-tight border-l border-slate-200/80 shadow-[-2px_0_4px_rgba(0,0,0,0.03)] text-center align-middle`}
+                            >
+                              <div className="font-bold text-slate-900 text-[11px] sm:text-xs">
+                                {monthNamesArabic[m.monthNum - 1]}
                               </div>
-                            )}
-                          </td>
-                          <td className="px-1 py-1 whitespace-nowrap text-center text-[10px] sm:text-[11px] align-middle">
-                            {count === 0 ? (
-                              <span className="text-slate-300 font-normal">—</span>
-                            ) : count === 1 ? (
+                              <div className="text-[9px] font-medium text-slate-400 leading-none mt-0.5">
+                                {m.year}
+                              </div>
+                            </td>
+                            <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-slate-600 font-bold text-[11px] sm:text-xs align-middle">
+                              <div>{m.fee.toLocaleString()} ج.م</div>
+                              {m.activityType && (
+                                <div className="text-[9px] text-slate-400 font-normal">{m.activityType}</div>
+                              )}
+                            </td>
+                            <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-[11px] sm:text-xs align-middle">
+                              <span className={monthlySubPaidAmount > 0 ? subStatusInfo.amountClass : 'text-slate-400 font-normal'}>
+                                {monthlySubPaidAmount.toLocaleString()} ج.م
+                              </span>
+                            </td>
+                            <td className="px-1 py-1 whitespace-nowrap text-center text-[10px] sm:text-[11px] align-middle">
                               <span
                                 className="px-1 py-0.5 bg-blue-50 text-blue-900 border border-blue-200/80 rounded text-[9px] font-bold inline-block truncate max-w-[70px]"
-                                title={m.matchingPayments[0].paymentType || 'اشتراك شهري'}
+                                title="اشتراك شهري"
                               >
-                                {m.matchingPayments[0].paymentType || 'اشتراك شهري'}
+                                اشتراك شهري
                               </span>
-                            ) : (
-                              <div className="flex flex-col gap-1 py-0.5 items-center justify-center">
-                                {m.matchingPayments.map((p, pIdx) => (
-                                  <div key={p.id || pIdx} className="h-5 sm:h-6 flex items-center justify-center">
-                                    <span
-                                      className="px-1 py-0.5 bg-blue-50 text-blue-900 border border-blue-200/80 rounded text-[9px] font-bold inline-block truncate max-w-[70px]"
-                                      title={p.paymentType || 'اشتراك شهري'}
-                                    >
-                                      {p.paymentType || 'اشتراك شهري'}
-                                    </span>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </td>
-                          <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center align-middle">
-                            {count === 0 ? (
-                              <span className="min-w-[64px] inline-flex items-center justify-center gap-1 px-1.5 py-0.5 bg-rose-50 text-rose-600 border border-rose-200/80 rounded-md text-[9.5px] font-black leading-none">
-                                <AlertTriangle className="w-2.5 h-2.5 text-rose-500 shrink-0" />
-                                <span>غير مدفوع</span>
+                            </td>
+                            <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center align-middle">
+                              <span className={`min-w-[64px] inline-flex items-center justify-center gap-1 px-1.5 py-0.5 ${subStatusInfo.badgeClass} rounded-md text-[9.5px] font-black leading-none`}>
+                                <subStatusInfo.icon className="w-2.5 h-2.5 shrink-0" />
+                                <span>{subStatusInfo.label}</span>
                               </span>
-                            ) : count === 1 ? (
-                              (() => {
-                                const statusInfo = getPaymentStatusDisplay(m.matchingPayments[0].status);
-                                return (
-                                  <span className={`min-w-[64px] inline-flex items-center justify-center gap-1 px-1.5 py-0.5 ${statusInfo.badgeClass} rounded-md text-[9.5px] font-black leading-none`}>
-                                    <statusInfo.icon className="w-2.5 h-2.5 shrink-0" />
-                                    <span>{statusInfo.label}</span>
-                                  </span>
-                                );
-                              })()
-                            ) : (
-                              <div className="flex flex-col gap-1 py-0.5 items-center justify-center">
-                                {m.matchingPayments.map((p, pIdx) => {
-                                  const statusInfo = getPaymentStatusDisplay(p.status);
-                                  return (
-                                    <div key={p.id || pIdx} className="h-5 sm:h-6 flex items-center justify-center">
-                                      <span className={`min-w-[64px] inline-flex items-center justify-center gap-1 px-1.5 py-0.5 ${statusInfo.badgeClass} rounded-md text-[9.5px] font-black leading-none`}>
-                                        <statusInfo.icon className="w-2.5 h-2.5 shrink-0" />
-                                        <span>{statusInfo.label}</span>
-                                      </span>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </td>
-                          <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center sm:text-right text-[10.5px] align-middle">
-                            {count === 0 ? (
-                              <span className="text-slate-300 font-normal">—</span>
-                            ) : count === 1 ? (
-                              <span
-                                className="font-mono px-1 py-0.5 rounded text-[9.5px] font-bold bg-slate-100 text-slate-700 border border-slate-200 truncate max-w-[75px]"
-                                title={m.matchingPayments[0].receiptNumber ? `#${m.matchingPayments[0].receiptNumber}` : 'مسدد'}
-                              >
-                                {m.matchingPayments[0].receiptNumber ? `#${m.matchingPayments[0].receiptNumber}` : 'مسدد'}
-                              </span>
-                            ) : (
-                              <div className="flex flex-col gap-1 py-0.5 items-center justify-center sm:justify-start">
-                                {m.matchingPayments.map((p, pIdx) => (
-                                  <div key={p.id || pIdx} className="h-5 sm:h-6 flex items-center justify-center sm:justify-start">
-                                    <span
-                                      className="font-mono px-1 py-0.5 rounded text-[9.5px] font-bold bg-slate-100 text-slate-700 border border-slate-200 truncate max-w-[75px]"
-                                      title={p.receiptNumber ? `#${p.receiptNumber}` : 'مسدد'}
-                                    >
-                                      {p.receiptNumber ? `#${p.receiptNumber}` : 'مسدد'}
-                                    </span>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </td>
-                          <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center text-xs align-middle">
-                            {count === 0 ? (
-                              <span className="text-slate-300 font-normal">—</span>
-                            ) : count === 1 ? (
-                              m.matchingPayments[0].fileUrl ? (
+                            </td>
+                            <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center sm:text-right text-[10.5px] align-middle">
+                              {firstMonthlySubPay ? (
+                                <span
+                                  className="font-mono px-1 py-0.5 rounded text-[9.5px] font-bold bg-slate-100 text-slate-700 border border-slate-200 truncate max-w-[75px]"
+                                  title={firstMonthlySubPay.receiptNumber ? `#${firstMonthlySubPay.receiptNumber}` : 'مسدد'}
+                                >
+                                  {firstMonthlySubPay.receiptNumber ? `#${firstMonthlySubPay.receiptNumber}` : 'مسدد'}
+                                </span>
+                              ) : (
+                                <span className="text-slate-300 font-normal">—</span>
+                              )}
+                            </td>
+                            <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center text-xs align-middle">
+                              {firstMonthlySubPay?.fileUrl ? (
                                 <button
                                   type="button"
-                                  onClick={() => onPreviewImage && m.matchingPayments[0].fileUrl && onPreviewImage(m.matchingPayments[0].fileUrl!)}
+                                  onClick={() => onPreviewImage && firstMonthlySubPay.fileUrl && onPreviewImage(firstMonthlySubPay.fileUrl!)}
                                   className="inline-flex items-center justify-center gap-0.5 px-1.5 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200/80 rounded-md text-[9px] font-bold transition cursor-pointer shadow-2xs"
                                   title="عرض صورة الإيصال"
                                 >
@@ -1361,30 +1399,68 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                                 </button>
                               ) : (
                                 <span className="text-slate-300 font-normal">—</span>
-                              )
-                            ) : (
-                              <div className="flex flex-col gap-1 py-0.5 items-center justify-center">
-                                {m.matchingPayments.map((p, pIdx) => (
-                                  <div key={p.id || pIdx} className="h-5 sm:h-6 flex items-center justify-center">
-                                    {p.fileUrl ? (
-                                      <button
-                                        type="button"
-                                        onClick={() => onPreviewImage && p.fileUrl && onPreviewImage(p.fileUrl!)}
-                                        className="inline-flex items-center justify-center gap-0.5 px-1.5 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200/80 rounded-md text-[9px] font-bold transition cursor-pointer shadow-2xs"
-                                        title="عرض صورة الإيصال"
-                                      >
-                                        <ImageIcon className="w-2.5 h-2.5 text-blue-600 shrink-0" />
-                                        <span>عرض</span>
-                                      </button>
-                                    ) : (
-                                      <span className="text-slate-300 font-normal text-[10px]">—</span>
-                                    )}
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </td>
-                        </tr>
+                              )}
+                            </td>
+                          </tr>
+
+                          {/* Sub-Rows: Other Collections (Appears only if there are other collection payments for this month) */}
+                          {otherCollectionPayments.map((op, opIdx) => {
+                            const opStatusInfo = getPaymentStatusDisplay(op.status);
+                            const isLastSubRow = opIdx === otherCollectionPayments.length - 1;
+                            return (
+                              <tr
+                                key={op.id || opIdx}
+                                className={`group hover:bg-slate-50/70 transition bg-purple-50/10 ${isLastSubRow ? 'border-b border-slate-200' : ''}`}
+                              >
+                                <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-slate-400 font-normal text-[11px] sm:text-xs align-middle">
+                                  —
+                                </td>
+                                <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-[11px] sm:text-xs align-middle">
+                                  <span className={opStatusInfo.amountClass}>
+                                    {op.amount.toLocaleString()} ج.م
+                                  </span>
+                                </td>
+                                <td className="px-1 py-1 whitespace-nowrap text-center text-[10px] sm:text-[11px] align-middle">
+                                  <span
+                                    className="px-1 py-0.5 bg-purple-50 text-purple-900 border border-purple-200/80 rounded text-[9px] font-bold inline-block truncate max-w-[70px]"
+                                    title={op.paymentType || 'تحصيلات أخرى'}
+                                  >
+                                    {op.paymentType || 'تحصيلات أخرى'}
+                                  </span>
+                                </td>
+                                <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center align-middle">
+                                  <span className={`min-w-[64px] inline-flex items-center justify-center gap-1 px-1.5 py-0.5 ${opStatusInfo.badgeClass} rounded-md text-[9.5px] font-black leading-none`}>
+                                    <opStatusInfo.icon className="w-2.5 h-2.5 shrink-0" />
+                                    <span>{opStatusInfo.label}</span>
+                                  </span>
+                                </td>
+                                <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center sm:text-right text-[10.5px] align-middle">
+                                  <span
+                                    className="font-mono px-1 py-0.5 rounded text-[9.5px] font-bold bg-slate-100 text-slate-700 border border-slate-200 truncate max-w-[75px]"
+                                    title={op.receiptNumber ? `#${op.receiptNumber}` : 'مسدد'}
+                                  >
+                                    {op.receiptNumber ? `#${op.receiptNumber}` : 'مسدد'}
+                                  </span>
+                                </td>
+                                <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center text-xs align-middle">
+                                  {op.fileUrl ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => onPreviewImage && op.fileUrl && onPreviewImage(op.fileUrl!)}
+                                      className="inline-flex items-center justify-center gap-0.5 px-1.5 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200/80 rounded-md text-[9px] font-bold transition cursor-pointer shadow-2xs"
+                                      title="عرض صورة الإيصال"
+                                    >
+                                      <ImageIcon className="w-2.5 h-2.5 text-blue-600 shrink-0" />
+                                      <span>عرض</span>
+                                    </button>
+                                  ) : (
+                                    <span className="text-slate-300 font-normal">—</span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </React.Fragment>
                       );
                     })
                   )}
@@ -1476,10 +1552,16 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                           </td>
                           <td className="px-1 py-1 whitespace-nowrap text-center text-[10px] sm:text-[11px] align-middle">
                             <span
-                              className="px-1 py-0.5 bg-blue-50 text-blue-900 border border-blue-200/80 rounded text-[9px] font-bold inline-block truncate max-w-[70px]"
+                              className={`px-1 py-0.5 border rounded text-[9px] font-bold inline-block truncate max-w-[75px] ${
+                                isMonthlySubscriptionType(p.paymentType) || !p.paymentType || p.paymentType === 'اشتراك شهري'
+                                  ? 'bg-blue-50 text-blue-900 border-blue-200/80'
+                                  : 'bg-purple-50 text-purple-900 border-purple-200/80'
+                              }`}
                               title={p.paymentType || 'اشتراك شهري'}
                             >
-                              {p.paymentType || 'اشتراك شهري'}
+                              {isMonthlySubscriptionType(p.paymentType) || !p.paymentType || p.paymentType === 'اشتراك شهري'
+                                ? 'الاشتراك الشهري'
+                                : (p.paymentType || 'تحصيلات أخرى')}
                             </span>
                           </td>
                           <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center align-middle">
@@ -1555,7 +1637,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
           {/* Financial Metrics Summary - 5 Symmetrical Metrics matching screen */}
           <div className="grid grid-cols-5 gap-2 border border-slate-300 rounded-xl p-3 bg-slate-50/50 mb-4 text-xs text-center">
             <div className="space-y-1">
-              <span className="font-bold text-slate-500 block text-[11px]">الاشتراك الشهري</span>
+              <span className="font-bold text-slate-500 block text-[11px]">اشتراك شهري</span>
               <div className="text-sm font-black text-slate-800">{financials.monthlyFee.toLocaleString()} ج.م</div>
               <span className="text-[9px] text-slate-400 block font-semibold">مبلغ الاشتراك المعتمد</span>
             </div>
@@ -1598,7 +1680,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
           {/* Notice Banner matching on-screen status */}
           {financials.netBalance < 0 ? (
             <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-right text-xs mb-5 text-red-950 font-bold flex items-center justify-between">
-              <span>⚠️ تنبيه الموقف المالي: على الوحدة مديونية متأخرة مستحقة السداد بقيمة {Math.abs(Math.round(financials.netBalance)).toLocaleString()} ج.م تشمل ({unpaidMonthsList.length}) شهر غير مدفوع {effectiveCarriedBalance < 0 ? `بالإضافة لرصيد مديونية مرحل (${Math.abs(effectiveCarriedBalance).toLocaleString()} ج.م)` : ''}.</span>
+              <span>⚠️ تنبيه المتأخرات: على الوحدة متأخرات مستحقة السداد بقيمة {Math.abs(Math.round(financials.netBalance)).toLocaleString()} ج.م تشمل شهور اشتراك شهري غير المسددة ({financials.unpaidMonthsCount} شهر = {financials.unpaidMonthsDues.toLocaleString()} ج.م){financials.otherCollectionsDebt > 0 ? ` بالإضافة للتحصيلات الأخرى غير المسددة (${financials.otherCollectionsDebt.toLocaleString()} ج.م)` : ''}{effectiveCarriedBalance < 0 ? ` بالإضافة لرصيد مديونية مرحل (${Math.abs(effectiveCarriedBalance).toLocaleString()} ج.م)` : ''}.</span>
               <span className="text-red-700 font-black text-xs px-2 py-0.5 bg-red-100 rounded-lg">مطلوب السداد</span>
             </div>
           ) : financials.netBalance === 0 ? (
@@ -1673,108 +1755,120 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
               })()}
 
               {/* Monthly breakdown rows */}
-              {monthsTimeline.map((m) => {
-                const count = m.matchingPayments.length;
-                const isUnpaid = count === 0 || !m.isPaid;
+              {monthsTimeline.map((m, idx) => {
+                const monthlySubPayments = m.matchingPayments.filter(p =>
+                  isMonthlySubscriptionType(p.paymentType) || !p.paymentType || p.paymentType === 'اشتراك شهري'
+                );
+                const otherCollectionPayments = m.matchingPayments.filter(p =>
+                  !isMonthlySubscriptionType(p.paymentType) && p.paymentType && p.paymentType !== 'اشتراك شهري'
+                );
+
+                const totalSubRows = 1 + otherCollectionPayments.length;
+
+                const validMonthlySubPayments = monthlySubPayments.filter(
+                  p => p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل'
+                );
+                const monthlySubPaidAmount = validMonthlySubPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
+                const isMonthlySubPaid = validMonthlySubPayments.length > 0 && (monthlySubPaidAmount >= m.fee || validMonthlySubPayments.some(p => p.isManuallyPaid));
+                const isMonthlySubPartial = monthlySubPaidAmount > 0 && monthlySubPaidAmount < m.fee && !validMonthlySubPayments.some(p => p.isManuallyPaid);
+
+                let subStatusInfo;
+                if (isMonthlySubPaid) {
+                  subStatusInfo = getPaymentStatusDisplay('collected');
+                } else if (isMonthlySubPartial) {
+                  subStatusInfo = {
+                    type: 'pending' as const,
+                    label: 'سداد جزئي',
+                    badgeClass: 'bg-amber-50 text-amber-800 border-amber-200',
+                    textClass: 'text-amber-800',
+                    amountClass: 'text-amber-700 font-bold',
+                    icon: Clock,
+                  };
+                } else if (validMonthlySubPayments.length > 0) {
+                  subStatusInfo = getPaymentStatusDisplay(validMonthlySubPayments[0].status);
+                } else {
+                  subStatusInfo = {
+                    type: 'pending' as const,
+                    label: 'غير مسدد',
+                    badgeClass: 'bg-rose-50 text-rose-700 border-rose-200',
+                    textClass: 'text-rose-700',
+                    amountClass: 'text-rose-600 font-bold',
+                    icon: AlertTriangle,
+                  };
+                }
+
+                const firstMonthlySubPay = monthlySubPayments[0];
+
                 return (
-                  <tr key={`${m.year}-${m.monthNum}`} className={`border-b border-slate-300 ${isUnpaid ? 'bg-rose-50/40' : ''}`}>
-                    <td className="border border-slate-300 p-2 text-center font-black text-slate-800 align-middle">{m.monthLabel}</td>
-                    <td className="border border-slate-300 p-2 text-center font-semibold text-slate-700 align-middle">{m.fee.toLocaleString()} ج.م</td>
-                    <td className="border border-slate-300 p-2 text-center align-middle font-bold">
-                      {count === 0 ? (
-                        <span className="text-slate-400">0 ج.م</span>
-                      ) : count === 1 ? (
-                        (() => {
-                          const statusInfo = getPaymentStatusDisplay(m.matchingPayments[0].status);
-                          return (
-                            <span className={statusInfo.amountClass}>
-                              {m.matchingPayments[0].amount.toLocaleString()} ج.م
-                            </span>
-                          );
-                        })()
-                      ) : (
-                        <div className="flex flex-col gap-1 items-center justify-center">
-                          {m.matchingPayments.map((p, pIdx) => {
-                            const statusInfo = getPaymentStatusDisplay(p.status);
-                            return (
-                              <div key={p.id || pIdx} className={statusInfo.amountClass}>
-                                {p.amount.toLocaleString()} ج.م
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </td>
-                    <td className="border border-slate-300 p-2 text-center text-xs font-bold text-slate-700 align-middle">
-                      {count === 0 ? (
-                        <span>—</span>
-                      ) : count === 1 ? (
-                        <span>{m.matchingPayments[0].paymentType || 'اشتراك شهري'}</span>
-                      ) : (
-                        <div className="flex flex-col gap-1 items-center justify-center">
-                          {m.matchingPayments.map((p, pIdx) => (
-                            <div key={p.id || pIdx}>
-                              {p.paymentType || 'اشتراك شهري'}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </td>
-                    <td className="border border-slate-300 p-2 text-center font-bold align-middle">
-                      {count === 0 ? (
-                        <span className="inline-block px-2 py-0.5 bg-rose-50 text-rose-700 font-black rounded-md border border-rose-200">
-                          غير مدفوع
+                  <React.Fragment key={`print-${m.year}-${m.monthNum}-${idx}`}>
+                    <tr className={`border-b border-slate-300 ${!isMonthlySubPaid ? 'bg-rose-50/40' : ''}`}>
+                      <td rowSpan={totalSubRows} className="border border-slate-300 p-2 text-center font-black text-slate-800 align-middle">
+                        {m.monthLabel}
+                      </td>
+                      <td className="border border-slate-300 p-2 text-center font-semibold text-slate-700 align-middle">
+                        {m.fee.toLocaleString()} ج.م
+                      </td>
+                      <td className="border border-slate-300 p-2 text-center align-middle font-bold">
+                        <span className={monthlySubPaidAmount > 0 ? subStatusInfo.amountClass : 'text-slate-400 font-normal'}>
+                          {monthlySubPaidAmount.toLocaleString()} ج.م
                         </span>
-                      ) : count === 1 ? (
-                        (() => {
-                          const statusInfo = getPaymentStatusDisplay(m.matchingPayments[0].status);
-                          return (
-                            <span className={`inline-block px-2 py-0.5 rounded-md border font-black ${
-                              statusInfo.type === 'cancelled'
+                      </td>
+                      <td className="border border-slate-300 p-2 text-center text-xs font-bold text-slate-700 align-middle">
+                        <span>اشتراك شهري</span>
+                      </td>
+                      <td className="border border-slate-300 p-2 text-center font-bold align-middle">
+                        <span className={`inline-block px-2 py-0.5 rounded-md border font-black text-[10px] ${
+                          isMonthlySubPaid
+                            ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                            : isMonthlySubPartial
+                            ? 'bg-amber-50 text-amber-800 border-amber-200'
+                            : 'bg-rose-50 text-rose-700 border-rose-200'
+                        }`}>
+                          {subStatusInfo.label}
+                        </span>
+                      </td>
+                      <td className="border border-slate-300 p-2 text-center font-mono text-[11px] font-bold text-slate-800 align-middle">
+                        {firstMonthlySubPay ? (
+                          <span>{firstMonthlySubPay.receiptNumber ? `#${firstMonthlySubPay.receiptNumber}` : 'مسدد'} ({firstMonthlySubPay.date})</span>
+                        ) : (
+                          <span>—</span>
+                        )}
+                      </td>
+                    </tr>
+
+                    {otherCollectionPayments.map((op, opIdx) => {
+                      const opStatusInfo = getPaymentStatusDisplay(op.status);
+                      return (
+                        <tr key={`print-op-${op.id || opIdx}`} className="border-b border-slate-300 bg-purple-50/20">
+                          <td className="border border-slate-300 p-2 text-center font-semibold text-slate-400 align-middle">
+                            —
+                          </td>
+                          <td className="border border-slate-300 p-2 text-center align-middle font-bold">
+                            <span className={opStatusInfo.amountClass}>
+                              {op.amount.toLocaleString()} ج.م
+                            </span>
+                          </td>
+                          <td className="border border-slate-300 p-2 text-center text-xs font-bold text-purple-900 align-middle">
+                            <span>{op.paymentType || 'تحصيلات أخرى'}</span>
+                          </td>
+                          <td className="border border-slate-300 p-2 text-center font-bold align-middle">
+                            <span className={`inline-block px-2 py-0.5 rounded-md border font-black text-[10px] ${
+                              opStatusInfo.type === 'cancelled'
                                 ? 'bg-rose-50 text-rose-700 border-rose-200'
-                                : statusInfo.type === 'pending'
+                                : opStatusInfo.type === 'pending'
                                 ? 'bg-amber-50 text-amber-800 border-amber-200'
                                 : 'bg-emerald-50 text-emerald-800 border-emerald-200'
                             }`}>
-                              {statusInfo.label}
+                              {opStatusInfo.label}
                             </span>
-                          );
-                        })()
-                      ) : (
-                        <div className="flex flex-col gap-1 items-center justify-center">
-                          {m.matchingPayments.map((p, pIdx) => {
-                            const statusInfo = getPaymentStatusDisplay(p.status);
-                            return (
-                              <span key={p.id || pIdx} className={`inline-block px-2 py-0.5 rounded-md border font-black text-[10px] ${
-                                statusInfo.type === 'cancelled'
-                                  ? 'bg-rose-50 text-rose-700 border-rose-200'
-                                  : statusInfo.type === 'pending'
-                                  ? 'bg-amber-50 text-amber-800 border-amber-200'
-                                  : 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                              }`}>
-                                {statusInfo.label}
-                              </span>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </td>
-                    <td className="border border-slate-300 p-2 text-center font-mono text-[11px] font-bold text-slate-800 align-middle">
-                      {count === 0 ? (
-                        <span>—</span>
-                      ) : count === 1 ? (
-                        <span>{m.matchingPayments[0].receiptNumber ? `#${m.matchingPayments[0].receiptNumber}` : 'مسدد'} ({m.matchingPayments[0].date})</span>
-                      ) : (
-                        <div className="flex flex-col gap-1 items-center justify-center">
-                          {m.matchingPayments.map((p, pIdx) => (
-                            <div key={p.id || pIdx}>
-                              {p.receiptNumber ? `#${p.receiptNumber}` : 'مسدد'} ({p.date})
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </td>
-                  </tr>
+                          </td>
+                          <td className="border border-slate-300 p-2 text-center font-mono text-[11px] font-bold text-slate-800 align-middle">
+                            <span>{op.receiptNumber ? `#${op.receiptNumber}` : 'مسدد'} ({op.date})</span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </React.Fragment>
                 );
               })}
             </tbody>
@@ -1822,7 +1916,9 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                           </span>
                         </td>
                         <td className="border border-slate-300 p-2 text-center text-xs font-bold text-slate-700">
-                          {p.paymentType || 'اشتراك شهري'}
+                          {isMonthlySubscriptionType(p.paymentType) || !p.paymentType || p.paymentType === 'اشتراك شهري'
+                            ? 'الاشتراك الشهري'
+                            : (p.paymentType || 'تحصيلات أخرى')}
                         </td>
                         <td className="border border-slate-300 p-2 text-center">
                           <span className={`inline-block px-2 py-0.5 rounded-md border font-black text-[11px] ${

@@ -305,15 +305,24 @@ export const Summaries: React.FC<SummariesProps> = ({
     return pay;
   };
 
-  // 4. Map and aggregate all payments for grid display in that month
+  // 4. Fast indexed map of payments by resident & month for O(1) grid rendering
+  const paymentsByResidentAndMonth = useMemo(() => {
+    const map = new Map<string, Payment[]>();
+    payments.forEach((p) => {
+      if (p.year === currentYear) {
+        const key = `${p.residentId}_${p.month}`;
+        const existing = map.get(key) || [];
+        existing.push(p);
+        map.set(key, existing);
+      }
+    });
+    return map;
+  }, [payments, currentYear]);
+
+  // Map and aggregate all payments for grid display in that month
   const getSubscriptionStatus = (residentId: string, month: string, filterType = selectedPaymentTypeFilter) => {
-    const matchingPayments = payments.filter(
-      (p) =>
-        p.residentId === residentId &&
-        p.month === month &&
-        p.year === currentYear &&
-        matchesPaymentType(p.paymentType, filterType)
-    );
+    const monthList = paymentsByResidentAndMonth.get(`${residentId}_${month}`) || [];
+    const matchingPayments = monthList.filter((p) => matchesPaymentType(p.paymentType, filterType));
 
     const validCollectedPayments = matchingPayments.filter(
       (p) => p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل'
@@ -551,12 +560,13 @@ export const Summaries: React.FC<SummariesProps> = ({
         const cleanCustomNote = (editNotes || '').trim();
         const primaryMonthName = monthNamesArabic[parseInt(masterMonth, 10) - 1];
         const recNum = (editReceiptNumber || masterPay.receiptNumber || '').trim();
+        const allocatedAmount = isMaster ? (basePerMonth + remainder) : basePerMonth;
 
         const noteText = isMaster
           ? (cleanCustomNote
-              ? `${cleanCustomNote} (سداد مجمع عن شهور: ${sortedMonths.map(x => monthNamesArabic[parseInt(x, 10) - 1]).join('، ')})`
-              : `سداد مجمع عن شهور: ${sortedMonths.map(x => monthNamesArabic[parseInt(x, 10) - 1]).join('، ')}`)
-          : `تم السداد في شهر ${primaryMonthName} ${currentYear} بإيصال رقم ${recNum || '—'}${cleanCustomNote ? ` (${cleanCustomNote})` : ''}`;
+              ? `${cleanCustomNote} (سداد مجمع عن شهور: ${sortedMonths.map(x => monthNamesArabic[parseInt(x, 10) - 1]).join('، ')} - القيمة الموزعة للشهر: ${allocatedAmount.toLocaleString()} ج.م)`
+              : `سداد مجمع عن شهور: ${sortedMonths.map(x => monthNamesArabic[parseInt(x, 10) - 1]).join('، ')} (القيمة الموزعة للشهر: ${allocatedAmount.toLocaleString()} ج.م)`)
+          : `تم السداد في شهر ${primaryMonthName} ${currentYear} بإيصال رقم ${recNum || '—'} (القيمة الموزعة للشهر: ${allocatedAmount.toLocaleString()} ج.م)${cleanCustomNote ? ` (${cleanCustomNote})` : ''}`;
 
         return {
           id: newId,
@@ -566,7 +576,7 @@ export const Summaries: React.FC<SummariesProps> = ({
           residentName: occupant,
           flatNumber: masterPay.flatNumber,
           paymentType: editPaymentType || masterPay.paymentType || 'اشتراك شهري',
-          amount: isMaster ? parsedAmount : 0,
+          amount: allocatedAmount,
           receiptNumber: recNum,
           notes: noteText,
           fileId: masterPay.fileId || '',
@@ -957,7 +967,7 @@ export const Summaries: React.FC<SummariesProps> = ({
                 onChange={(e) => setSelectedPaymentTypeFilter(e.target.value)}
                 className="bg-transparent text-[10.5px] sm:text-xs font-black text-blue-950 focus:outline-hidden cursor-pointer pr-1"
               >
-                <option value="اشتراك شهري">الاشتراك الشهري (افتراضي)</option>
+                <option value="اشتراك شهري">اشتراك شهري (افتراضي)</option>
                 {availablePaymentTypes
                   .filter((t) => !matchesPaymentType(t, 'اشتراك شهري'))
                   .map((type) => (
@@ -973,10 +983,10 @@ export const Summaries: React.FC<SummariesProps> = ({
               <Layers className="w-4 h-4 text-blue-900 shrink-0" />
               <h3 className="text-xs sm:text-sm font-black text-slate-900 whitespace-nowrap">
                 {selectedPaymentTypeFilter === 'all'
-                  ? `جدول كشف التحصيل الشهري لكافة الأنواع لعام ${currentYear}`
+                  ? `جدول كشف اشتراك شهري لكافة الأنواع لعام ${currentYear}`
                   : selectedPaymentTypeFilter === 'اشتراك شهري'
-                  ? `جدول كشف التحصيل الشهري للاشتراكات لعام ${currentYear}`
-                  : `جدول كشف التحصيل الشهري (${selectedPaymentTypeFilter}) لعام ${currentYear}`}
+                  ? `جدول كشف اشتراك شهري للاشتراكات لعام ${currentYear}`
+                  : `جدول كشف اشتراك شهري (${selectedPaymentTypeFilter}) لعام ${currentYear}`}
               </h3>
             </div>
           </div>
@@ -1542,64 +1552,64 @@ export const Summaries: React.FC<SummariesProps> = ({
                                 );
                               })()}
 
-                              {/* Edit Action Buttons */}
-                              <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100 flex-wrap">
+                              {/* Edit Action Buttons (All on a single row) */}
+                              <div className="flex items-center gap-1.5 pt-2 border-t border-slate-100 w-full flex-nowrap">
                                 {(isMasterDistributionPayment(pay) || isChildDistributedPayment(pay)) && (
                                   confirmCancelId === pay.id ? (
-                                    <div className="flex items-center gap-1.5 bg-rose-50 border border-rose-300 p-1.5 rounded-lg">
-                                      <span className="text-[10px] font-black text-rose-900">تأكيد استعادة كامل المبلغ وإلغاء التوزيع؟</span>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleCancelDistribution(pay)}
-                                        className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white font-black text-xs rounded cursor-pointer transition shadow-2xs"
-                                      >
-                                        تأكيد الإلغاء ↩️
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => setConfirmCancelId(null)}
-                                        className="px-2 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs rounded cursor-pointer transition"
-                                      >
-                                        تراجع
-                                      </button>
+                                    <div className="flex-1 flex items-center justify-between gap-1 bg-rose-50 border border-rose-300 p-1 rounded-lg min-w-0">
+                                      <span className="text-[9px] sm:text-[10px] font-black text-rose-900 truncate">تأكيد الاستعادة والإلغاء؟</span>
+                                      <div className="flex items-center gap-1 shrink-0">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleCancelDistribution(pay)}
+                                          className="px-2 py-0.5 bg-rose-600 hover:bg-rose-700 text-white font-black text-[9.5px] sm:text-[10.5px] rounded cursor-pointer transition shadow-2xs whitespace-nowrap"
+                                        >
+                                          تأكيد ↩️
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => setConfirmCancelId(null)}
+                                          className="px-1.5 py-0.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-[9.5px] sm:text-[10.5px] rounded cursor-pointer transition whitespace-nowrap"
+                                        >
+                                          تراجع
+                                        </button>
+                                      </div>
                                     </div>
                                   ) : (
                                     <button
                                       type="button"
                                       onClick={() => setConfirmCancelId(pay.id)}
-                                      className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-850 border border-rose-200 rounded-lg text-xs font-black cursor-pointer transition flex items-center gap-1.5 active:scale-95 shadow-2xs"
+                                      className="flex-1 px-1.5 sm:px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-900 border border-rose-200 rounded-lg text-[9.5px] sm:text-xs font-black cursor-pointer transition flex items-center justify-center gap-1 active:scale-95 shadow-2xs whitespace-nowrap min-w-0"
                                       title="إلغاء توزيع هذا السداد وحذف الدفعات التابعة وإرجاع كامل المبلغ لهذا الشهر"
                                     >
-                                      <RotateCcw className="w-3.5 h-3.5 text-rose-700" />
-                                      <span>إلغاء التوزيع واستعادة المبلغ ↩️</span>
+                                      <RotateCcw className="w-3 h-3 text-rose-700 shrink-0" />
+                                      <span className="truncate">إلغاء التوزيع واستعادة المبلغ ↩️</span>
                                     </button>
                                   )
                                 )}
-                                <div className="flex items-center gap-2 mr-auto">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleSavePayment(pay)}
-                                    className="px-3 py-1.5 bg-blue-900 hover:bg-blue-950 active:scale-95 text-white font-black text-xs rounded-lg flex items-center gap-1.5 shadow-xs cursor-pointer transition"
-                                  >
-                                    <Save className="w-3.5 h-3.5" />
-                                    <span>
-                                      {isDistributing && selectedMonths.length > 1
-                                        ? `تطبيق وتوزيع المبلغ على (${selectedMonths.length}) شهور (حفظ) 💾`
-                                        : 'حفظ التعديل'}
-                                    </span>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setEditingPaymentId(null);
-                                      setIsDistributing(false);
-                                      setConfirmCancelId(null);
-                                    }}
-                                    className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs rounded-lg cursor-pointer transition"
-                                  >
-                                    إلغاء
-                                  </button>
-                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleSavePayment(pay)}
+                                  className="flex-1 px-1.5 sm:px-3 py-1.5 bg-blue-900 hover:bg-blue-950 active:scale-95 text-white font-black text-[9.5px] sm:text-xs rounded-lg flex items-center justify-center gap-1 shadow-xs cursor-pointer transition whitespace-nowrap min-w-0"
+                                >
+                                  <Save className="w-3 h-3 shrink-0" />
+                                  <span className="truncate">
+                                    {isDistributing && selectedMonths.length > 1
+                                      ? `تطبيق وتوزيع (${selectedMonths.length}) شهور 💾`
+                                      : 'حفظ التعديل'}
+                                  </span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingPaymentId(null);
+                                    setIsDistributing(false);
+                                    setConfirmCancelId(null);
+                                  }}
+                                  className="px-2.5 sm:px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-[10px] sm:text-xs rounded-lg cursor-pointer transition whitespace-nowrap shrink-0"
+                                >
+                                  إلغاء
+                                </button>
                               </div>
                             </div>
                           ) : (
@@ -1665,112 +1675,76 @@ export const Summaries: React.FC<SummariesProps> = ({
                                     </a>
                                   )}
 
-                                  {!isReadOnly && role !== 'ASSISTANT' && (
+                                  {!isReadOnly && (
                                     <>
-                                      {/* Distribute Button: For collected payments that are not child payments */}
-                                      {!isChildDistributedPayment(pay) && isCollected && (
+                                      {/* Show "تعديل التوزيع المجمع" ONLY if this is actually a Master Aggregated Collection Payment */}
+                                      {isMasterDistributionPayment(pay) && isCollected && role !== 'ASSISTANT' && (
                                         <button
                                           type="button"
                                           onClick={() => handleStartEdit(pay, true)}
-                                          className={`px-2 py-1 rounded-md transition cursor-pointer flex items-center gap-1 text-[9.5px] font-black shadow-2xs active:scale-95 border ${
-                                            isMasterDistributionPayment(pay)
-                                              ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-950 border-emerald-400 ring-2 ring-emerald-500/20'
-                                              : 'bg-blue-100 hover:bg-blue-200 text-blue-900 border-blue-200'
-                                          }`}
-                                          title={
-                                            isMasterDistributionPayment(pay)
-                                              ? 'تم التوزيع من هذه الدفعة - انقر لتعديل التوزيع'
-                                              : 'توزيع هذا المبلغ على شهور السنة'
-                                          }
+                                          className="px-2 py-0.5 rounded-md transition cursor-pointer flex items-center gap-1 text-[9.5px] font-black shadow-2xs active:scale-95 border bg-emerald-50 hover:bg-emerald-100 text-emerald-950 border-emerald-400 ring-2 ring-emerald-500/20"
+                                          title="دفعة تحصيل مجمع رئيسية - انقر لتعديل الشهور الموزعة"
                                         >
-                                          {isMasterDistributionPayment(pay) && (
-                                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 ring-2 ring-emerald-300 animate-pulse shrink-0" />
-                                          )}
-                                          <Calendar className={`w-3 h-3 shrink-0 ${isMasterDistributionPayment(pay) ? 'text-emerald-700' : 'text-blue-700'}`} />
-                                          <span>{isMasterDistributionPayment(pay) ? 'توزيع مجمع (موزع)' : 'توزيع مجمع'}</span>
+                                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 ring-2 ring-emerald-300 animate-pulse shrink-0" />
+                                          <Calendar className="w-3 h-3 shrink-0 text-emerald-700" />
+                                          <span>تعديل التوزيع</span>
                                         </button>
                                       )}
 
-                                      {/* Dedicated Cancel Distribution Button: On master OR child payment */}
-                                      {(isMasterDistributionPayment(pay) || isChildDistributedPayment(pay)) && (
-                                        confirmCancelId === pay.id ? (
-                                          <div className="flex items-center gap-1 bg-rose-50 border border-rose-300 px-1.5 py-0.5 rounded-lg animate-in fade-in">
-                                            <span className="text-[9px] font-black text-rose-900">تأكيد؟</span>
-                                            <button
-                                              type="button"
-                                              onClick={() => handleCancelDistribution(pay)}
-                                              className="px-2 py-0.5 bg-rose-600 hover:bg-rose-700 text-white rounded text-[9px] font-black cursor-pointer transition shadow-2xs"
-                                            >
-                                              نعم، استعادة ↩️
-                                            </button>
-                                            <button
-                                              type="button"
-                                              onClick={() => setConfirmCancelId(null)}
-                                              className="px-1.5 py-0.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded text-[9px] font-bold cursor-pointer transition"
-                                            >
-                                              تراجع
-                                            </button>
-                                          </div>
-                                        ) : (
-                                          <button
-                                            type="button"
-                                            onClick={() => setConfirmCancelId(pay.id)}
-                                            className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 rounded-md transition cursor-pointer flex items-center gap-1 text-[9.5px] font-black shadow-2xs active:scale-95"
-                                            title="إلغاء توزيع هذا السداد واستعادة المبلغ بالكامل في هذا الشهر الأصلي"
-                                          >
-                                            <RotateCcw className="w-3 h-3 text-rose-700 shrink-0" />
-                                            <span>إلغاء التوزيع ↩️</span>
-                                          </button>
-                                        )
-                                      )}
-
-                                      {/* Edit Button */}
+                                      {/* Edit Button for ALL registered payments */}
                                       <button
+                                        type="button"
                                         onClick={() => handleStartEdit(pay, false)}
-                                        className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-white/80 rounded transition cursor-pointer"
+                                        className="px-2 py-1 text-blue-900 hover:text-blue-950 hover:bg-blue-100/70 rounded-lg transition cursor-pointer flex items-center gap-1 text-[10px] font-black border border-blue-200 bg-blue-50/80 shadow-3xs active:scale-95"
                                         title="تعديل الدفعة والملاحظات"
                                       >
-                                        <Edit className="w-3.5 h-3.5" />
+                                        <Edit className="w-3 h-3 text-blue-900 shrink-0" />
+                                        <span>تعديل</span>
                                       </button>
 
+                                      {/* Delete Button for ALL registered payments */}
                                       {deleteConfirmId === pay.id ? (
-                                        <div className="flex items-center gap-1 bg-red-50 px-1 py-0.5 rounded border border-red-100">
-                                        <span className="text-[8px] text-red-700 font-extrabold">تأكيد؟</span>
+                                        <div className="flex items-center gap-1 bg-red-50 px-1.5 py-0.5 rounded-lg border border-red-200">
+                                          <span className="text-[8.5px] text-red-700 font-extrabold">تأكيد؟</span>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              if (onDeletePayment) {
+                                                onDeletePayment(pay.id);
+                                              } else {
+                                                onCellClick(selectedCell.resident.id, selectedCell.month, true, pay.id);
+                                              }
+                                              setSelectedCell(prev => prev ? {
+                                                ...prev,
+                                                payments: prev.payments.filter(p => p.id !== pay.id)
+                                              } : null);
+                                              setDeleteConfirmId(null);
+                                            }}
+                                            className="px-1.5 py-0.5 bg-red-600 text-white font-black text-[8.5px] rounded hover:bg-red-700 transition cursor-pointer"
+                                          >
+                                            نعم
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => setDeleteConfirmId(null)}
+                                            className="px-1.5 py-0.5 bg-slate-200 text-slate-700 font-bold text-[8.5px] rounded hover:bg-slate-300 transition cursor-pointer"
+                                          >
+                                            لا
+                                          </button>
+                                        </div>
+                                      ) : (
                                         <button
-                                          onClick={() => {
-                                            if (onDeletePayment) {
-                                              onDeletePayment(pay.id);
-                                            } else {
-                                              onCellClick(selectedCell.resident.id, selectedCell.month, true, pay.id);
-                                            }
-                                            setSelectedCell(prev => prev ? {
-                                              ...prev,
-                                              payments: prev.payments.filter(p => p.id !== pay.id)
-                                            } : null);
-                                            setDeleteConfirmId(null);
-                                          }}
-                                          className="px-1 py-0.5 bg-red-600 text-white font-bold text-[7.5px] rounded hover:bg-red-700 transition cursor-pointer"
+                                          type="button"
+                                          onClick={() => setDeleteConfirmId(pay.id)}
+                                          className="px-2 py-1 text-rose-700 hover:text-rose-900 hover:bg-rose-100/70 rounded-lg transition cursor-pointer flex items-center gap-1 text-[10px] font-black border border-rose-200 bg-rose-50/80 shadow-3xs active:scale-95"
+                                          title="حذف الدفعة"
                                         >
-                                          نعم
+                                          <Trash2 className="w-3 h-3 text-rose-700 shrink-0" />
+                                          <span>حذف</span>
                                         </button>
-                                        <button
-                                          onClick={() => setDeleteConfirmId(null)}
-                                          className="px-1 py-0.5 bg-slate-200 text-slate-700 font-bold text-[7.5px] rounded hover:bg-slate-300 transition cursor-pointer"
-                                        >
-                                          لا
-                                        </button>
-                                      </div>
-                                    ) : (
-                                      <button
-                                        onClick={() => setDeleteConfirmId(pay.id)}
-                                        className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition cursor-pointer"
-                                        title="حذف"
-                                      >
-                                        <Trash2 className="w-3.5 h-3.5" />
-                                      </button>
-                                    )}
-                                  </>
-                                )}
+                                      )}
+                                    </>
+                                  )}
                               </div>
                             </div>
 
@@ -1805,9 +1779,9 @@ export const Summaries: React.FC<SummariesProps> = ({
                   </span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end">
+                <div className="grid grid-cols-3 gap-1.5 sm:gap-2 items-end">
                   <div className="space-y-0.5">
-                    <label className="text-[9px] font-bold text-slate-500 block">المبلغ (ج.م) *</label>
+                    <label className="text-[9px] font-bold text-slate-500 block truncate">المبلغ (ج.م) *</label>
                     <div className="relative">
                       <input
                         type="number"
@@ -1815,18 +1789,18 @@ export const Summaries: React.FC<SummariesProps> = ({
                         placeholder="المبلغ"
                         value={newAmount}
                         onChange={(e) => setNewAmount(e.target.value)}
-                        className="w-full pl-7 pr-2.5 py-1 bg-white border border-slate-200 focus:border-emerald-500 rounded-lg text-xs font-bold text-right outline-none transition"
+                        className="w-full pl-6 pr-1.5 sm:pr-2.5 py-1 bg-white border border-slate-200 focus:border-emerald-500 rounded-lg text-[11px] sm:text-xs font-bold text-right outline-none transition"
                       />
-                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[9.5px] text-slate-400 font-bold">ج.م</span>
+                      <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[8.5px] sm:text-[9.5px] text-slate-400 font-bold">ج.م</span>
                     </div>
                   </div>
 
                   <div className="space-y-0.5">
-                    <label className="text-[9px] font-bold text-slate-500 block">نوع الدفعة</label>
+                    <label className="text-[9px] font-bold text-slate-500 block truncate">نوع الدفعة</label>
                     <select
                       value={newPaymentType}
                       onChange={(e) => setNewPaymentType(e.target.value)}
-                      className="w-full px-2 py-1 bg-white border border-slate-200 focus:border-emerald-500 rounded-lg text-xs font-bold text-right outline-none transition cursor-pointer"
+                      className="w-full px-1 sm:px-2 py-1 bg-white border border-slate-200 focus:border-emerald-500 rounded-lg text-[11px] sm:text-xs font-bold text-right outline-none transition cursor-pointer"
                     >
                       {(paymentTypes && paymentTypes.length > 0 ? paymentTypes : ['اشتراك شهري', 'صيانة طارئة', 'تحصيلات اخرى']).map(type => (
                         <option key={type} value={type}>{type}</option>
@@ -1878,10 +1852,10 @@ export const Summaries: React.FC<SummariesProps> = ({
                         const defaultAmt = getDefaultFeeForResident(selectedCell.resident);
                         setNewAmount(String(defaultAmt));
                       }}
-                      className="w-full py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black rounded-lg shadow-sm transition cursor-pointer flex items-center justify-center gap-1.5"
+                      className="w-full py-1 sm:py-1.5 px-1 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-[10px] sm:text-xs font-black rounded-lg shadow-2xs transition cursor-pointer flex items-center justify-center gap-1 leading-tight"
                     >
-                      <PlusCircle className="w-3.5 h-3.5" />
-                      <span>تسجيل الدفعة الآن</span>
+                      <PlusCircle className="w-3.5 h-3.5 shrink-0" />
+                      <span className="truncate">تسجيل الدفعة الآن</span>
                     </button>
                   </div>
                 </div>

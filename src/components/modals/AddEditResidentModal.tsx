@@ -171,7 +171,7 @@ export const AddEditResidentModal: React.FC<AddEditResidentModalProps> = ({
     }
 
     if (monthlyFee !== '' && (isNaN(Number(monthlyFee)) || Number(monthlyFee) < 0)) {
-      setError('قيمة الاشتراك الشهري لا يمكن أن تكون سالبة.');
+      setError('قيمة اشتراك شهري لا يمكن أن تكون سالبة.');
       return;
     }
 
@@ -433,7 +433,7 @@ export const AddEditResidentModal: React.FC<AddEditResidentModalProps> = ({
           {/* Row 3: Monthly Fee & Initial Balance */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1">
-              <label className="text-[10px] font-black text-slate-600">قيمة الاشتراك الشهري (ج.م) *</label>
+              <label className="text-[10px] font-black text-slate-600">قيمة اشتراك شهري (ج.م) *</label>
               <input
                 type="number"
                 min="0"

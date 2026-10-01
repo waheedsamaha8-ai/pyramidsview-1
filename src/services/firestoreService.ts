@@ -30,6 +30,7 @@ import {
 import * as offlineSync from './offlineSync';
 import { DEFAULT_BUILDING_ID } from './buildingStore';
 import { deduplicateResidents, isSameFlatNumber } from '../utils/buildingStructure';
+import { filterAndDeduplicatePayments, registerDeletedPaymentIds } from '../utils/financialCalculations';
 
 // Helper to recursively sanitize undefined values before saving to Firestore (handles arrays & nested objects)
 function sanitizeForFirestore(data: any): any {
@@ -337,14 +338,15 @@ export async function getPaymentsFromFirestore(): Promise<Payment[]> {
       } catch {}
     }
 
-    offlineSync.saveCachedData(cacheKey, payments);
-    return payments;
+    const cleanPayments = filterAndDeduplicatePayments(payments);
+    offlineSync.saveCachedData(cacheKey, cleanPayments);
+    return cleanPayments;
   } catch (error) {
     handleFirestoreError(error, {
       operation: OperationType.LIST,
       path: 'payments'
     });
-    return cached;
+    return filterAndDeduplicatePayments(cached);
   }
 }
 
@@ -385,7 +387,8 @@ export async function savePaymentToFirestore(payment: Payment): Promise<void> {
   } else {
     list.push(payload);
   }
-  offlineSync.saveCachedData(cacheKey, list);
+  const cleanList = filterAndDeduplicatePayments(list);
+  offlineSync.saveCachedData(cacheKey, cleanList);
 }
 
 export async function saveBatchPaymentsToFirestore(paymentsToSave: Payment[]): Promise<void> {
@@ -413,7 +416,8 @@ export async function saveBatchPaymentsToFirestore(paymentsToSave: Payment[]): P
       list.push(payload);
     }
   });
-  offlineSync.saveCachedData(cacheKey, list);
+  const cleanList = filterAndDeduplicatePayments(list);
+  offlineSync.saveCachedData(cacheKey, cleanList);
 
   try {
     const CHUNK_SIZE = 150;
@@ -444,12 +448,15 @@ export async function saveBatchPaymentsToFirestore(paymentsToSave: Payment[]): P
 export async function deleteBatchPaymentsFromFirestore(ids: string[]): Promise<void> {
   if (!ids || ids.length === 0) return;
   const cleanIds = ids.map(id => String(id));
+  registerDeletedPaymentIds(cleanIds);
+  cleanIds.forEach(id => offlineSync.purgeEntityFromQueue(id));
+
   const activeId = getActiveBuildingId();
   const cacheKey = getBuildingCacheKey('payments');
   let list = offlineSync.getCachedData<Payment[]>(cacheKey) || [];
   list = list.filter(p => !cleanIds.includes(String(p.id)));
-  offlineSync.saveCachedData(cacheKey, list);
-  cleanIds.forEach(id => offlineSync.purgeEntityFromQueue(id));
+  const cleanList = filterAndDeduplicatePayments(list);
+  offlineSync.saveCachedData(cacheKey, cleanList);
 
   try {
     const CHUNK_SIZE = 150;
@@ -479,6 +486,9 @@ export async function deleteBatchPaymentsFromFirestore(ids: string[]): Promise<v
 
 export async function deletePaymentFromFirestore(id: string): Promise<void> {
   const cleanId = String(id);
+  registerDeletedPaymentIds(cleanId);
+  offlineSync.purgeEntityFromQueue(cleanId);
+
   try {
     await deleteFromAllFirestorePaths('payments', cleanId);
   } catch (error) {
@@ -492,8 +502,8 @@ export async function deletePaymentFromFirestore(id: string): Promise<void> {
   const cacheKey = getBuildingCacheKey('payments');
   let list = offlineSync.getCachedData<Payment[]>(cacheKey) || [];
   list = list.filter(p => String(p.id) !== cleanId);
-  offlineSync.saveCachedData(cacheKey, list);
-  offlineSync.purgeEntityFromQueue(cleanId);
+  const cleanList = filterAndDeduplicatePayments(list);
+  offlineSync.saveCachedData(cacheKey, cleanList);
 }
 
 // ----------------------------------------------------

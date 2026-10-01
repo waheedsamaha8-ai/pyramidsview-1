@@ -86,11 +86,15 @@ export function useDebtsCalculations(
         carriedBalance: carriedBal,
       };
 
-      if (fin.netBalance < 0) {
+      const prevDebt = carriedBal < 0 ? Math.abs(carriedBal) : 0;
+      const rowDebt = Math.max(0, prevDebt + (fin.unpaidMonthsDues || 0) + (fin.otherCollectionsDebt || 0));
+      const hasDebt = fin.netBalance < 0 || fin.totalDueForPayment > 0 || fin.unpaidMonthsCount > 0 || fin.totalArrears > 0 || rowDebt > 0;
+
+      if (hasDebt) {
         debtors.push(item);
-        const debt = Math.abs(fin.netBalance);
+        const debt = rowDebt > 0 ? rowDebt : (fin.totalDueForPayment > 0 ? fin.totalDueForPayment : Math.abs(fin.netBalance));
         debtSum += debt;
-        if (!maxDebt || debt > Math.abs(maxDebt.financials.netBalance)) {
+        if (!maxDebt || debt > (maxDebt.financials.totalDueForPayment || Math.abs(maxDebt.financials.netBalance))) {
           maxDebt = item;
         }
       } else if (fin.netBalance > 0) {

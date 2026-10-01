@@ -1112,9 +1112,13 @@ export function getLatestActivityFromHistory(
     }
   }
 
-  // If none matched specifically by date, take the latest record
+  // If none matched specifically by date, only take latest if requesting 'latest' or 'current', otherwise return fallback
   if (!matchedRecord) {
-    matchedRecord = historyList[historyList.length - 1];
+    if (targetDateOrPeriod === 'latest' || targetDateOrPeriod === 'current' || !targetDateOrPeriod) {
+      matchedRecord = historyList[historyList.length - 1];
+    } else {
+      return fallback;
+    }
   }
 
   if (matchedRecord && matchedRecord.activityType) {

@@ -1,5 +1,13 @@
 import { Resident, Payment, AppConfig } from '../types';
-import { isSameFlatNumber, getHistoricalActivityForDate, getDefaultFeeForActivity } from './buildingStructure';
+import { 
+  isSameFlatNumber, 
+  parseFlatNumber,
+  getHistoricalActivityForDate, 
+  getDefaultFeeForActivity,
+  sortActivityRecordsChronologically,
+  parseToStandardDate,
+  isPeriodMatchingTarget
+} from './buildingStructure';
 
 /**
  * Determines the effective monthly fee for a resident (optionally for a specific historical date/period)
@@ -55,6 +63,62 @@ export function getResidentMonthlyFee(
   return getDefaultFeeForActivity(resident.activityType, defaultMonthlyFee, activityDefaultFees);
 }
 
+/**
+ * Resolves the prescribed monthly subscription fee and activity type for a resident for a specific year and month:
+ * Priority Rules (User Rule):
+ * 1. Historical Activity Record for this month (if an explicit matching record exists in activityHistory for this month/period).
+ * 2. Monthly subscription fee specified in the recorded unpaid/pending subscription payment for this month (if one exists).
+ * 3. Monthly subscription fee specified for the unit in the units table (resident.monthlyFee if > 0) or default activity fee.
+ */
+export function getPrescribedFeeForMonth(
+  resident: Resident,
+  year: number,
+  month: number,
+  allResidentPayments: Payment[] = [],
+  defaultMonthlyFee: number = 400,
+  activityDefaultFees?: Record<string, number>
+): { monthlyFee: number; activityType: string } {
+  if (!resident) {
+    return { monthlyFee: defaultMonthlyFee || 400, activityType: 'سكني' };
+  }
+
+  const mStr = String(month).padStart(2, '0');
+  const periodStr = `${year}-${mStr}`;
+
+  // 1. طبقاً للسجل التاريخي لنشاط الوحدة خلال هذا الشهر
+  if (resident.activityHistory && Array.isArray(resident.activityHistory) && resident.activityHistory.length > 0) {
+    const historyList = sortActivityRecordsChronologically(resident.activityHistory);
+    const parsedTarget = parseToStandardDate(periodStr);
+    if (parsedTarget) {
+      const explicitMatch = historyList.find(rec =>
+        rec.activityType && rec.activityType.trim() && isPeriodMatchingTarget(parsedTarget, rec.fromDate, rec.toDate)
+      );
+      if (explicitMatch) {
+        const actType = explicitMatch.activityType.trim();
+        const fee = (explicitMatch.monthlyFee !== undefined && !isNaN(explicitMatch.monthlyFee) && explicitMatch.monthlyFee >= 0)
+          ? explicitMatch.monthlyFee
+          : getDefaultFeeForActivity(actType, defaultMonthlyFee, activityDefaultFees);
+        return { monthlyFee: fee, activityType: actType };
+      }
+    }
+  }
+
+  // 2. طبقاً للقيمة الواردة في كشف الوحدات للوحدة
+  if (resident.monthlyFee !== undefined && !isNaN(resident.monthlyFee) && resident.monthlyFee > 0) {
+    return {
+      monthlyFee: resident.monthlyFee,
+      activityType: resident.activityType || 'سكني',
+    };
+  }
+
+  // 3. القيمة الافتراضية للنشاط من الإعدادات
+  const hist = getHistoricalActivityForDate(resident, periodStr, defaultMonthlyFee, activityDefaultFees);
+  return {
+    monthlyFee: hist.monthlyFee,
+    activityType: hist.activityType || resident.activityType || 'سكني',
+  };
+}
+
 export interface PaymentLookupIndex {
   byFlat: Map<string, Payment[]>;
   byId: Map<string, Payment[]>;
@@ -84,13 +148,24 @@ export function buildPaymentLookupIndex(payments: Payment[] = []): PaymentLookup
     }
 
     if (p.flatNumber !== undefined && p.flatNumber !== null) {
-      const flatKey = String(p.flatNumber).trim();
+      const parsed = parseFlatNumber(p.flatNumber);
+      const flatKey = parsed.main !== 999999 ? `${parsed.main}-${parsed.sub}` : String(p.flatNumber).trim();
       let list = byFlat.get(flatKey);
       if (!list) {
         list = [];
         byFlat.set(flatKey, list);
       }
       list.push(p);
+
+      const rawKey = String(p.flatNumber).trim();
+      if (rawKey && rawKey !== flatKey) {
+        let rawList = byFlat.get(rawKey);
+        if (!rawList) {
+          rawList = [];
+          byFlat.set(rawKey, rawList);
+        }
+        rawList.push(p);
+      }
     }
   }
 
@@ -108,39 +183,40 @@ export function getPaymentsForResident(
     // Using PaymentLookupIndex for instant retrieval
     const index = paymentsOrIndex;
     const rId = resident.id ? String(resident.id).trim() : '';
-    const flatKey = resident.flatNumber !== undefined && resident.flatNumber !== null ? String(resident.flatNumber).trim() : '';
+    const resParsed = parseFlatNumber(resident.flatNumber);
+    const flatKey = resParsed.main !== 999999 ? `${resParsed.main}-${resParsed.sub}` : (resident.flatNumber !== undefined && resident.flatNumber !== null ? String(resident.flatNumber).trim() : '');
+    const rawKey = resident.flatNumber !== undefined && resident.flatNumber !== null ? String(resident.flatNumber).trim() : '';
     
     const byIdList = rId ? index.byId.get(rId) : undefined;
-    const byFlatList = flatKey ? index.byFlat.get(flatKey) : undefined;
+    const byFlatList = flatKey ? index.byFlat.get(flatKey) : (rawKey ? index.byFlat.get(rawKey) : undefined);
 
-    if (!byIdList && !byFlatList) {
-      // Fallback in case of non-exact flat number format (e.g. 502 vs 502-1)
-      return index.all.filter(p => isSameFlatNumber(p.flatNumber, resident.flatNumber));
-    }
-
-    if (byIdList && !byFlatList) return byIdList;
-    if (!byIdList && byFlatList) return byFlatList;
-
-    // Merge unique payments from both lists
-    const seen = new Set<string>();
-    const merged: Payment[] = [];
-    if (byIdList) {
-      for (let i = 0; i < byIdList.length; i++) {
-        const item = byIdList[i];
-        seen.add(item.id);
-        merged.push(item);
-      }
-    }
-    if (byFlatList) {
-      for (let i = 0; i < byFlatList.length; i++) {
-        const item = byFlatList[i];
-        if (!seen.has(item.id)) {
+    if (byIdList || byFlatList) {
+      const seen = new Set<string>();
+      const merged: Payment[] = [];
+      if (byIdList) {
+        for (let i = 0; i < byIdList.length; i++) {
+          const item = byIdList[i];
           seen.add(item.id);
           merged.push(item);
         }
       }
+      if (byFlatList) {
+        for (let i = 0; i < byFlatList.length; i++) {
+          const item = byFlatList[i];
+          if (!seen.has(item.id)) {
+            seen.add(item.id);
+            merged.push(item);
+          }
+        }
+      }
+      return merged;
     }
-    return merged;
+
+    // Fallback in case of non-exact flat number format (e.g. 502 vs 502-1)
+    return index.all.filter(p => 
+      isSameFlatNumber(p.flatNumber, resident.flatNumber) ||
+      (rId && p.residentId && String(p.residentId).trim() === rId)
+    );
   }
 
   // Fallback to array filtering
@@ -156,16 +232,149 @@ export function getPaymentsForResident(
 export function isMonthlySubscriptionType(paymentType?: string): boolean {
   if (!paymentType) return true;
   const t = paymentType.trim();
+
+  // If it explicitly says subscription or monthly, it is ALWAYS a monthly subscription
+  if (t === 'اشتراك شهري' || t === 'اشتراك' || t.includes('اشتراك') || t.includes('شهري')) {
+    return true;
+  }
+
+  // Explicit check for non-subscription other collection categories
+  if (
+    t.includes('أخرى') ||
+    t.includes('أخري') ||
+    t.includes('اخرى') ||
+    t.includes('اخري') ||
+    t.includes('صيانة') ||
+    t.includes('مصعد') ||
+    t.includes('حراسة') ||
+    t.includes('انتركم') ||
+    t.includes('خدمات') ||
+    t.includes('وديعة') ||
+    t.includes('كهرباء') ||
+    t.includes('مياه') ||
+    t.includes('غرامة') ||
+    t.includes('مرافق')
+  ) {
+    return false;
+  }
+
   return (
-    t === 'اشتراك شهري' ||
-    t.includes('اشتراك') ||
-    t.includes('شهري') ||
-    t.includes('شهر') ||
+    t.includes('توزيع مجمع') ||
     t.includes('مجمع') ||
-    t.includes('تجميع') ||
-    t.includes('مجمعة') ||
-    t === 'تحصيل'
+    t === 'تحصيل' ||
+    t === 'تحصيل مجمع' ||
+    t === 'تحصيل شهري'
   );
+}
+
+/**
+ * Unified check for whether a payment record represents an unpaid/pending payment.
+ */
+export function isPendingUnpaidPayment(p: Payment): boolean {
+  if (!p) return false;
+  if ((p as any).isDeleted || p.status === 'deleted') return false;
+  const s = p.status ? String(p.status).trim().toLowerCase() : '';
+  if (!s) return false;
+  return (
+    s === 'pending' ||
+    s === 'unpaid' ||
+    s === 'uncollected' ||
+    s.includes('معلق') ||
+    s.includes('غير مسدد') ||
+    s.includes('لم يسدد') ||
+    s.includes('لم تسدد') ||
+    s.includes('لم يتم') ||
+    s.includes('غير محصل') ||
+    s.includes('غير مدفوع') ||
+    s.includes('قيد التحصيل') ||
+    s.includes('تحت التحصيل')
+  );
+}
+
+/**
+ * Unified check for whether a payment record represents a valid completed/collected payment.
+ */
+export function isValidPaidPayment(p: Payment): boolean {
+  if (!p) return false;
+  if ((p as any).isDeleted || p.status === 'deleted') return false;
+  const s = p.status ? String(p.status).trim().toLowerCase() : '';
+
+  // Cancelled or void
+  if (s === 'cancelled' || s.includes('لاغي') || s.includes('ملغي') || s.includes('ملغية')) {
+    return false;
+  }
+
+  // Pending / Uncollected / Unpaid / Suspended
+  if (isPendingUnpaidPayment(p)) {
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Extracts and normalizes the target accounting year of a payment.
+ */
+export function parsePaymentYear(p: Payment, defaultYear?: number): number | null {
+  if (!p) return null;
+  if (p.year !== undefined && p.year !== null) {
+    const y = Number(p.year);
+    if (!isNaN(y) && y > 1900 && y < 2200) {
+      return y;
+    }
+  }
+  if (p.date) {
+    const d = new Date(p.date);
+    if (!isNaN(d.getTime())) {
+      return d.getFullYear();
+    }
+  }
+  return defaultYear ?? null;
+}
+
+/**
+ * Robustly extracts the target accounting month (1-12) of a payment.
+ * Prioritizes p.month and NEVER falls back to p.date if p.month was already specified.
+ */
+export function parsePaymentMonth(p: Payment): number | null {
+  if (!p) return null;
+
+  if (p.month !== undefined && p.month !== null) {
+    const s = String(p.month).trim();
+    if (s) {
+      const parsedInt = parseInt(s, 10);
+      if (!isNaN(parsedInt) && parsedInt >= 1 && parsedInt <= 12) {
+        return parsedInt;
+      }
+      const arabicMonths = [
+        'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
+        'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'
+      ];
+      for (let i = 0; i < arabicMonths.length; i++) {
+        if (s === arabicMonths[i] || s.includes(arabicMonths[i])) {
+          return i + 1;
+        }
+      }
+      const numMatch = s.match(/\b([1-9]|1[0-2])\b/);
+      if (numMatch) {
+        const m = parseInt(numMatch[1], 10);
+        if (m >= 1 && m <= 12) return m;
+      }
+      // If p.month was explicitly provided but does not match any valid month,
+      // it should NOT fallback to the transaction collection date!
+      return null;
+    }
+  }
+
+  // Fallback to transaction date ONLY if p.month was completely empty or undefined
+  if (p.date) {
+    const d = new Date(p.date);
+    if (!isNaN(d.getTime())) {
+      return d.getMonth() + 1;
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -174,39 +383,11 @@ export function isMonthlySubscriptionType(paymentType?: string): boolean {
 export function isPaymentForYearAndMonth(p: Payment, yNum: number, mNum: number): boolean {
   if (!p) return false;
 
-  // Year check
-  let pYear = Number(p.year);
-  if (!pYear && p.date) {
-    const d = new Date(p.date);
-    if (!isNaN(d.getFullYear())) pYear = d.getFullYear();
-  }
-  if (pYear && pYear !== yNum) return false;
+  const pYear = parsePaymentYear(p, yNum);
+  if (pYear !== yNum) return false;
 
-  // Month check
-  if (p.month !== undefined && p.month !== null) {
-    const mInt = parseInt(String(p.month), 10);
-    if (!isNaN(mInt) && mInt > 0) {
-      if (mInt === mNum) return true;
-    }
-    const mStr = String(p.month).trim();
-    if (mStr) {
-      const arabicNames = [
-        'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
-        'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'
-      ];
-      const arabicName = arabicNames[mNum - 1];
-      if (arabicName && (mStr === arabicName || mStr.includes(arabicName))) return true;
-    }
-  }
-
-  if (p.date) {
-    const d = new Date(p.date);
-    if (!isNaN(d.getMonth())) {
-      if (d.getFullYear() === yNum && (d.getMonth() + 1) === mNum) return true;
-    }
-  }
-
-  return false;
+  const pMonth = parsePaymentMonth(p);
+  return pMonth === mNum;
 }
 
 /**
@@ -262,8 +443,7 @@ export function getCarriedPreviousBalance(
   // Retrieve only this resident's valid paid monthly payments (excluding cancelled and pending/uncollected ones)
   const allResidentPayments = getPaymentsForResident(resident, paymentsOrIndex);
   const residentMonthlyPayments = allResidentPayments
-    .filter(p => p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل')
-    .filter(p => isMonthlySubscriptionType(p.paymentType));
+    .filter(p => isValidPaidPayment(p) && isMonthlySubscriptionType(p.paymentType));
 
   // Sum monthly subscription payments made before targetYear
   const paymentsPrior = residentMonthlyPayments
@@ -300,11 +480,8 @@ export function calculateResidentFinancials(
   const fee = getResidentMonthlyFee(resident, defaultMonthlyFee, activityDefaultFees);
   const allResidentPayments = getPaymentsForResident(resident, paymentsOrIndex);
 
-  const validPayments = allResidentPayments
-    .filter(p => p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل');
-
-  const pendingPayments = allResidentPayments
-    .filter(p => p.status === 'pending' || p.status === 'لم يتم التحصيل' || p.status === 'uncollected');
+  const validPayments = allResidentPayments.filter(isValidPaidPayment);
+  const pendingPayments = allResidentPayments.filter(isPendingUnpaidPayment);
 
   if (targetYear !== undefined) {
     // Specific fiscal year calculation with automatic previous balance carry-over
@@ -375,6 +552,7 @@ export function calculateResidentFinancials(
       month: number;
       fee: number;
       directPaid: number;
+      hasExplicitPendingUnpaid: boolean;
       isFullyPaid: boolean;
     }
 
@@ -399,54 +577,28 @@ export function calculateResidentFinancials(
       const monthValidSubs = validSubsPaymentsInYear.filter(p => isPaymentForYearAndMonth(p, targetYear, m));
       const monthPendingSubs = pendingPaymentsInYear.filter(p => isMonthlySubscriptionType(p.paymentType) && isPaymentForYearAndMonth(p, targetYear, m));
 
-      // Prescribed monthly fee for this unit in this month:
-      // 1. If activity history is set: use activity history fee for this period
-      // 2. Else if resident.monthlyFee in units table is set (>0): use resident.monthlyFee
-      // 3. Else default for this activity from Settings
-      let mFee = 0;
-      if (resident.activityHistory && resident.activityHistory.length > 0 && hist.monthlyFee !== undefined) {
-        mFee = hist.monthlyFee;
-      } else if (resident.monthlyFee !== undefined && !isNaN(resident.monthlyFee) && resident.monthlyFee > 0) {
-        mFee = resident.monthlyFee;
-      } else {
-        mFee = getDefaultFeeForActivity(hist.activityType || resident.activityType, defaultMonthlyFee, activityDefaultFees);
-      }
+      // Prescribed monthly fee for this unit in this month using 3-step priority logic
+      const prescribed = getPrescribedFeeForMonth(resident, targetYear, m, allResidentPayments, defaultMonthlyFee, activityDefaultFees);
+      let mFee = prescribed.monthlyFee;
 
       if (mFee <= 0) continue;
 
       const directPaid = monthValidSubs.reduce((s, p) => s + (p.amount || 0), 0);
-      const isPaid = monthValidSubs.length > 0 && (directPaid >= mFee || monthValidSubs.some(p => p.isManuallyPaid));
+      const hasExplicitPendingUnpaid = monthPendingSubs.length > 0;
+      const hasValidPaidPayment = monthValidSubs.some(p => isValidPaidPayment(p) && ((p.amount || 0) > 0 || p.isManuallyPaid));
+      const isPaid = !hasExplicitPendingUnpaid && hasValidPaidPayment;
 
       periodExpectedDues += mFee;
       billableMonths.push({
         month: m,
         fee: mFee,
         directPaid,
+        hasExplicitPendingUnpaid,
         isFullyPaid: isPaid,
       });
     }
 
     const billableMonthsCount = billableMonths.length;
-
-    // Direct month matching
-    let unassignedOrSurplus = 0;
-    validSubsPaymentsInYear.forEach(p => {
-      const m = parseInt(String(p.month), 10);
-      if (!m || m < 1 || m > 12) {
-        unassignedOrSurplus += (p.amount || 0);
-      }
-    });
-
-    // Allocate unassigned or surplus credit to unpaid billable months
-    billableMonths.forEach(bm => {
-      if (!bm.isFullyPaid) {
-        const needed = bm.fee - bm.directPaid;
-        if (unassignedOrSurplus >= needed) {
-          unassignedOrSurplus -= needed;
-          bm.isFullyPaid = true;
-        }
-      }
-    });
 
     const paidMonthsCount = billableMonths.filter(bm => bm.isFullyPaid).length;
     const unpaidMonthsCount = Math.max(0, billableMonthsCount - paidMonthsCount);
@@ -457,25 +609,21 @@ export function calculateResidentFinancials(
     } else {
       unpaidMonthsDues = billableMonths
         .filter(bm => !bm.isFullyPaid)
-        .reduce((sum, bm) => sum + Math.max(0, bm.fee - bm.directPaid), 0);
-      unpaidMonthsDues = Math.max(0, unpaidMonthsDues - unassignedOrSurplus);
+        .reduce((sum, bm) => sum + bm.fee, 0);
     }
 
     const expectedDues = periodExpectedDues - carriedPreviousBalance;
     const oldDebtAmount = carriedPreviousBalance < 0 ? Math.abs(carriedPreviousBalance) : 0;
 
-    // Net debt calculation according to the exact user rule:
-    // (Previous Balance / Debt) + (Late Amount for unpaid months) + (Other uncollected receipts)
-    const prevDebt = carriedPreviousBalance < 0 
-      ? Math.abs(carriedPreviousBalance) 
-      : (carriedPreviousBalance > 0 ? -carriedPreviousBalance : 0);
-    const lateDues = unpaidMonthsDues;
-    const otherDebt = otherCollectionsDebt;
-
-    // Any advance surplus from unassigned credit (when all months are paid)
-    const advanceSurplus = (unpaidMonthsCount === 0 && unassignedOrSurplus > 0) ? unassignedOrSurplus : 0;
-    const totalDebtAmount = prevDebt + lateDues + otherDebt - advanceSurplus;
-    const netBalance = -totalDebtAmount;
+    // Net debt & arrears calculation according to user rule:
+    // Arrears = (Monthly Fee * Elapsed Months) - Monthly Subscription Paid + Other Unpaid Collections
+    // Previous Debt = Carried Previous Balance if negative
+    // Total Due for Payment = Arrears + Previous Debt - Previous Surplus
+    const previousDebt = carriedPreviousBalance < 0 ? Math.abs(carriedPreviousBalance) : 0;
+    const previousSurplus = carriedPreviousBalance > 0 ? carriedPreviousBalance : 0;
+    const totalArrears = unpaidMonthsDues + otherCollectionsDebt;
+    const totalDueForPayment = Math.max(0, totalArrears + previousDebt - previousSurplus);
+    const netBalance = (previousSurplus > totalArrears) ? (previousSurplus - totalArrears) : -totalDueForPayment;
 
     return {
       monthlyFee: fee,
@@ -491,6 +639,10 @@ export function calculateResidentFinancials(
       monthlyPaid,
       otherCollectionsPaid,
       otherCollectionsDebt,
+      totalArrears,
+      previousDebt,
+      previousSurplus,
+      totalDueForPayment,
       netBalance,
       carriedPreviousBalance,
       isDebt: netBalance < 0,
@@ -511,6 +663,7 @@ export function calculateResidentFinancials(
     month: number;
     fee: number;
     directPaid: number;
+    hasExplicitPendingUnpaid: boolean;
     isFullyPaid: boolean;
   }
 
@@ -537,18 +690,15 @@ export function calculateResidentFinancials(
       const monthValidSubs = validSubsPayments.filter(p => isPaymentForYearAndMonth(p, y, m));
       const monthPendingSubs = pendingPayments.filter(p => isMonthlySubscriptionType(p.paymentType) && isPaymentForYearAndMonth(p, y, m));
 
-      let mFee = 0;
-      if (resident.activityHistory && resident.activityHistory.length > 0 && hist.monthlyFee !== undefined) {
-        mFee = hist.monthlyFee;
-      } else if (resident.monthlyFee !== undefined && !isNaN(resident.monthlyFee) && resident.monthlyFee > 0) {
-        mFee = resident.monthlyFee;
-      } else {
-        mFee = getDefaultFeeForActivity(hist.activityType || resident.activityType, defaultMonthlyFee, activityDefaultFees);
-      }
+      const monthAllPayments = validPayments.concat(pendingPayments);
+      const prescribed = getPrescribedFeeForMonth(resident, y, m, monthAllPayments, defaultMonthlyFee, activityDefaultFees);
+      let mFee = prescribed.monthlyFee;
 
       if (mFee > 0) {
         const directPaid = monthValidSubs.reduce((s, p) => s + (p.amount || 0), 0);
-        const isPaid = monthValidSubs.length > 0 && (directPaid >= mFee || monthValidSubs.some(p => p.isManuallyPaid));
+        const hasExplicitPendingUnpaid = monthPendingSubs.length > 0;
+        const hasValidPaidPayment = monthValidSubs.some(p => isValidPaidPayment(p) && ((p.amount || 0) > 0 || p.isManuallyPaid));
+        const isPaid = !hasExplicitPendingUnpaid && hasValidPaidPayment;
 
         periodExpectedDues += mFee;
         cumulativeBillableMonths.push({
@@ -556,6 +706,7 @@ export function calculateResidentFinancials(
           month: m,
           fee: mFee,
           directPaid,
+          hasExplicitPendingUnpaid,
           isFullyPaid: isPaid,
         });
       }
@@ -587,24 +738,6 @@ export function calculateResidentFinancials(
   const totalPaid = monthlyPaid + otherCollectionsPaid;
 
   // Direct matching by year and month
-  let unassignedOrSurplus = 0;
-  validSubsPayments.forEach(p => {
-    const pMonth = parseInt(String(p.month), 10);
-    if (!pMonth || pMonth < 1 || pMonth > 12) {
-      unassignedOrSurplus += (p.amount || 0);
-    }
-  });
-
-  cumulativeBillableMonths.forEach(bm => {
-    if (!bm.isFullyPaid) {
-      const needed = bm.fee - bm.directPaid;
-      if (unassignedOrSurplus >= needed) {
-        unassignedOrSurplus -= needed;
-        bm.isFullyPaid = true;
-      }
-    }
-  });
-
   const paidMonthsCount = cumulativeBillableMonths.filter(bm => bm.isFullyPaid).length;
   const unpaidMonthsCount = Math.max(0, billableMonthsCount - paidMonthsCount);
 
@@ -614,8 +747,7 @@ export function calculateResidentFinancials(
   } else {
     unpaidMonthsDues = cumulativeBillableMonths
       .filter(bm => !bm.isFullyPaid)
-      .reduce((sum, bm) => sum + Math.max(0, bm.fee - bm.directPaid), 0);
-    unpaidMonthsDues = Math.max(0, unpaidMonthsDues - unassignedOrSurplus);
+      .reduce((sum, bm) => sum + bm.fee, 0);
   }
 
   const initialBal = resident.initialBalance || 0;
@@ -624,16 +756,11 @@ export function calculateResidentFinancials(
 
   // Net debt calculation according to the exact user rule:
   // (Previous Balance / Debt) + (Late Amount for unpaid months) + (Other uncollected receipts)
-  const prevDebt = initialBal < 0 
-    ? Math.abs(initialBal) 
-    : (initialBal > 0 ? -initialBal : 0);
-  const lateDues = unpaidMonthsDues;
-  const otherDebt = otherCollectionsDebt;
-
-  // Any advance surplus from unassigned credit (when all months are paid)
-  const advanceSurplus = (unpaidMonthsCount === 0 && unassignedOrSurplus > 0) ? unassignedOrSurplus : 0;
-  const totalDebtAmount = prevDebt + lateDues + otherDebt - advanceSurplus;
-  const netBalance = -totalDebtAmount;
+  const previousDebt = initialBal < 0 ? Math.abs(initialBal) : 0;
+  const previousSurplus = initialBal > 0 ? initialBal : 0;
+  const totalArrears = unpaidMonthsDues + otherCollectionsDebt;
+  const totalDueForPayment = Math.max(0, totalArrears + previousDebt - previousSurplus);
+  const netBalance = (previousSurplus > totalArrears) ? (previousSurplus - totalArrears) : -totalDueForPayment;
 
   return {
     monthlyFee: fee,
@@ -649,6 +776,10 @@ export function calculateResidentFinancials(
     monthlyPaid,
     otherCollectionsPaid,
     otherCollectionsDebt,
+    totalArrears,
+    previousDebt,
+    previousSurplus,
+    totalDueForPayment,
     netBalance,
     carriedPreviousBalance: initialBal,
     isDebt: netBalance < 0,
@@ -783,15 +914,15 @@ export function calculateUnitClaimBreakdown(
   });
 
   const curMonthSubsValidPaid = curMonthSubsPayments
-    .filter(p => p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل' && p.status !== 'uncollected')
+    .filter(isValidPaidPayment)
     .reduce((sum, p) => sum + (p.amount || 0), 0);
 
   const hasCurMonthManuallyPaid = curMonthSubsPayments.some(p => 
-    p.isManuallyPaid && p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل' && p.status !== 'uncollected'
+    p.isManuallyPaid && isValidPaidPayment(p)
   );
 
   const curMonthSubsPending = curMonthSubsPayments
-    .filter(p => p.status === 'pending' || p.status === 'لم يتم التحصيل' || p.status === 'uncollected')
+    .filter(isPendingUnpaidPayment)
     .reduce((sum, p) => sum + (p.amount || 0), 0);
 
   // Determine prescribed monthly fee for this unit in this month:
@@ -802,12 +933,9 @@ export function calculateUnitClaimBreakdown(
   let currentMonthFee = 0;
   if (isNoFee) {
     currentMonthFee = 0;
-  } else if (resident.activityHistory && resident.activityHistory.length > 0 && histAct.monthlyFee !== undefined) {
-    currentMonthFee = histAct.monthlyFee;
-  } else if (resident.monthlyFee !== undefined && !isNaN(resident.monthlyFee) && resident.monthlyFee > 0) {
-    currentMonthFee = resident.monthlyFee;
   } else {
-    currentMonthFee = getDefaultFeeForActivity(histAct.activityType || resident.activityType, defaultMonthlyFee, activityDefaultFees);
+    const prescribed = getPrescribedFeeForMonth(resident, yNum, mNum, allResidentPayments, defaultMonthlyFee, activityDefaultFees);
+    currentMonthFee = prescribed.monthlyFee;
   }
 
   let currentMonthSubsStatusText = '';
@@ -842,11 +970,11 @@ export function calculateUnitClaimBreakdown(
   });
 
   const curMonthOtherPaid = curMonthOtherPayments
-    .filter(p => p.status !== 'pending' && p.status !== 'لم يتم التحصيل' && p.status !== 'uncollected')
+    .filter(isValidPaidPayment)
     .reduce((sum, p) => sum + (p.amount || 0), 0);
 
   const curMonthOtherPending = curMonthOtherPayments
-    .filter(p => p.status === 'pending' || p.status === 'لم يتم التحصيل' || p.status === 'uncollected')
+    .filter(isPendingUnpaidPayment)
     .reduce((sum, p) => sum + (p.amount || 0), 0);
 
   let currentMonthOtherFee = curMonthOtherPaid + curMonthOtherPending;
@@ -918,12 +1046,11 @@ export function calculateUnitClaimBreakdown(
     });
 
     const hasCollected = monthSubsPayments.some(p =>
-      p.status !== 'pending' && p.status !== 'لم يتم التحصيل' && p.status !== 'uncollected' && (p.amount > 0 || p.isManuallyPaid)
+      isValidPaidPayment(p) && (p.amount > 0 || p.isManuallyPaid)
     );
 
-    let feeForMonth = (resident.activityHistory && resident.activityHistory.length > 0 && pastAct.monthlyFee !== undefined)
-      ? pastAct.monthlyFee
-      : residentStandardFee;
+    const prescribed = getPrescribedFeeForMonth(resident, yNum, m, allResidentPayments, defaultMonthlyFee, activityDefaultFees);
+    let feeForMonth = prescribed.monthlyFee;
 
     pastMonthsList.push({
       month: m,
@@ -937,24 +1064,10 @@ export function calculateUnitClaimBreakdown(
     const pYear = Number(p.year) || (p.date ? new Date(p.date).getFullYear() : yNum);
     const pMonth = parseInt(String(p.month), 10);
     const isUnassigned = !pMonth || pMonth < 1 || pMonth > 12;
-    return pYear === yNum && isUnassigned && isMonthlySubscriptionType(p.paymentType) &&
-      p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل';
+    return pYear === yNum && isUnassigned && isMonthlySubscriptionType(p.paymentType) && isValidPaidPayment(p);
   });
 
-  let lumpSumCredit = unassignedSubsPayments.reduce((s, p) => s + (p.amount || 0), 0);
-
-  const unpaidPastMonths: PastMonthStatus[] = [];
-  pastMonthsList.forEach(pm => {
-    if (pm.hasPayment) {
-      // Month had a payment recorded -> fully satisfied, not delayed
-    } else {
-      if (lumpSumCredit >= pm.fee && pm.fee > 0) {
-        lumpSumCredit -= pm.fee;
-      } else {
-        unpaidPastMonths.push(pm);
-      }
-    }
-  });
+  const unpaidPastMonths: PastMonthStatus[] = pastMonthsList.filter(pm => !pm.hasPayment);
 
   monthlyDelayedMonthsCount = unpaidPastMonths.length;
   monthlyDelayedAmount = unpaidPastMonths.reduce((sum, pm) => sum + pm.fee, 0);
@@ -1064,4 +1177,173 @@ export function exportCarriedBalancesForYear(
       initialBalance: carriedBalance,
     };
   });
+}
+
+// ----------------------------------------------------
+// PERSISTENT DELETED PAYMENTS & DEDUPLICATION REGISTRY
+// ----------------------------------------------------
+const DELETED_PAYMENTS_KEY = 'deleted_payment_ids_v2';
+
+export function getDeletedPaymentIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(DELETED_PAYMENTS_KEY);
+    if (!raw) return new Set<string>();
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return new Set<string>(parsed.map(id => String(id).trim()).filter(Boolean));
+    }
+    return new Set<string>();
+  } catch {
+    return new Set<string>();
+  }
+}
+
+export function registerDeletedPaymentIds(ids: string | string[]): void {
+  if (!ids) return;
+  const list = Array.isArray(ids) ? ids : [ids];
+  const set = getDeletedPaymentIds();
+  let added = false;
+  for (const id of list) {
+    if (!id) continue;
+    const clean = String(id).trim();
+    if (clean && !set.has(clean)) {
+      set.add(clean);
+      added = true;
+    }
+  }
+  if (added) {
+    try {
+      localStorage.setItem(DELETED_PAYMENTS_KEY, JSON.stringify(Array.from(set)));
+    } catch {}
+  }
+}
+
+export function unregisterDeletedPaymentIds(ids: string | string[]): void {
+  if (!ids) return;
+  const list = (Array.isArray(ids) ? ids : [ids]).map(id => String(id).trim()).filter(Boolean);
+  if (list.length === 0) return;
+
+  const set = getDeletedPaymentIds();
+  let removed = false;
+  for (const id of list) {
+    if (set.has(id)) {
+      set.delete(id);
+      removed = true;
+    }
+  }
+  if (removed) {
+    try {
+      localStorage.setItem(DELETED_PAYMENTS_KEY, JSON.stringify(Array.from(set)));
+    } catch {}
+  }
+}
+
+/**
+ * Filter out deleted payments and deduplicate remaining payment records.
+ * Guarantees that deleted payments NEVER resurface and eliminates duplicate payment records.
+ */
+export function filterAndDeduplicatePayments(list: Payment[]): Payment[] {
+  if (!Array.isArray(list) || list.length === 0) return [];
+
+  const deletedSet = getDeletedPaymentIds();
+
+  // 1. Filter out deleted payment IDs & deleted flags
+  const validList = list.filter(p => {
+    if (!p) return false;
+    const cleanId = String(p.id || '').trim();
+    if (!cleanId) return false;
+    if (deletedSet.has(cleanId)) return false;
+    if (p.distributionSourceId && deletedSet.has(String(p.distributionSourceId).trim())) return false;
+    if ((p as any).isDeleted || p.status === 'deleted') return false;
+    return true;
+  });
+
+  // 2. Deduplicate by unique payment ID first
+  const byIdMap = new Map<string, Payment>();
+  for (const p of validList) {
+    const cleanId = String(p.id).trim();
+    const existing = byIdMap.get(cleanId);
+    if (!existing) {
+      byIdMap.set(cleanId, p);
+    } else {
+      // Merge image or prefer record with higher detail
+      const merged: Payment = {
+        ...existing,
+        ...p,
+        fileUrl: p.fileUrl || existing.fileUrl,
+        receiptNumber: p.receiptNumber || existing.receiptNumber,
+        notes: p.notes || existing.notes,
+      };
+      byIdMap.set(cleanId, merged);
+    }
+  }
+
+  const uniqueByIdList = Array.from(byIdMap.values());
+
+  // 3. Deduplicate active subscription payments by business fingerprint
+  const fingerprintMap = new Map<string, Payment>();
+  const duplicatesToPurgeInFirestore: string[] = [];
+
+  for (const p of uniqueByIdList) {
+    // Cancelled or non-subscription payments are preserved as-is
+    if (p.status === 'cancelled' || p.status === 'لاغي' || !p.flatNumber) {
+      fingerprintMap.set(String(p.id), p);
+      continue;
+    }
+
+    const flatKey = String(p.flatNumber).trim();
+    const monthNum = parseInt(String(p.month), 10) || 0;
+    const yearNum = Number(p.year) || 0;
+    const typeStr = (p.paymentType || 'اشتراك شهري').trim();
+    const receiptStr = (p.receiptNumber || '').trim();
+    const amountVal = Math.round(Number(p.amount) || 0);
+
+    // Business fingerprint
+    const fpKey = `${flatKey}_${yearNum}_${monthNum}_${typeStr}_${amountVal}_${receiptStr}`;
+
+    const existing = fingerprintMap.get(fpKey);
+    if (!existing) {
+      fingerprintMap.set(fpKey, p);
+    } else {
+      // If two records share the exact same business fingerprint:
+      const isExistingDist = existing.isDistributed || Boolean(existing.distributionSourceId) || (Array.isArray(existing.distributedPaymentIds) && existing.distributedPaymentIds.length > 0);
+      const isCurrentDist = p.isDistributed || Boolean(p.distributionSourceId) || (Array.isArray(p.distributedPaymentIds) && p.distributedPaymentIds.length > 0);
+
+      let winner = existing;
+      let loser = p;
+
+      if (isCurrentDist && !isExistingDist) {
+        winner = p;
+        loser = existing;
+      } else if (!isCurrentDist && isExistingDist) {
+        winner = existing;
+        loser = p;
+      } else {
+        if (!existing.fileUrl && p.fileUrl) {
+          winner = p;
+          loser = existing;
+        }
+      }
+
+      duplicatesToPurgeInFirestore.push(String(loser.id));
+
+      const mergedWinner: Payment = {
+        ...winner,
+        fileUrl: winner.fileUrl || loser.fileUrl,
+        receiptNumber: winner.receiptNumber || loser.receiptNumber,
+        notes: winner.notes ? (loser.notes && !winner.notes.includes(loser.notes) ? `${winner.notes} | ${loser.notes}` : winner.notes) : loser.notes,
+      };
+
+      fingerprintMap.set(fpKey, mergedWinner);
+    }
+  }
+
+  // Purge duplicate loser IDs asynchronously in background
+  if (duplicatesToPurgeInFirestore.length > 0) {
+    import('../services/firestoreService').then(srv => {
+      duplicatesToPurgeInFirestore.forEach(id => srv.deletePaymentFromFirestore(id).catch(() => {}));
+    }).catch(() => {});
+  }
+
+  return Array.from(fingerprintMap.values());
 }
