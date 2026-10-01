@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { generateElementImage, generateElementImageBlob, GeneratedImageResult } from '../utils/imageExport';
 import { Resident, Payment, AppConfig, FloorConfig } from '../types';
-import { calculateResidentFinancials, getCarriedPreviousBalance, isMonthlySubscriptionType, getPrescribedFeeForMonth, isValidPaidPayment, isPendingUnpaidPayment, isPaymentForYearAndMonth } from '../utils/financialCalculations';
+import { calculateResidentFinancials, getCarriedPreviousBalance, isMonthlySubscriptionType, getPrescribedFeeForMonth, isValidPaidPayment, isPendingUnpaidPayment, isPaymentForYearAndMonth, parsePaymentYear, parsePaymentMonth } from '../utils/financialCalculations';
 import { compareFlatNumbers, isSameFlatNumber, deriveFloorConfigsFromResidents, getUnitNumbersForFloor, getLatestOccupantFromHistory, getHistoricalActivityForDate, formatResidentOptionLabel } from '../utils/buildingStructure';
 import { formatMobileNumber, formatPhoneForDisplay, toWhatsAppNumber } from '../utils/phoneUtils';
 import { 
@@ -301,6 +301,75 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
         return new Date(a.date).getTime() - new Date(b.date).getTime();
       });
   }, [activeResident, payments]);
+
+  // Group unit payments by Month and Year, separating Monthly Subscriptions and Other Collections
+  // to achieve identical month row splitting and formatting as the detailed months timeline table
+  const groupedUnitPayments = useMemo(() => {
+    if (!activeResident || unitPayments.length === 0) return [];
+
+    const groupsMap = new Map<string, {
+      year: number;
+      monthNum: number;
+      monthLabel: string;
+      monthlySubPayments: Payment[];
+      otherCollectionPayments: Payment[];
+    }>();
+
+    for (const p of unitPayments) {
+      const y = parsePaymentYear(p, currentYear) || Number(p.year) || currentYear;
+      const m = parsePaymentMonth(p) || parseInt(String(p.month), 10) || 1;
+      const key = `${y}-${m}`;
+
+      let grp = groupsMap.get(key);
+      if (!grp) {
+        grp = {
+          year: y,
+          monthNum: m,
+          monthLabel: `${monthNamesArabic[m - 1] || m} ${y}`,
+          monthlySubPayments: [],
+          otherCollectionPayments: [],
+        };
+        groupsMap.set(key, grp);
+      }
+
+      const isSub = isMonthlySubscriptionType(p.paymentType) || !p.paymentType || p.paymentType === 'اشتراك شهري';
+      if (isSub) {
+        grp.monthlySubPayments.push(p);
+      } else {
+        grp.otherCollectionPayments.push(p);
+      }
+    }
+
+    const groups = Array.from(groupsMap.values()).map(grp => {
+      const prescribed = getPrescribedFeeForMonth(
+        activeResident,
+        grp.year,
+        grp.monthNum,
+        unitPayments,
+        defaultMonthlyFee,
+        activityDefaultFees
+      );
+
+      const subRowsCount = grp.monthlySubPayments.length;
+      const otherRowsCount = grp.otherCollectionPayments.length;
+      const totalRows = Math.max(1, subRowsCount + otherRowsCount);
+
+      return {
+        ...grp,
+        prescribedFee: prescribed.monthlyFee,
+        prescribedActivity: prescribed.activityType,
+        totalRows,
+      };
+    });
+
+    // Sort chronologically by year ascending, then month ascending
+    groups.sort((a, b) => {
+      if (a.year !== b.year) return a.year - b.year;
+      return a.monthNum - b.monthNum;
+    });
+
+    return groups;
+  }, [activeResident, unitPayments, currentYear, defaultMonthlyFee, activityDefaultFees]);
 
   // Generate detailed breakdown of all months from accounting start date up to current date
   const monthsTimeline = useMemo(() => {
@@ -1512,85 +1581,325 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-xs font-bold text-slate-800">
-                  {unitPayments.length === 0 ? (
+                  {groupedUnitPayments.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="py-8 text-center text-slate-400 font-semibold">
                         لا توجد عمليات سداد أو تحصيل مسجلة لهذه الوحدة حتى الآن.
                       </td>
                     </tr>
                   ) : (
-                    unitPayments.map((p) => {
-                      const mIdx = parseInt(String(p.month), 10) - 1;
-                      const mName = monthNamesArabic[mIdx] || p.month;
-                      const statusInfo = getPaymentStatusDisplay(p.status);
-                      return (
-                        <tr 
-                          key={p.id} 
-                          className={`group transition ${
-                            statusInfo.type === 'cancelled' 
-                              ? 'bg-rose-50/25 hover:bg-rose-50/50' 
-                              : statusInfo.type === 'pending'
-                              ? 'bg-amber-50/25 hover:bg-amber-50/50'
-                              : 'hover:bg-slate-50/70'
-                          }`}
-                        >
-                          <td className="sticky right-0 z-10 bg-white group-hover:bg-slate-50 px-1 py-1 whitespace-nowrap leading-tight border-l border-slate-200/80 shadow-[-2px_0_4px_rgba(0,0,0,0.03)] text-center align-middle">
-                            <div className="font-bold text-slate-900 text-[11px] sm:text-xs">
-                              {mName}
-                            </div>
-                            <div className="text-[9px] font-medium text-slate-400 leading-none mt-0.5">
-                              {p.year}
-                            </div>
-                          </td>
-                          <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-slate-600 font-bold text-[11px] sm:text-xs align-middle">
-                            {financials.monthlyFee.toLocaleString()} ج.م
-                          </td>
-                          <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-[11px] sm:text-xs align-middle">
-                            <span className={statusInfo.amountClass}>
-                              {p.amount.toLocaleString()} ج.م
-                            </span>
-                          </td>
-                          <td className="px-1 py-1 whitespace-nowrap text-center text-[10px] sm:text-[11px] align-middle">
-                            <span
-                              className={`px-1 py-0.5 border rounded text-[9px] font-bold inline-block truncate max-w-[75px] ${
-                                isMonthlySubscriptionType(p.paymentType) || !p.paymentType || p.paymentType === 'اشتراك شهري'
-                                  ? 'bg-blue-50 text-blue-900 border-blue-200/80'
-                                  : 'bg-purple-50 text-purple-900 border-purple-200/80'
-                              }`}
-                              title={p.paymentType || 'اشتراك شهري'}
-                            >
-                              {isMonthlySubscriptionType(p.paymentType) || !p.paymentType || p.paymentType === 'اشتراك شهري'
-                                ? 'الاشتراك الشهري'
-                                : (p.paymentType || 'تحصيلات أخرى')}
-                            </span>
-                          </td>
-                          <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center align-middle">
-                            <span className={`min-w-[64px] inline-flex items-center justify-center gap-1 px-1.5 py-0.5 ${statusInfo.badgeClass} rounded-md text-[9.5px] font-black leading-none`}>
-                              <statusInfo.icon className="w-2.5 h-2.5 shrink-0" />
-                              <span>{statusInfo.label}</span>
-                            </span>
-                          </td>
-                          <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center sm:text-right text-[10.5px] align-middle">
-                            <span className="font-mono px-1 py-0.5 rounded text-[9.5px] font-bold bg-slate-100 text-slate-700 border border-slate-200 truncate max-w-[75px]" title={p.receiptNumber ? `#${p.receiptNumber}` : 'مسدد'}>
-                              {p.receiptNumber ? `#${p.receiptNumber}` : 'مسدد'}
-                            </span>
-                          </td>
-                          <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center text-xs align-middle">
-                            {p.fileUrl ? (
-                              <button
-                                type="button"
-                                onClick={() => onPreviewImage && p.fileUrl && onPreviewImage(p.fileUrl)}
-                                className="inline-flex items-center justify-center gap-0.5 px-1.5 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200/80 rounded-md text-[9px] font-bold transition cursor-pointer shadow-2xs"
-                                title="عرض صورة الإيصال"
+                    groupedUnitPayments.map((grp, grpIdx) => {
+                      if (grp.monthlySubPayments.length > 0) {
+                        const firstSub = grp.monthlySubPayments[0];
+                        const subStatusInfo = getPaymentStatusDisplay(firstSub.status);
+                        const extraSubs = grp.monthlySubPayments.slice(1);
+
+                        return (
+                          <React.Fragment key={`grp-${grp.year}-${grp.monthNum}-${grpIdx}`}>
+                            {/* Main Row: Monthly Subscription Collection */}
+                            <tr className={`group hover:bg-slate-50/70 transition ${grp.totalRows === 1 ? 'border-b border-slate-100' : ''}`}>
+                              <td
+                                rowSpan={grp.totalRows}
+                                className="sticky right-0 z-10 bg-white group-hover:bg-slate-50 px-1 py-1 whitespace-nowrap leading-tight border-l border-slate-200/80 shadow-[-2px_0_4px_rgba(0,0,0,0.03)] text-center align-middle"
                               >
-                                <ImageIcon className="w-2.5 h-2.5 text-blue-600 shrink-0" />
-                                <span>عرض</span>
-                              </button>
-                            ) : (
-                              <span className="text-slate-300 font-normal">—</span>
-                            )}
-                          </td>
-                        </tr>
+                                <div className="font-bold text-slate-900 text-[11px] sm:text-xs">
+                                  {monthNamesArabic[grp.monthNum - 1]}
+                                </div>
+                                <div className="text-[9px] font-medium text-slate-400 leading-none mt-0.5">
+                                  {grp.year}
+                                </div>
+                              </td>
+                              <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-slate-600 font-bold text-[11px] sm:text-xs align-middle">
+                                <div>{grp.prescribedFee.toLocaleString()} ج.م</div>
+                                {grp.prescribedActivity && (
+                                  <div className="text-[9px] text-slate-400 font-normal">{grp.prescribedActivity}</div>
+                                )}
+                              </td>
+                              <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-[11px] sm:text-xs align-middle">
+                                <span className={subStatusInfo.amountClass}>
+                                  {firstSub.amount.toLocaleString()} ج.م
+                                </span>
+                              </td>
+                              <td className="px-1 py-1 whitespace-nowrap text-center text-[10px] sm:text-[11px] align-middle">
+                                <span
+                                  className="px-1 py-0.5 bg-blue-50 text-blue-900 border border-blue-200/80 rounded text-[9px] font-bold inline-block truncate max-w-[70px]"
+                                  title="اشتراك شهري"
+                                >
+                                  اشتراك شهري
+                                </span>
+                              </td>
+                              <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center align-middle">
+                                <span className={`min-w-[64px] inline-flex items-center justify-center gap-1 px-1.5 py-0.5 ${subStatusInfo.badgeClass} rounded-md text-[9.5px] font-black leading-none`}>
+                                  <subStatusInfo.icon className="w-2.5 h-2.5 shrink-0" />
+                                  <span>{subStatusInfo.label}</span>
+                                </span>
+                              </td>
+                              <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center sm:text-right text-[10.5px] align-middle">
+                                <span
+                                  className="font-mono px-1 py-0.5 rounded text-[9.5px] font-bold bg-slate-100 text-slate-700 border border-slate-200 truncate max-w-[75px]"
+                                  title={firstSub.receiptNumber ? `#${firstSub.receiptNumber}` : 'مسدد'}
+                                >
+                                  {firstSub.receiptNumber ? `#${firstSub.receiptNumber}` : 'مسدد'}
+                                </span>
+                              </td>
+                              <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center text-xs align-middle">
+                                {firstSub.fileUrl ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => onPreviewImage && firstSub.fileUrl && onPreviewImage(firstSub.fileUrl)}
+                                    className="inline-flex items-center justify-center gap-0.5 px-1.5 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200/80 rounded-md text-[9px] font-bold transition cursor-pointer shadow-2xs"
+                                    title="عرض صورة الإيصال"
+                                  >
+                                    <ImageIcon className="w-2.5 h-2.5 text-blue-600 shrink-0" />
+                                    <span>عرض</span>
+                                  </button>
+                                ) : (
+                                  <span className="text-slate-300 font-normal">—</span>
+                                )}
+                              </td>
+                            </tr>
+
+                            {/* Extra Subscription Payments for the same month (if any) */}
+                            {extraSubs.map((es, esIdx) => {
+                              const esStatusInfo = getPaymentStatusDisplay(es.status);
+                              const isLastSubRow = esIdx === extraSubs.length - 1 && grp.otherCollectionPayments.length === 0;
+                              return (
+                                <tr
+                                  key={es.id || esIdx}
+                                  className={`group hover:bg-slate-50/70 transition ${isLastSubRow ? 'border-b border-slate-200' : ''}`}
+                                >
+                                  <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-slate-400 font-normal text-[11px] sm:text-xs align-middle">
+                                    —
+                                  </td>
+                                  <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-[11px] sm:text-xs align-middle">
+                                    <span className={esStatusInfo.amountClass}>
+                                      {es.amount.toLocaleString()} ج.م
+                                    </span>
+                                  </td>
+                                  <td className="px-1 py-1 whitespace-nowrap text-center text-[10px] sm:text-[11px] align-middle">
+                                    <span
+                                      className="px-1 py-0.5 bg-blue-50 text-blue-900 border border-blue-200/80 rounded text-[9px] font-bold inline-block truncate max-w-[70px]"
+                                      title="اشتراك شهري"
+                                    >
+                                      اشتراك شهري
+                                    </span>
+                                  </td>
+                                  <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center align-middle">
+                                    <span className={`min-w-[64px] inline-flex items-center justify-center gap-1 px-1.5 py-0.5 ${esStatusInfo.badgeClass} rounded-md text-[9.5px] font-black leading-none`}>
+                                      <esStatusInfo.icon className="w-2.5 h-2.5 shrink-0" />
+                                      <span>{esStatusInfo.label}</span>
+                                    </span>
+                                  </td>
+                                  <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center sm:text-right text-[10.5px] align-middle">
+                                    <span
+                                      className="font-mono px-1 py-0.5 rounded text-[9.5px] font-bold bg-slate-100 text-slate-700 border border-slate-200 truncate max-w-[75px]"
+                                      title={es.receiptNumber ? `#${es.receiptNumber}` : 'مسدد'}
+                                    >
+                                      {es.receiptNumber ? `#${es.receiptNumber}` : 'مسدد'}
+                                    </span>
+                                  </td>
+                                  <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center text-xs align-middle">
+                                    {es.fileUrl ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => onPreviewImage && es.fileUrl && onPreviewImage(es.fileUrl)}
+                                        className="inline-flex items-center justify-center gap-0.5 px-1.5 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200/80 rounded-md text-[9px] font-bold transition cursor-pointer shadow-2xs"
+                                        title="عرض صورة الإيصال"
+                                      >
+                                        <ImageIcon className="w-2.5 h-2.5 text-blue-600 shrink-0" />
+                                        <span>عرض</span>
+                                      </button>
+                                    ) : (
+                                      <span className="text-slate-300 font-normal">—</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+
+                            {/* Sub-Rows: Other Collections underneath monthly subscription */}
+                            {grp.otherCollectionPayments.map((op, opIdx) => {
+                              const opStatusInfo = getPaymentStatusDisplay(op.status);
+                              const isLastSubRow = opIdx === grp.otherCollectionPayments.length - 1;
+                              return (
+                                <tr
+                                  key={op.id || opIdx}
+                                  className={`group hover:bg-slate-50/70 transition bg-purple-50/10 ${isLastSubRow ? 'border-b border-slate-200' : ''}`}
+                                >
+                                  <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-slate-400 font-normal text-[11px] sm:text-xs align-middle">
+                                    —
+                                  </td>
+                                  <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-[11px] sm:text-xs align-middle">
+                                    <span className={opStatusInfo.amountClass}>
+                                      {op.amount.toLocaleString()} ج.م
+                                    </span>
+                                  </td>
+                                  <td className="px-1 py-1 whitespace-nowrap text-center text-[10px] sm:text-[11px] align-middle">
+                                    <span
+                                      className="px-1 py-0.5 bg-purple-50 text-purple-900 border border-purple-200/80 rounded text-[9px] font-bold inline-block truncate max-w-[70px]"
+                                      title={op.paymentType || 'تحصيلات أخرى'}
+                                    >
+                                      {op.paymentType || 'تحصيلات أخرى'}
+                                    </span>
+                                  </td>
+                                  <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center align-middle">
+                                    <span className={`min-w-[64px] inline-flex items-center justify-center gap-1 px-1.5 py-0.5 ${opStatusInfo.badgeClass} rounded-md text-[9.5px] font-black leading-none`}>
+                                      <opStatusInfo.icon className="w-2.5 h-2.5 shrink-0" />
+                                      <span>{opStatusInfo.label}</span>
+                                    </span>
+                                  </td>
+                                  <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center sm:text-right text-[10.5px] align-middle">
+                                    <span
+                                      className="font-mono px-1 py-0.5 rounded text-[9.5px] font-bold bg-slate-100 text-slate-700 border border-slate-200 truncate max-w-[75px]"
+                                      title={op.receiptNumber ? `#${op.receiptNumber}` : 'مسدد'}
+                                    >
+                                      {op.receiptNumber ? `#${op.receiptNumber}` : 'مسدد'}
+                                    </span>
+                                  </td>
+                                  <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center text-xs align-middle">
+                                    {op.fileUrl ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => onPreviewImage && op.fileUrl && onPreviewImage(op.fileUrl)}
+                                        className="inline-flex items-center justify-center gap-0.5 px-1.5 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200/80 rounded-md text-[9px] font-bold transition cursor-pointer shadow-2xs"
+                                        title="عرض صورة الإيصال"
+                                      >
+                                        <ImageIcon className="w-2.5 h-2.5 text-blue-600 shrink-0" />
+                                        <span>عرض</span>
+                                      </button>
+                                    ) : (
+                                      <span className="text-slate-300 font-normal">—</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </React.Fragment>
+                        );
+                      }
+
+                      // If no monthly subscription was recorded for this month, only other collections:
+                      const firstOp = grp.otherCollectionPayments[0];
+                      const firstOpStatus = getPaymentStatusDisplay(firstOp.status);
+                      const extraOps = grp.otherCollectionPayments.slice(1);
+
+                      return (
+                        <React.Fragment key={`grp-no-sub-${grp.year}-${grp.monthNum}-${grpIdx}`}>
+                          <tr className={`group hover:bg-slate-50/70 transition bg-purple-50/10 ${grp.totalRows === 1 ? 'border-b border-slate-100' : ''}`}>
+                            <td
+                              rowSpan={grp.totalRows}
+                              className="sticky right-0 z-10 bg-white group-hover:bg-slate-50 px-1 py-1 whitespace-nowrap leading-tight border-l border-slate-200/80 shadow-[-2px_0_4px_rgba(0,0,0,0.03)] text-center align-middle"
+                            >
+                              <div className="font-bold text-slate-900 text-[11px] sm:text-xs">
+                                {monthNamesArabic[grp.monthNum - 1]}
+                              </div>
+                              <div className="text-[9px] font-medium text-slate-400 leading-none mt-0.5">
+                                {grp.year}
+                              </div>
+                            </td>
+                            <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-slate-400 font-normal text-[11px] sm:text-xs align-middle">
+                              —
+                            </td>
+                            <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-[11px] sm:text-xs align-middle">
+                              <span className={firstOpStatus.amountClass}>
+                                {firstOp.amount.toLocaleString()} ج.م
+                              </span>
+                            </td>
+                            <td className="px-1 py-1 whitespace-nowrap text-center text-[10px] sm:text-[11px] align-middle">
+                              <span
+                                className="px-1 py-0.5 bg-purple-50 text-purple-900 border border-purple-200/80 rounded text-[9px] font-bold inline-block truncate max-w-[70px]"
+                                title={firstOp.paymentType || 'تحصيلات أخرى'}
+                              >
+                                {firstOp.paymentType || 'تحصيلات أخرى'}
+                              </span>
+                            </td>
+                            <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center align-middle">
+                              <span className={`min-w-[64px] inline-flex items-center justify-center gap-1 px-1.5 py-0.5 ${firstOpStatus.badgeClass} rounded-md text-[9.5px] font-black leading-none`}>
+                                <firstOpStatus.icon className="w-2.5 h-2.5 shrink-0" />
+                                <span>{firstOpStatus.label}</span>
+                              </span>
+                            </td>
+                            <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center sm:text-right text-[10.5px] align-middle">
+                              <span
+                                className="font-mono px-1 py-0.5 rounded text-[9.5px] font-bold bg-slate-100 text-slate-700 border border-slate-200 truncate max-w-[75px]"
+                                title={firstOp.receiptNumber ? `#${firstOp.receiptNumber}` : 'مسدد'}
+                              >
+                                {firstOp.receiptNumber ? `#${firstOp.receiptNumber}` : 'مسدد'}
+                              </span>
+                            </td>
+                            <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center text-xs align-middle">
+                              {firstOp.fileUrl ? (
+                                <button
+                                  type="button"
+                                  onClick={() => onPreviewImage && firstOp.fileUrl && onPreviewImage(firstOp.fileUrl)}
+                                  className="inline-flex items-center justify-center gap-0.5 px-1.5 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200/80 rounded-md text-[9px] font-bold transition cursor-pointer shadow-2xs"
+                                  title="عرض صورة الإيصال"
+                                >
+                                  <ImageIcon className="w-2.5 h-2.5 text-blue-600 shrink-0" />
+                                  <span>عرض</span>
+                                </button>
+                              ) : (
+                                <span className="text-slate-300 font-normal">—</span>
+                              )}
+                            </td>
+                          </tr>
+                          {extraOps.map((op, opIdx) => {
+                            const opStatusInfo = getPaymentStatusDisplay(op.status);
+                            const isLastSubRow = opIdx === extraOps.length - 1;
+                            return (
+                              <tr
+                                key={op.id || opIdx}
+                                className={`group hover:bg-slate-50/70 transition bg-purple-50/10 ${isLastSubRow ? 'border-b border-slate-200' : ''}`}
+                              >
+                                <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-slate-400 font-normal text-[11px] sm:text-xs align-middle">
+                                  —
+                                </td>
+                                <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-[11px] sm:text-xs align-middle">
+                                  <span className={opStatusInfo.amountClass}>
+                                    {op.amount.toLocaleString()} ج.م
+                                  </span>
+                                </td>
+                                <td className="px-1 py-1 whitespace-nowrap text-center text-[10px] sm:text-[11px] align-middle">
+                                  <span
+                                    className="px-1 py-0.5 bg-purple-50 text-purple-900 border border-purple-200/80 rounded text-[9px] font-bold inline-block truncate max-w-[70px]"
+                                    title={op.paymentType || 'تحصيلات أخرى'}
+                                  >
+                                    {op.paymentType || 'تحصيلات أخرى'}
+                                  </span>
+                                </td>
+                                <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center align-middle">
+                                  <span className={`min-w-[64px] inline-flex items-center justify-center gap-1 px-1.5 py-0.5 ${opStatusInfo.badgeClass} rounded-md text-[9.5px] font-black leading-none`}>
+                                    <opStatusInfo.icon className="w-2.5 h-2.5 shrink-0" />
+                                    <span>{opStatusInfo.label}</span>
+                                  </span>
+                                </td>
+                                <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center sm:text-right text-[10.5px] align-middle">
+                                  <span
+                                    className="font-mono px-1 py-0.5 rounded text-[9.5px] font-bold bg-slate-100 text-slate-700 border border-slate-200 truncate max-w-[75px]"
+                                    title={op.receiptNumber ? `#${op.receiptNumber}` : 'مسدد'}
+                                  >
+                                    {op.receiptNumber ? `#${op.receiptNumber}` : 'مسدد'}
+                                  </span>
+                                </td>
+                                <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center text-xs align-middle">
+                                  {op.fileUrl ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => onPreviewImage && op.fileUrl && onPreviewImage(op.fileUrl)}
+                                      className="inline-flex items-center justify-center gap-0.5 px-1.5 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200/80 rounded-md text-[9px] font-bold transition cursor-pointer shadow-2xs"
+                                      title="عرض صورة الإيصال"
+                                    >
+                                      <ImageIcon className="w-2.5 h-2.5 text-blue-600 shrink-0" />
+                                      <span>عرض</span>
+                                    </button>
+                                  ) : (
+                                    <span className="text-slate-300 font-normal">—</span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </React.Fragment>
                       );
                     })
                   )}
@@ -1898,43 +2207,176 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                   </tr>
                 </thead>
                 <tbody>
-                  {unitPayments.map((p) => {
-                    const mIdx = parseInt(String(p.month), 10) - 1;
-                    const mName = monthNamesArabic[mIdx] || p.month;
-                    const statusInfo = getPaymentStatusDisplay(p.status);
+                  {groupedUnitPayments.map((grp, grpIdx) => {
+                    if (grp.monthlySubPayments.length > 0) {
+                      const firstSub = grp.monthlySubPayments[0];
+                      const subStatusInfo = getPaymentStatusDisplay(firstSub.status);
+                      const extraSubs = grp.monthlySubPayments.slice(1);
+
+                      return (
+                        <React.Fragment key={`print-grp-${grp.year}-${grp.monthNum}-${grpIdx}`}>
+                          <tr className="border-b border-slate-300">
+                            <td rowSpan={grp.totalRows} className="border border-slate-300 p-2 text-center font-black text-slate-800 align-middle">
+                              {grp.monthLabel}
+                            </td>
+                            <td className="border border-slate-300 p-2 text-center font-semibold text-slate-700 align-middle">
+                              {grp.prescribedFee.toLocaleString()} ج.م
+                            </td>
+                            <td className="border border-slate-300 p-2 text-center align-middle font-bold">
+                              <span className={subStatusInfo.amountClass}>
+                                {firstSub.amount.toLocaleString()} ج.م
+                              </span>
+                            </td>
+                            <td className="border border-slate-300 p-2 text-center text-xs font-bold text-slate-700 align-middle">
+                              <span>اشتراك شهري</span>
+                            </td>
+                            <td className="border border-slate-300 p-2 text-center font-bold align-middle">
+                              <span className={`inline-block px-2 py-0.5 rounded-md border font-black text-[10px] ${
+                                subStatusInfo.type === 'cancelled'
+                                  ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                  : subStatusInfo.type === 'pending'
+                                  ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                  : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                              }`}>
+                                {subStatusInfo.label}
+                              </span>
+                            </td>
+                            <td className="border border-slate-300 p-2 text-center font-mono text-[11px] font-bold text-slate-800 align-middle">
+                              <span>{firstSub.receiptNumber ? `#${firstSub.receiptNumber}` : 'مسدد'} ({firstSub.date})</span>
+                            </td>
+                          </tr>
+
+                          {extraSubs.map((es, esIdx) => {
+                            const esStatus = getPaymentStatusDisplay(es.status);
+                            return (
+                              <tr key={`print-es-${es.id || esIdx}`} className="border-b border-slate-300">
+                                <td className="border border-slate-300 p-2 text-center font-semibold text-slate-400 align-middle">—</td>
+                                <td className="border border-slate-300 p-2 text-center align-middle font-bold">
+                                  <span className={esStatus.amountClass}>{es.amount.toLocaleString()} ج.م</span>
+                                </td>
+                                <td className="border border-slate-300 p-2 text-center text-xs font-bold text-slate-700 align-middle">
+                                  <span>اشتراك شهري</span>
+                                </td>
+                                <td className="border border-slate-300 p-2 text-center font-bold align-middle">
+                                  <span className={`inline-block px-2 py-0.5 rounded-md border font-black text-[10px] ${
+                                    esStatus.type === 'cancelled'
+                                      ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                      : esStatus.type === 'pending'
+                                      ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                      : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                  }`}>
+                                    {esStatus.label}
+                                  </span>
+                                </td>
+                                <td className="border border-slate-300 p-2 text-center font-mono text-[11px] font-bold text-slate-800 align-middle">
+                                  <span>{es.receiptNumber ? `#${es.receiptNumber}` : 'مسدد'} ({es.date})</span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+
+                          {grp.otherCollectionPayments.map((op, opIdx) => {
+                            const opStatusInfo = getPaymentStatusDisplay(op.status);
+                            return (
+                              <tr key={`print-grp-op-${op.id || opIdx}`} className="border-b border-slate-300 bg-purple-50/20">
+                                <td className="border border-slate-300 p-2 text-center font-semibold text-slate-400 align-middle">
+                                  —
+                                </td>
+                                <td className="border border-slate-300 p-2 text-center align-middle font-bold">
+                                  <span className={opStatusInfo.amountClass}>
+                                    {op.amount.toLocaleString()} ج.م
+                                  </span>
+                                </td>
+                                <td className="border border-slate-300 p-2 text-center text-xs font-bold text-purple-900 align-middle">
+                                  <span>{op.paymentType || 'تحصيلات أخرى'}</span>
+                                </td>
+                                <td className="border border-slate-300 p-2 text-center font-bold align-middle">
+                                  <span className={`inline-block px-2 py-0.5 rounded-md border font-black text-[10px] ${
+                                    opStatusInfo.type === 'cancelled'
+                                      ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                      : opStatusInfo.type === 'pending'
+                                      ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                      : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                  }`}>
+                                    {opStatusInfo.label}
+                                  </span>
+                                </td>
+                                <td className="border border-slate-300 p-2 text-center font-mono text-[11px] font-bold text-slate-800 align-middle">
+                                  <span>{op.receiptNumber ? `#${op.receiptNumber}` : 'مسدد'} ({op.date})</span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </React.Fragment>
+                      );
+                    }
+
+                    // If no monthly subscription, only other collections
+                    const firstOp = grp.otherCollectionPayments[0];
+                    const firstOpStatus = getPaymentStatusDisplay(firstOp.status);
+                    const extraOps = grp.otherCollectionPayments.slice(1);
+
                     return (
-                      <tr key={p.id} className="border-b border-slate-300">
-                        <td className="border border-slate-300 p-2 text-center font-black text-slate-800">
-                          {mName} {p.year}
-                        </td>
-                        <td className="border border-slate-300 p-2 text-center font-bold text-slate-700">
-                          {financials.monthlyFee.toLocaleString()} ج.م
-                        </td>
-                        <td className="border border-slate-300 p-2 text-center font-black">
-                          <span className={statusInfo.amountClass}>
-                            {p.amount.toLocaleString()} ج.م
-                          </span>
-                        </td>
-                        <td className="border border-slate-300 p-2 text-center text-xs font-bold text-slate-700">
-                          {isMonthlySubscriptionType(p.paymentType) || !p.paymentType || p.paymentType === 'اشتراك شهري'
-                            ? 'الاشتراك الشهري'
-                            : (p.paymentType || 'تحصيلات أخرى')}
-                        </td>
-                        <td className="border border-slate-300 p-2 text-center">
-                          <span className={`inline-block px-2 py-0.5 rounded-md border font-black text-[11px] ${
-                            statusInfo.type === 'cancelled'
-                              ? 'bg-rose-50 text-rose-700 border-rose-200'
-                              : statusInfo.type === 'pending'
-                              ? 'bg-amber-50 text-amber-800 border-amber-200'
-                              : 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                          }`}>
-                            {statusInfo.label}
-                          </span>
-                        </td>
-                        <td className="border border-slate-300 p-2 text-center font-mono text-xs font-bold text-slate-800">
-                          {p.receiptNumber ? `إيصال #${p.receiptNumber}` : 'إيصال #مسدد'} ({p.date})
-                        </td>
-                      </tr>
+                      <React.Fragment key={`print-grp-no-sub-${grp.year}-${grp.monthNum}-${grpIdx}`}>
+                        <tr className="border-b border-slate-300 bg-purple-50/20">
+                          <td rowSpan={grp.totalRows} className="border border-slate-300 p-2 text-center font-black text-slate-800 align-middle">
+                            {grp.monthLabel}
+                          </td>
+                          <td className="border border-slate-300 p-2 text-center font-semibold text-slate-400 align-middle">
+                            —
+                          </td>
+                          <td className="border border-slate-300 p-2 text-center align-middle font-bold">
+                            <span className={firstOpStatus.amountClass}>
+                              {firstOp.amount.toLocaleString()} ج.م
+                            </span>
+                          </td>
+                          <td className="border border-slate-300 p-2 text-center text-xs font-bold text-purple-900 align-middle">
+                            <span>{firstOp.paymentType || 'تحصيلات أخرى'}</span>
+                          </td>
+                          <td className="border border-slate-300 p-2 text-center font-bold align-middle">
+                            <span className={`inline-block px-2 py-0.5 rounded-md border font-black text-[10px] ${
+                              firstOpStatus.type === 'cancelled'
+                                ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                : firstOpStatus.type === 'pending'
+                                ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                            }`}>
+                              {firstOpStatus.label}
+                            </span>
+                          </td>
+                          <td className="border border-slate-300 p-2 text-center font-mono text-[11px] font-bold text-slate-800 align-middle">
+                            <span>{firstOp.receiptNumber ? `#${firstOp.receiptNumber}` : 'مسدد'} ({firstOp.date})</span>
+                          </td>
+                        </tr>
+                        {extraOps.map((op, opIdx) => {
+                          const opStatus = getPaymentStatusDisplay(op.status);
+                          return (
+                            <tr key={`print-extra-op-${op.id || opIdx}`} className="border-b border-slate-300 bg-purple-50/20">
+                              <td className="border border-slate-300 p-2 text-center font-semibold text-slate-400 align-middle">—</td>
+                              <td className="border border-slate-300 p-2 text-center align-middle font-bold">
+                                <span className={opStatus.amountClass}>{op.amount.toLocaleString()} ج.م</span>
+                              </td>
+                              <td className="border border-slate-300 p-2 text-center text-xs font-bold text-purple-900 align-middle">
+                                <span>{op.paymentType || 'تحصيلات أخرى'}</span>
+                              </td>
+                              <td className="border border-slate-300 p-2 text-center font-bold align-middle">
+                                <span className={`inline-block px-2 py-0.5 rounded-md border font-black text-[10px] ${
+                                  opStatus.type === 'cancelled'
+                                    ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                    : opStatus.type === 'pending'
+                                    ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                    : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                }`}>
+                                  {opStatus.label}
+                                </span>
+                              </td>
+                              <td className="border border-slate-300 p-2 text-center font-mono text-[11px] font-bold text-slate-800 align-middle">
+                                <span>{op.receiptNumber ? `#${op.receiptNumber}` : 'مسدد'} ({op.date})</span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </React.Fragment>
                     );
                   })}
                 </tbody>
