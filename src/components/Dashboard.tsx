@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   Building2, 
   ChevronLeft, 
@@ -13,7 +13,8 @@ import {
   Scale, 
   AlertTriangle, 
   Vote, 
-  Calendar 
+  Calendar,
+  Printer 
 } from 'lucide-react';
 import { 
   Resident, 
@@ -30,6 +31,7 @@ import {
   ChatMessage 
 } from '../types';
 import { ResidentAccountStatement } from './ResidentAccountStatement';
+import { DashboardReportsModal } from './DashboardReportsModal';
 import { isSameFlatNumber } from '../utils/buildingStructure';
 
 interface DashboardProps {
@@ -114,12 +116,33 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onSelectActivityModal,
   onPreviewImage,
 }) => {
+  const [activeReportModal, setActiveReportModal] = useState<'financial' | 'unpaid' | null>(null);
+  const isPresident = role === 'ADMIN' || role === 'MANAGER';
+
   return (
     <div className="space-y-4 animate-fade-in text-right">
       
-      {/* Filter Toggle Year/Month */}
-      <div className="flex flex-col items-center justify-center space-y-2 py-2">
-        <div className="flex items-center gap-6 bg-white px-6 py-3 rounded-2xl border border-slate-100 shadow-sm">
+      {/* Filter Bar with President Print Report Action Buttons */}
+      <div className="flex items-center justify-center gap-2.5 sm:gap-4 py-2 w-full select-none">
+        {/* Right Button (الزر الأزرق على اليمين - وضع رئيس الاتحاد): أيقونة طباعة تقرير التحصيلات والمصروفات */}
+        {isPresident && (
+          <button
+            type="button"
+            onClick={() => setActiveReportModal('financial')}
+            className="w-11 h-11 sm:w-12 sm:h-12 flex items-center justify-center bg-blue-900 hover:bg-blue-950 text-white rounded-2xl shadow-xs hover:shadow-md transition active:scale-95 cursor-pointer border border-blue-800 shrink-0"
+            title={viewMode === 'month' 
+              ? `طباعة تقرير التحصيلات والمصروفات لشهر ${monthNamesArabic[currentMonth]} ${currentYear}`
+              : `طباعة تقرير التحصيلات والمصروفات السنوي لسنة ${currentYear}`}
+            aria-label={viewMode === 'month' 
+              ? `تقرير تحصيلات ومصروفات شهر ${monthNamesArabic[currentMonth]}` 
+              : `تقرير تحصيلات ومصروفات سنة ${currentYear}`}
+          >
+            <Printer className="w-5 h-5 text-amber-300 shrink-0" />
+          </button>
+        )}
+
+        {/* Center: Month/Year Filter Toggle Pill */}
+        <div className="flex items-center gap-4 sm:gap-6 bg-white px-4 sm:px-6 py-2.5 sm:py-3 rounded-2xl border border-slate-100 shadow-xs">
           <button 
             type="button"
             onClick={() => {
@@ -134,7 +157,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 }
               }
             }}
-            className="p-1.5 hover:bg-white/50 rounded-lg text-slate-600 hover:text-blue-900 transition cursor-pointer"
+            className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-600 hover:text-blue-900 transition cursor-pointer"
             title="السابق"
           >
             <ChevronLeft className="w-5 h-5" />
@@ -142,10 +165,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
           
           <div 
             onClick={() => setViewMode(prev => prev === 'year' ? 'month' : 'year')}
-            className="flex flex-col items-center cursor-pointer select-none min-w-[120px]"
+            className="flex flex-col items-center cursor-pointer select-none min-w-[110px] sm:min-w-[130px] hover:opacity-85 transition"
+            title="انقر للتبديل بين الفلتر الشهري والسنوي"
           >
-            <span className="text-[10px] text-slate-400 font-extrabold">{viewMode === 'year' ? 'السنة المالية' : 'الفلتر الشهري'}</span>
-            <span className="text-xl font-black text-blue-950">
+            <span className="text-[10px] text-slate-400 font-extrabold">{viewMode === 'year' ? 'السنة المالية (سنوي)' : 'الفلتر الشهري (شهري)'}</span>
+            <span className="text-lg sm:text-xl font-black text-blue-950">
               {viewMode === 'year' ? currentYear : `${monthNamesArabic[currentMonth]} ${currentYear}`}
             </span>
           </div>
@@ -164,13 +188,29 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 }
               }
             }}
-            className="p-1.5 hover:bg-white/50 rounded-lg text-slate-600 hover:text-blue-900 transition cursor-pointer"
+            className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-600 hover:text-blue-900 transition cursor-pointer"
             title="التالي"
           >
             <ChevronRight className="w-5 h-5" />
           </button>
         </div>
-        <p className="text-[9px] text-slate-400 font-bold">انقر على الرقم للتبديل بين الفلتر السنوي والشهري</p>
+
+        {/* Left Button (الزر الأحمر على اليسار - وضع رئيس الاتحاد): أيقونة طباعة تقرير الدفعات غير المسددة والمتأخرات */}
+        {isPresident && (
+          <button
+            type="button"
+            onClick={() => setActiveReportModal('unpaid')}
+            className="w-11 h-11 sm:w-12 sm:h-12 flex items-center justify-center bg-rose-700 hover:bg-rose-800 text-white rounded-2xl shadow-xs hover:shadow-md transition active:scale-95 cursor-pointer border border-rose-600 shrink-0"
+            title={viewMode === 'month' 
+              ? `طباعة كشف المتأخرات وغير المسدد لشهر ${monthNamesArabic[currentMonth]} ${currentYear}`
+              : `طباعة كشف المتأخرات وغير المسدد لسنة ${currentYear}`}
+            aria-label={viewMode === 'month' 
+              ? `متأخرات شهر ${monthNamesArabic[currentMonth]}` 
+              : `متأخرات سنة ${currentYear}`}
+          >
+            <Printer className="w-5 h-5 text-rose-100 shrink-0" />
+          </button>
+        )}
       </div>
       
       {/* Interactive Unit Activities Distribution Bar & Statistical Counters */}
@@ -524,6 +564,20 @@ export const Dashboard: React.FC<DashboardProps> = ({
           />
         </div>
       )}
+
+      {/* Official Dashboard Reports Print Modal (Financial Collections/Expenses & Unpaid/Delinquent Dues) */}
+      <DashboardReportsModal
+        isOpen={Boolean(activeReportModal)}
+        reportType={activeReportModal}
+        onClose={() => setActiveReportModal(null)}
+        viewMode={viewMode}
+        currentYear={currentYear}
+        currentMonth={currentMonth}
+        residents={residents}
+        payments={payments}
+        expenses={expenses}
+        config={config}
+      />
 
     </div>
   );

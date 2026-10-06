@@ -1,8 +1,8 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { Payment, Resident, UserRole, FloorConfig, AppConfig } from '../types';
-import { Search, Plus, Calendar, FileText, Image as ImageIcon, Camera, Trash2, Edit, AlertCircle, Eye, User, LayoutGrid, List, Building, ArrowUpDown, Upload, X, ZoomIn, Download, RefreshCw, Share2, CheckCircle2, Receipt, Printer } from 'lucide-react';
+import { Search, Plus, Calendar, FileText, Image as ImageIcon, Camera, Trash2, Edit, AlertCircle, Eye, User, LayoutGrid, List, Building, ArrowUpDown, Upload, X, ZoomIn, Download, RefreshCw, Share2, CheckCircle2, Receipt, Printer, Users, Sparkles } from 'lucide-react';
 import { deriveFloorConfigsFromResidents, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber, getHistoricalOccupantForDate, formatResidentOptionLabel } from '../utils/buildingStructure';
-import { getResidentMonthlyFee, calculateResidentFinancials, calculateUnitClaimBreakdown } from '../utils/financialCalculations';
+import { getResidentMonthlyFee, calculateResidentFinancials, calculateUnitClaimBreakdown, getPrescribedFeeForMonth, isPaymentForYearAndMonth, isMonthlySubscriptionType } from '../utils/financialCalculations';
 import { generateElementImageBlob, GeneratedImageResult } from '../utils/imageExport';
 import { shareImageViaWhatsApp } from '../utils/shareImageViaWhatsApp';
 import { ShareReportModal } from './ShareReportModal';
@@ -26,6 +26,7 @@ interface PaymentsListProps {
   onPreviewImage: (url: string) => void;
   onEditResident?: (resident: Resident) => void;
   onDistributePayment?: (originalPaymentId: string, distributedPayments: Payment[], deletedPaymentIds?: string[]) => void;
+  onAddBatchPayments?: (payments: Payment[]) => void;
 }
 
 export const PaymentsList: React.FC<PaymentsListProps> = ({
@@ -44,6 +45,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
   onPreviewImage,
   onEditResident,
   onDistributePayment,
+  onAddBatchPayments,
 }) => {
   const [filterResident, setFilterResident] = useState('');
   const [filterMonth, setFilterMonth] = useState('');
@@ -122,6 +124,99 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
     reportStatsText: '',
     initialResidentId: '',
   });
+
+  // State for bulk generating monthly dues for all units
+  const [bulkGenerateModal, setBulkGenerateModal] = useState<{
+    isOpen: boolean;
+    monthStr: string;
+    yearNum: number;
+    items: Payment[];
+    totalDue: number;
+    alreadyExistCount: number;
+  } | null>(null);
+
+  const handleOpenGenerateMonthlyDuesModal = () => {
+    const targetMonthNum = parseInt(month, 10);
+    const monthName = monthNamesArabic[targetMonthNum - 1] || month;
+    const defaultFee = config?.defaultMonthlyFee || 400;
+    const actFees = config?.activityDefaultFees;
+
+    const toGenerate: Payment[] = [];
+    let alreadyExist = 0;
+
+    const sortedResidents = [...residents].sort((a, b) => compareFlatNumbers(a.flatNumber, b.flatNumber));
+
+    sortedResidents.forEach((r) => {
+      // Check if this unit already has a monthly subscription payment for this month and year
+      const hasSub = payments.some(p => {
+        const isSameUnit = (p.residentId && p.residentId === r.id) || isSameFlatNumber(p.flatNumber, r.flatNumber);
+        if (!isSameUnit) return false;
+        if (!isPaymentForYearAndMonth(p, currentYear, targetMonthNum)) return false;
+        if (!isMonthlySubscriptionType(p.paymentType)) return false;
+        if (p.status === 'cancelled' || p.status === 'لاغي') return false;
+        return true;
+      });
+
+      if (hasSub) {
+        alreadyExist++;
+      } else {
+        const prescribed = getPrescribedFeeForMonth(
+          r,
+          currentYear,
+          targetMonthNum,
+          [],
+          defaultFee,
+          actFees
+        );
+
+        toGenerate.push({
+          id: `pay_${Date.now()}_${Math.random().toString(36).substring(2, 7)}_${r.id}`,
+          year: currentYear,
+          month: month,
+          residentId: r.id,
+          residentName: r.name,
+          flatNumber: r.flatNumber,
+          paymentType: 'اشتراك شهري',
+          amount: prescribed.monthlyFee,
+          status: 'pending',
+          isManuallyPaid: false,
+          date: new Date().toISOString().split('T')[0],
+          notes: `استحقاق اشتراك شهر ${monthName} ${currentYear}`,
+        });
+      }
+    });
+
+    const totalDue = toGenerate.reduce((sum, p) => sum + p.amount, 0);
+
+    setBulkGenerateModal({
+      isOpen: true,
+      monthStr: month,
+      yearNum: currentYear,
+      items: toGenerate,
+      totalDue,
+      alreadyExistCount: alreadyExist,
+    });
+  };
+
+  const handleConfirmBulkGenerate = () => {
+    if (!bulkGenerateModal || bulkGenerateModal.items.length === 0) {
+      setBulkGenerateModal(null);
+      return;
+    }
+
+    const items = bulkGenerateModal.items;
+    const monthName = monthNamesArabic[parseInt(bulkGenerateModal.monthStr, 10) - 1];
+
+    if (onAddBatchPayments) {
+      onAddBatchPayments(items);
+    } else {
+      items.forEach(p => onAdd(p));
+    }
+
+    setToastMsg(`تم بنجاح توليد ${items.length} دفعات اشتراك شهري لشهر ${monthName} ${bulkGenerateModal.yearNum} بحالة (لم يتم التحصيل).`);
+    setBulkGenerateModal(null);
+    setShowModal(false);
+  };
 
   const filteredPayments = payments
     .filter((p) => p.year === currentYear)
@@ -2103,13 +2198,30 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
           <div className="w-full max-w-md max-h-[94vh] overflow-y-auto bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-5 border border-slate-100 shadow-2xl animate-scale-up text-right">
             <h3 className="text-base sm:text-lg font-black text-slate-950 border-b pb-2.5 mb-3 flex items-center justify-between">
               <span>{selectedPayment ? (role === 'ASSISTANT' ? 'تعديل ملاحظات التحصيل' : 'تعديل التحصيل') : 'إضافة تحصيل جديد'}</span>
-              <button
-                type="button"
-                onClick={() => setShowModal(false)}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                {/* زر توليد دفعة لكل الوحدات المستحقة - المكان المحدد بالصورة بجانب زر الإغلاق */}
+                {!selectedPayment && (role === 'ADMIN' || role === 'MANAGER') && (
+                  <button
+                    type="button"
+                    onClick={handleOpenGenerateMonthlyDuesModal}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-200 rounded-xl text-xs font-black transition active:scale-95 cursor-pointer shadow-3xs"
+                    title={`توليد دفعات اشتراك شهر ${monthNamesArabic[parseInt(month, 10) - 1]} ${currentYear} لجميع الوحدات المستحقة بحالة "لم يتم التحصيل"`}
+                  >
+                    <Users className="w-3.5 h-3.5 text-blue-700 shrink-0" />
+                    <span>توليد لكل الوحدات</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setShowModal(false)}
+                  className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition cursor-pointer"
+                  title="إغلاق"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </h3>
 
             {role === 'ASSISTANT' && selectedPayment && (
@@ -2674,6 +2786,127 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
           </div>
         </div>
       )}
+
+      {/* Bulk Generate Monthly Dues Confirmation Modal */}
+      {bulkGenerateModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-xs p-3 sm:p-4 text-right animate-fade-in">
+          <div className="w-full max-w-md bg-white rounded-2xl sm:rounded-3xl p-5 border border-slate-100 shadow-2xl animate-scale-up space-y-4">
+            
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-blue-50 text-blue-900 flex items-center justify-center shrink-0">
+                  <Users className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-black text-slate-950">
+                    توليد استحقاقات اشتراك شهري
+                  </h3>
+                  <p className="text-[11px] text-slate-500 font-bold">
+                    شهر {monthNamesArabic[parseInt(bulkGenerateModal.monthStr, 10) - 1]} {bulkGenerateModal.yearNum}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setBulkGenerateModal(null)}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition cursor-pointer"
+                title="إغلاق"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {bulkGenerateModal.items.length === 0 ? (
+              <div className="py-6 text-center space-y-3">
+                <div className="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto">
+                  <CheckCircle2 className="w-6 h-6" />
+                </div>
+                <div className="space-y-1">
+                  <h4 className="text-sm font-black text-slate-900">
+                    جميع الوحدات مسجلة بالفعل لهذا الشهر!
+                  </h4>
+                  <p className="text-xs text-slate-500 font-bold leading-relaxed px-4">
+                    جميع وحدات العمارة المستحقة لديها بالفعل دفعات اشتراك مسجلة لشهر {monthNamesArabic[parseInt(bulkGenerateModal.monthStr, 10) - 1]} {bulkGenerateModal.yearNum}. لا توجد وحدات جديدة بحاجة للتوليد.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setBulkGenerateModal(null)}
+                  className="px-6 py-2 bg-slate-900 text-white rounded-xl text-xs font-black transition cursor-pointer"
+                >
+                  حسناً
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3.5">
+                {/* Stats summary */}
+                <div className="grid grid-cols-2 gap-2 text-center text-xs">
+                  <div className="p-2.5 bg-blue-50/80 rounded-xl border border-blue-100">
+                    <span className="text-[10px] text-slate-500 font-bold block mb-0.5">الوحدات المستحقة للتوليد</span>
+                    <span className="text-base font-black text-blue-950">{bulkGenerateModal.items.length} وحدة</span>
+                  </div>
+                  <div className="p-2.5 bg-emerald-50/80 rounded-xl border border-emerald-100">
+                    <span className="text-[10px] text-slate-500 font-bold block mb-0.5">إجمالي المبلغ المطلوب</span>
+                    <span className="text-base font-black text-emerald-800">{bulkGenerateModal.totalDue.toLocaleString()} ج.م</span>
+                  </div>
+                </div>
+
+                <div className="bg-amber-50 border border-amber-200/70 rounded-xl p-2.5 text-xs text-amber-950 font-bold flex items-start gap-2 leading-relaxed">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    سيتم إنشاء دفعة لكل وحدة بحالة <span className="text-rose-700 font-black">"لم يتم التحصيل"</span> بمبلغ اشتراكها، لتتمكن من متابعتها وتغيير حالة السداد بمجرد استلام الدفع.
+                    {bulkGenerateModal.alreadyExistCount > 0 && (
+                      <span className="block mt-1 text-[11px] text-amber-800">
+                        * تم استثناء {bulkGenerateModal.alreadyExistCount} وحدة لوجود اشتراك مسجل لها مسبقاً منعاً للتكرار.
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Preview list */}
+                <div className="space-y-1">
+                  <span className="text-[11px] font-black text-slate-700 block">معاينة الوحدات التي سيتم توليد استحقاقاتها:</span>
+                  <div className="max-h-40 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-xl bg-slate-50/50 p-1 text-xs">
+                    {bulkGenerateModal.items.map((p, idx) => (
+                      <div key={p.id || idx} className="py-1 px-2 flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 truncate">
+                          <span className="font-mono text-[10px] text-slate-400 w-4">{idx + 1}.</span>
+                          <span className="font-black text-slate-900">شقة {p.flatNumber}</span>
+                          <span className="text-[11px] text-slate-500 truncate">- {p.residentName}</span>
+                        </div>
+                        <span className="font-black font-mono text-blue-900 shrink-0">{p.amount.toLocaleString()} ج.م</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setBulkGenerateModal(null)}
+                    className="flex-1 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+                  >
+                    تراجع وإلغاء
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmBulkGenerate}
+                    className="flex-2 py-2.5 bg-blue-900 hover:bg-blue-950 text-white rounded-xl text-xs font-black shadow-xs hover:shadow-md transition active:scale-95 cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    <Users className="w-4 h-4 text-amber-300" />
+                    <span>تأكيد توليد ({bulkGenerateModal.items.length}) دفعات الآن</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+          </div>
+        </div>
+      )}
+
       {/* Custom Confirmation Dialog */}
       {confirmData && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-fade-in text-right">

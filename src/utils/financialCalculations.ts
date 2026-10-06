@@ -1,4 +1,4 @@
-import { Resident, Payment, AppConfig } from '../types';
+import { Resident, Payment, Expense, AppConfig } from '../types';
 import { 
   isSameFlatNumber, 
   parseFlatNumber,
@@ -318,7 +318,8 @@ export function isValidPaidPayment(p: Payment): boolean {
 export function parsePaymentYear(p: Payment, defaultYear?: number): number | null {
   if (!p) return null;
   if (p.year !== undefined && p.year !== null) {
-    const y = Number(p.year);
+    const s = String(p.year).replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d).toString()).trim();
+    const y = Number(s);
     if (!isNaN(y) && y > 1900 && y < 2200) {
       return y;
     }
@@ -340,8 +341,9 @@ export function parsePaymentMonth(p: Payment): number | null {
   if (!p) return null;
 
   if (p.month !== undefined && p.month !== null) {
-    const s = String(p.month).trim();
-    if (s) {
+    const raw = String(p.month).trim();
+    if (raw) {
+      const s = raw.replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d).toString());
       const parsedInt = parseInt(s, 10);
       if (!isNaN(parsedInt) && parsedInt >= 1 && parsedInt <= 12) {
         return parsedInt;
@@ -388,6 +390,82 @@ export function isPaymentForYearAndMonth(p: Payment, yNum: number, mNum: number)
 
   const pMonth = parsePaymentMonth(p);
   return pMonth === mNum;
+}
+
+/**
+ * Extracts and normalizes the target accounting year of an expense.
+ */
+export function parseExpenseYear(e: Expense, defaultYear?: number): number | null {
+  if (!e) return null;
+  if (e.year !== undefined && e.year !== null) {
+    const s = String(e.year).replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d).toString()).trim();
+    const y = Number(s);
+    if (!isNaN(y) && y > 1900 && y < 2200) {
+      return y;
+    }
+  }
+  if (e.date) {
+    const d = new Date(e.date);
+    if (!isNaN(d.getTime())) {
+      return d.getFullYear();
+    }
+  }
+  return defaultYear ?? null;
+}
+
+/**
+ * Robustly extracts the target accounting month (1-12) of an expense.
+ * Strictly uses e.month (the designated accounting month) and NEVER falls back
+ * to transaction/recording date if e.month is specified.
+ */
+export function parseExpenseMonth(e: Expense): number | null {
+  if (!e) return null;
+
+  if (e.month !== undefined && e.month !== null) {
+    const raw = String(e.month).trim();
+    if (raw) {
+      const s = raw.replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d).toString());
+      const parsedInt = parseInt(s, 10);
+      if (!isNaN(parsedInt) && parsedInt >= 1 && parsedInt <= 12) {
+        return parsedInt;
+      }
+      const arabicMonths = [
+        'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
+        'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'
+      ];
+      for (let i = 0; i < arabicMonths.length; i++) {
+        if (s === arabicMonths[i] || s.includes(arabicMonths[i])) {
+          return i + 1;
+        }
+      }
+      const numMatch = s.match(/\b([1-9]|1[0-2])\b/);
+      if (numMatch) {
+        const m = parseInt(numMatch[1], 10);
+        if (m >= 1 && m <= 12) return m;
+      }
+      return null;
+    }
+  }
+
+  // Fallback to invoice date ONLY if e.month was completely absent
+  if (e.date) {
+    const d = new Date(e.date);
+    if (!isNaN(d.getTime())) {
+      return d.getMonth() + 1;
+    }
+  }
+  return null;
+}
+
+/**
+ * Robustly checks if an expense record matches a specific accounting year and month.
+ */
+export function isExpenseForYearAndMonth(e: Expense, yNum: number, mNum: number): boolean {
+  if (!e) return false;
+  const eYear = parseExpenseYear(e, yNum);
+  if (eYear !== yNum) return false;
+  const eMonth = parseExpenseMonth(e);
+  return eMonth === mNum;
 }
 
 /**

@@ -585,6 +585,8 @@ html.dark body {
   #debts-printable-area *,
   #statement-printable-area,
   #statement-printable-area *,
+  #dashboard-report-printable-area,
+  #dashboard-report-printable-area *,
   #printable-area,
   #printable-area *,
   .printable-area,
@@ -595,6 +597,7 @@ html.dark body {
   /* Reset layout & force block display for printable areas */
   #debts-printable-area,
   #statement-printable-area,
+  #dashboard-report-printable-area,
   #printable-area,
   .printable-area {
     display: block !important;
@@ -612,23 +615,38 @@ html.dark body {
   }
 
   /* Prevent overlapping if printing a specific section */
-  body.printing-debts #statement-printable-area {
+  body.printing-debts #statement-printable-area,
+  body.printing-debts #dashboard-report-printable-area {
     display: none !important;
     visibility: hidden !important;
   }
 
-  body.printing-statement #debts-printable-area {
+  body.printing-statement #debts-printable-area,
+  body.printing-statement #dashboard-report-printable-area {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  body.printing-dashboard-report #debts-printable-area,
+  body.printing-dashboard-report #statement-printable-area {
     display: none !important;
     visibility: hidden !important;
   }
 
   /* Optimize table styles for paper print */
+  .printable-area div,
+  #dashboard-report-printable-area div {
+    overflow: visible !important;
+  }
+
   .printable-area table,
+  #dashboard-report-printable-area table,
   #debts-printable-area table,
   #statement-printable-area table,
   #printable-area table {
     border-collapse: collapse !important;
     width: 100% !important;
+    min-width: 0 !important;
   }
 
   .printable-area th, .printable-area td,

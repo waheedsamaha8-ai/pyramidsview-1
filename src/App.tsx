@@ -95,7 +95,19 @@ import { PwaInstallPrompt } from './components/pwa/PwaInstallPrompt';
 import { ImagePreviewModal } from './components/modals/ImagePreviewModal';
 import { BuildingRulesModal } from './components/modals/BuildingRulesModal';
 import { ActivityUnitsModal } from './components/modals/ActivityUnitsModal';
-import { calculateResidentFinancials, filterAndDeduplicatePayments, registerDeletedPaymentIds, unregisterDeletedPaymentIds } from './utils/financialCalculations';
+import { 
+  calculateResidentFinancials, 
+  filterAndDeduplicatePayments, 
+  registerDeletedPaymentIds, 
+  unregisterDeletedPaymentIds,
+  parsePaymentYear,
+  parsePaymentMonth,
+  parseExpenseYear,
+  parseExpenseMonth,
+  isPaymentForYearAndMonth,
+  isExpenseForYearAndMonth,
+  isValidPaidPayment
+} from './utils/financialCalculations';
 import { removeUnitFromBuildingLayout, addUnitToBuildingLayout, compareFlatNumbers, isSameFlatNumber, parseFlatNumber, getUnitNumbersForFloor, deriveFloorConfigsFromResidents, deduplicateResidents, syncResidentCurrentOccupant, syncResidentCurrentActivity } from './utils/buildingStructure';
 import { formatMobileNumber, formatPhoneForDisplay } from './utils/phoneUtils';
 import { 
@@ -429,7 +441,7 @@ export default function App() {
   const [maintenanceSubTab, setMaintenanceSubTab] = useState<'requests' | 'directory'>('requests');
   const [chatSubTab, setChatSubTab] = useState<'room' | 'complaints'>('room');
   const [pollsSubTab, setPollsSubTab] = useState<'polls' | 'decisions'>('polls');
-  const [viewMode, setViewMode] = useState<'year' | 'month'>('year');
+  const [viewMode, setViewMode] = useState<'year' | 'month'>('month');
   const [currentMonth, setCurrentMonth] = useState(new Date().getMonth());
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -1495,6 +1507,27 @@ export default function App() {
     }
   };
 
+  const addBatchPayments = (newPayments: Payment[]) => {
+    if (!newPayments || newPayments.length === 0) return;
+
+    unregisterDeletedPaymentIds(newPayments.map(p => String(p.id)));
+    const updatedPayments = filterAndDeduplicatePayments([...payments, ...newPayments]);
+    setPayments(updatedPayments);
+    offlineSync.saveCachedData('payments', updatedPayments);
+
+    firestoreService.saveBatchPaymentsToFirestore(newPayments).catch(err => {
+      logError(err, 'addBatchPayments:saveBatch');
+      newPayments.forEach(p => offlineSync.enqueueAction('ADD_PAYMENT', p));
+    });
+
+    addNotification(
+      'توليد استحقاقات شهرية',
+      `تم توليد ${newPayments.length} دفعات اشتراك شهري بنجاح بحالة (لم يتم التحصيل).`,
+      'success',
+      'services'
+    );
+  };
+
   const deletePayment = async (id: string) => {
     const cleanId = String(id);
     const target = payments.find(p => String(p.id) === cleanId);
@@ -2510,13 +2543,13 @@ export default function App() {
     }
   };
 
-  // Stats summaries
+  // Stats summaries - strictly by financial accounting month and year (شهر المحاسبة)
   const totalReceived = payments
-    .filter((p) => p.year === currentYear && (viewMode === 'year' || p.month === String(currentMonth + 1).padStart(2, '0')) && p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل')
+    .filter((p) => parsePaymentYear(p, currentYear) === currentYear && (viewMode === 'year' || parsePaymentMonth(p) === (currentMonth + 1)) && isValidPaidPayment(p) && ((p.amount || 0) > 0))
     .reduce((sum, p) => sum + p.amount, 0);
 
   const totalSpent = expenses
-    .filter((e) => e.year === currentYear && (viewMode === 'year' || e.month === String(currentMonth + 1).padStart(2, '0')))
+    .filter((e) => parseExpenseYear(e, currentYear) === currentYear && (viewMode === 'year' || parseExpenseMonth(e) === (currentMonth + 1)))
     .reduce((sum, e) => sum + e.amount, 0);
 
   const currentSafeBalance = totalReceived - totalSpent;
@@ -2649,8 +2682,8 @@ export default function App() {
   ];
   const chartData = monthsAbbr.map((m, idx) => ({
     name: monthNamesArabic[idx],
-    التحصيلات: payments.filter((p) => p.year === currentYear && p.month === m && p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل').reduce((sum, p) => sum + p.amount, 0),
-    المصروفات: expenses.filter((e) => e.year === currentYear && e.month === m).reduce((sum, e) => sum + e.amount, 0),
+    التحصيلات: payments.filter((p) => isPaymentForYearAndMonth(p, currentYear, idx + 1) && isValidPaidPayment(p) && ((p.amount || 0) > 0)).reduce((sum, p) => sum + p.amount, 0),
+    المصروفات: expenses.filter((e) => isExpenseForYearAndMonth(e, currentYear, idx + 1)).reduce((sum, e) => sum + e.amount, 0),
   }));
 
   // Filtering for Resident view only
@@ -2996,6 +3029,7 @@ export default function App() {
             onPreviewImage={handlePreviewImage}
             onEditResident={editResident}
             onDistributePayment={distributePayment}
+            onAddBatchPayments={addBatchPayments}
           />
         )}
 
