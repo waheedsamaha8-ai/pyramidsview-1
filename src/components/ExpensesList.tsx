@@ -957,7 +957,7 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({
       {/* Monthly Expenses Printable Report Area */}
       <div
         id="expenses-monthly-printable-area"
-        className="printable-area hidden print:block text-right p-6 font-sans bg-white text-slate-900"
+        className="printable-area hidden text-right p-6 font-sans bg-white text-slate-900"
         dir="rtl"
       >
         {/* Header */}

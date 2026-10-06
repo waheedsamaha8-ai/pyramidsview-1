@@ -356,18 +356,36 @@ export const DashboardReportsModal: React.FC<DashboardReportsModalProps> = ({
     }
   }, [reportType, viewMode, currentYear, targetMonthNum, targetMonthName, residents, payments, defaultMonthlyFee, activityDefaultFees]);
 
-  // Printing execution
+  // Manage body class while modal is open to ensure clean, isolated print layout
+  React.useEffect(() => {
+    if (isOpen) {
+      document.body.classList.add('dashboard-report-open');
+      return () => {
+        document.body.classList.remove('dashboard-report-open');
+        document.body.classList.remove('printing-dashboard-report');
+      };
+    }
+  }, [isOpen]);
+
+  // Robust printing execution with afterprint listener
   const handlePrint = () => {
     document.body.classList.add('printing-dashboard-report');
     window.focus();
+
+    const cleanUp = () => {
+      document.body.classList.remove('printing-dashboard-report');
+      window.removeEventListener('afterprint', cleanUp);
+    };
+
+    window.addEventListener('afterprint', cleanUp);
+    // Safe fallback timeout (15s instead of premature 1.2s)
+    setTimeout(cleanUp, 15000);
+
     try {
       window.print();
     } catch (err) {
       console.warn('Direct print error:', err);
     }
-    setTimeout(() => {
-      document.body.classList.remove('printing-dashboard-report');
-    }, 1200);
   };
 
   const reportHeaderTitle = useMemo(() => {
@@ -383,10 +401,10 @@ export const DashboardReportsModal: React.FC<DashboardReportsModalProps> = ({
   }, [reportType, viewMode, targetMonthName, currentYear]);
 
   return (
-    <div className="fixed inset-0 z-50 w-full h-full flex flex-col bg-slate-100 overflow-hidden text-right animate-in fade-in duration-200">
+    <div className="dashboard-report-modal-overlay fixed inset-0 z-50 w-full h-full flex flex-col bg-slate-100 overflow-hidden text-right animate-in fade-in duration-200">
       
       {/* Modal Toolbar (Screen only) */}
-      <div className="px-3 sm:px-6 py-2.5 sm:py-3.5 border-b border-slate-200 flex items-center justify-between bg-white shrink-0 shadow-2xs z-20">
+      <div className="dashboard-report-toolbar print:hidden px-3 sm:px-6 py-2.5 sm:py-3.5 border-b border-slate-200 flex items-center justify-between bg-white shrink-0 shadow-2xs z-20">
         <div className="flex items-center gap-2.5 sm:gap-3">
           <div className={`w-9 h-9 sm:w-10 sm:h-10 rounded-2xl flex items-center justify-center shrink-0 ${
             reportType === 'financial' ? 'bg-blue-900 text-amber-300' : 'bg-rose-700 text-white'
@@ -398,7 +416,7 @@ export const DashboardReportsModal: React.FC<DashboardReportsModalProps> = ({
               {reportHeaderTitle}
             </h2>
             <p className="text-[10px] sm:text-[11px] text-slate-500 font-semibold mt-0.5">
-              {buildingName} | تاريخ التقرير: {todayFormatted}
+              {buildingName} | {viewMode === 'month' ? `شهر ${targetMonthName} ${currentYear}` : `سنة ${currentYear} م`}
             </p>
           </div>
         </div>
@@ -425,11 +443,11 @@ export const DashboardReportsModal: React.FC<DashboardReportsModalProps> = ({
       </div>
 
       {/* Modal Body & Printable Area */}
-      <div className="flex-1 overflow-y-auto px-1 sm:px-3 md:px-5 py-2 sm:py-4 bg-slate-100/80 text-right">
-        <div id="dashboard-report-printable-area" className="printable-area bg-white p-3 sm:p-6 md:p-8 rounded-xl sm:rounded-2xl border border-slate-200/90 shadow-2xs space-y-6 w-full max-w-none">
+      <div className="dashboard-report-modal-scroll flex-1 overflow-y-auto px-1 sm:px-3 md:px-5 py-2 sm:py-4 bg-slate-100/80 text-right print:p-0 print:bg-white print:overflow-visible">
+        <div id="dashboard-report-printable-area" className="printable-area dashboard-report-paper bg-white p-3 sm:p-6 md:p-8 rounded-xl sm:rounded-2xl border border-slate-200/90 shadow-2xs space-y-6 w-full max-w-none print:p-0 print:border-none print:shadow-none print:rounded-none">
             
             {/* Official Report Header */}
-            <div className="border-b-2 border-slate-800 pb-4 flex items-center justify-between gap-4">
+            <div className="border-b-2 border-slate-800 pb-4 flex items-center justify-between gap-4 print-avoid-break">
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 rounded-2xl bg-slate-900 text-white flex items-center justify-center shrink-0">
                   <Building2 className="w-7 h-7 text-amber-400" />
@@ -444,16 +462,15 @@ export const DashboardReportsModal: React.FC<DashboardReportsModalProps> = ({
                 </div>
               </div>
 
-              <div className="text-left text-xs font-bold text-slate-700 space-y-1">
-                <div>تاريخ التقرير: <span className="font-mono text-slate-950">{todayFormatted}</span></div>
-                <div className="inline-block px-2.5 py-0.5 rounded-lg bg-slate-100 text-slate-800 font-extrabold text-[11px] border border-slate-200">
-                  {viewMode === 'month' ? `شهر: ${targetMonthName} ${currentYear}` : `سنة: ${currentYear} م`}
+              <div className="text-left text-xs font-bold text-slate-700">
+                <div className="inline-block px-3 py-1 rounded-lg bg-slate-100 text-slate-900 font-black text-xs sm:text-sm border border-slate-300">
+                  {viewMode === 'month' ? `شهر المحاسبة: ${targetMonthName} ${currentYear}` : `السنة المالية: ${currentYear} م`}
                 </div>
               </div>
             </div>
 
             {/* Document Title Banner */}
-            <div className="text-center py-2 bg-slate-100/80 rounded-xl border border-slate-200/80">
+            <div className="text-center py-2 bg-slate-100/80 rounded-xl border border-slate-200/80 print-avoid-break">
               <h2 className="text-sm sm:text-base font-black text-slate-900">
                 {reportHeaderTitle}
               </h2>
@@ -464,7 +481,7 @@ export const DashboardReportsModal: React.FC<DashboardReportsModalProps> = ({
               <div className="space-y-6">
                 
                 {/* Executive Metric Cards */}
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-3 gap-3 print-avoid-break">
                   <div className="bg-emerald-50/80 border border-emerald-200 rounded-2xl p-3 text-center">
                     <span className="text-[11px] font-extrabold text-emerald-800 block mb-1">
                       {financialData.mode === 'month' ? 'إجمالي التحصيلات للشهر' : 'إجمالي التحصيلات السنوية'}
@@ -743,7 +760,7 @@ export const DashboardReportsModal: React.FC<DashboardReportsModalProps> = ({
               <div className="space-y-6">
                 
                 {/* Executive Summary Cards */}
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-3 gap-3 print-avoid-break">
                   <div className="bg-rose-50/80 border border-rose-200 rounded-2xl p-3 text-center">
                     <span className="text-[11px] font-extrabold text-rose-800 block mb-1">
                       {unpaidData.mode === 'month' ? 'إجمالي المتأخرات للشهر' : 'إجمالي متأخرات السنة'}
@@ -984,7 +1001,7 @@ export const DashboardReportsModal: React.FC<DashboardReportsModalProps> = ({
             )}
 
             {/* Official Signatures */}
-            <div className="grid grid-cols-2 gap-8 sm:gap-24 pt-6 border-t-2 border-slate-300 text-center text-xs font-black text-slate-800 max-w-xl mx-auto">
+            <div className="signatures-section print-avoid-break grid grid-cols-2 gap-8 sm:gap-24 pt-6 border-t-2 border-slate-300 text-center text-xs font-black text-slate-800 max-w-xl mx-auto print:pt-4 print:gap-12">
               <div className="space-y-6">
                 <span>أمين الصندوق</span>
                 <div className="border-b border-slate-400 w-32 sm:w-44 mx-auto"></div>
@@ -997,7 +1014,7 @@ export const DashboardReportsModal: React.FC<DashboardReportsModalProps> = ({
             </div>
 
             {/* Official Footer */}
-            <div className="text-center text-[10px] text-slate-400 font-semibold pt-2">
+            <div className="print-avoid-break text-center text-[10px] text-slate-400 font-semibold pt-2">
               تم استخراج هذا التقرير رسمياً بواسطة نظام إدارة {buildingName} | صالح للاستخدام والاعتماد
             </div>
 

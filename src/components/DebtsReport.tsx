@@ -1596,7 +1596,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
       )}
 
       {/* Printable Area (Hidden on screen, Visible only during printing) */}
-      <div id="debts-printable-area" className="printable-area hidden print:block text-right p-6 font-sans" dir="rtl">
+      <div id="debts-printable-area" className="printable-area hidden text-right p-6 font-sans" dir="rtl">
         {/* Document Header */}
         <div className="text-center space-y-2 border-b-2 border-slate-800 pb-4 mb-6">
           <h1 className="text-2xl font-black text-slate-900">اتحاد ملاك عمارة بيراميدز فيو ١</h1>
