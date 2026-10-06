@@ -122,7 +122,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
   return (
     <div className="space-y-4 animate-fade-in text-right">
       
-      {/* Filter Bar with President Print Report Action Buttons */}
+      {/* Screen-Only Dashboard Content Container (Hidden during report printing) */}
+      <div className="dashboard-screen-content print:hidden space-y-4">
+        {/* Filter Bar with President Print Report Action Buttons */}
       <div className="flex items-center justify-center gap-2.5 sm:gap-4 py-2 w-full select-none">
         {/* Right Button (الزر الأزرق على اليمين - وضع رئيس الاتحاد): أيقونة طباعة تقرير التحصيلات والمصروفات */}
         {isPresident && (
@@ -564,6 +566,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           />
         </div>
       )}
+      </div>
 
       {/* Official Dashboard Reports Print Modal (Financial Collections/Expenses & Unpaid/Delinquent Dues) */}
       <DashboardReportsModal

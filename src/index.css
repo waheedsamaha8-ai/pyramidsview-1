@@ -614,13 +614,13 @@ html.dark body {
     background: white !important;
   }
 
-  /* When printing dashboard report, hide all background application content */
-  body.printing-dashboard-report #root > div > *:not(.dashboard-report-modal-overlay),
-  body.dashboard-report-open #root > div > *:not(.dashboard-report-modal-overlay),
+  /* When printing dashboard report, hide background screen elements and non-relevant printable areas */
   body.printing-dashboard-report header,
   body.dashboard-report-open header,
   body.printing-dashboard-report nav,
   body.dashboard-report-open nav,
+  body.printing-dashboard-report .dashboard-screen-content,
+  body.dashboard-report-open .dashboard-screen-content,
   body.printing-dashboard-report #statement-printable-area,
   body.dashboard-report-open #statement-printable-area,
   body.printing-dashboard-report #debts-printable-area,
