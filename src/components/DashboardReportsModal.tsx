@@ -555,7 +555,7 @@ export const DashboardReportsModal: React.FC<DashboardReportsModalProps> = ({
                               <th className="p-2 text-center">فئة التحصيل</th>
                               <th className="p-2 text-center">المبلغ</th>
                               <th className="p-2 text-center">رقم الإيصال</th>
-                              <th className="p-2 text-center">تاريخ السداد</th>
+                              <th className="p-2 text-center">الملاحظات</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100 font-bold text-slate-800">
@@ -595,8 +595,8 @@ export const DashboardReportsModal: React.FC<DashboardReportsModalProps> = ({
                                     <td className="p-2 text-center font-mono text-[11px] text-slate-600">
                                       {p.receiptNumber ? `#${p.receiptNumber}` : 'مسدد'}
                                     </td>
-                                    <td className="p-2 text-center font-mono text-[11px] text-slate-500">
-                                      {p.date || '—'}
+                                    <td className="p-2 text-center text-slate-600 text-[11px] max-w-[170px] truncate" title={p.notes || ''}>
+                                      {p.notes && p.notes.trim() ? p.notes.trim() : '—'}
                                     </td>
                                   </tr>
                                 );
@@ -848,6 +848,8 @@ export const DashboardReportsModal: React.FC<DashboardReportsModalProps> = ({
                               const hist = getHistoricalOccupantForDate(item.resident, `${currentYear}-${targetMonthNum}`);
                               const ownerName = hist?.ownerName || item.resident.name;
                               const tenantName = hist?.tenantName || (item.resident.ownershipType === 'إيجار' ? item.resident.tenantName : undefined);
+                              const ownerPhone = hist?.ownerPhone || item.resident.phone;
+                              const tenantPhone = hist?.tenantPhone || (tenantName ? item.resident.tenantPhone : undefined);
                               return (
                                 <tr key={item.resident.id || idx} className="hover:bg-rose-50/20">
                                   <td className="p-2 text-center text-slate-500 font-mono text-[11px]">{idx + 1}</td>
@@ -882,8 +884,16 @@ export const DashboardReportsModal: React.FC<DashboardReportsModalProps> = ({
                                       {item.statusText}
                                     </span>
                                   </td>
-                                  <td className="p-2 text-center font-mono text-[10px] text-slate-600" dir="ltr">
-                                    {item.resident.phone ? formatPhoneForDisplay(item.resident.phone) : '—'}
+                                  <td className="p-2 text-center font-mono text-[10px]" dir="ltr">
+                                    <div className="text-slate-800 font-bold whitespace-nowrap phone-number-display">
+                                      {ownerPhone ? formatPhoneForDisplay(ownerPhone) : '—'}
+                                    </div>
+                                    {tenantPhone && tenantPhone.trim() && (
+                                      <div className="text-amber-800 font-semibold text-[9px] mt-0.5 whitespace-nowrap flex items-center justify-center gap-1 phone-number-display" title="هاتف المستأجر">
+                                        <span className="text-[8px] text-slate-400 font-normal">مستأجر:</span>
+                                        <span className="font-mono">{formatPhoneForDisplay(tenantPhone.trim())}</span>
+                                      </div>
+                                    )}
                                   </td>
                                 </tr>
                               );
@@ -949,6 +959,8 @@ export const DashboardReportsModal: React.FC<DashboardReportsModalProps> = ({
                               const hist = getHistoricalOccupantForDate(item.resident, currentYear);
                               const ownerName = hist?.ownerName || item.resident.name;
                               const tenantName = hist?.tenantName || (item.resident.ownershipType === 'إيجار' ? item.resident.tenantName : undefined);
+                              const ownerPhone = hist?.ownerPhone || item.resident.phone;
+                              const tenantPhone = hist?.tenantPhone || (tenantName ? item.resident.tenantPhone : undefined);
                               return (
                                 <tr key={item.resident.id || idx} className="hover:bg-rose-50/20">
                                   <td className="p-2 text-center text-slate-500 font-mono text-[11px]">{idx + 1}</td>
@@ -977,8 +989,16 @@ export const DashboardReportsModal: React.FC<DashboardReportsModalProps> = ({
                                   <td className="p-2 text-center font-mono font-black text-rose-700 text-xs">
                                     {item.totalDue.toLocaleString()} ج.م
                                   </td>
-                                  <td className="p-2 text-center font-mono text-[10px] text-slate-600" dir="ltr">
-                                    {item.resident.phone ? formatPhoneForDisplay(item.resident.phone) : '—'}
+                                  <td className="p-2 text-center font-mono text-[10px]" dir="ltr">
+                                    <div className="text-slate-800 font-bold whitespace-nowrap phone-number-display">
+                                      {ownerPhone ? formatPhoneForDisplay(ownerPhone) : '—'}
+                                    </div>
+                                    {tenantPhone && tenantPhone.trim() && (
+                                      <div className="text-amber-800 font-semibold text-[9px] mt-0.5 whitespace-nowrap flex items-center justify-center gap-1 phone-number-display" title="هاتف المستأجر">
+                                        <span className="text-[8px] text-slate-400 font-normal">مستأجر:</span>
+                                        <span className="font-mono">{formatPhoneForDisplay(tenantPhone.trim())}</span>
+                                      </div>
+                                    )}
                                   </td>
                                 </tr>
                               );
