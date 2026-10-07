@@ -571,6 +571,11 @@ html.dark body {
   color: #94a3b8 !important;
 }
 
+/* Hide global print container on screen */
+#global-print-container {
+  display: none !important;
+}
+
 /* ==========================================================================
    PRINT MEDIA STYLES - FOR BEAUTIFUL PDF & PAPER PRINTING (MULTI-PAGE READY)
    ========================================================================== */
@@ -589,67 +594,28 @@ html.dark body {
     padding: 0 !important;
   }
 
-  #root,
-  #root > div {
-    height: auto !important;
-    max-height: none !important;
-    overflow: visible !important;
-    position: static !important;
-  }
-
-  /* Reset fixed/absolute screen overlays so they flow naturally across pages */
-  .fixed,
-  .absolute,
-  .overflow-y-auto,
-  .overflow-hidden,
-  .backdrop-blur-xs,
-  .backdrop-blur-sm,
-  .backdrop-blur {
-    position: static !important;
-    overflow: visible !important;
-    height: auto !important;
-    max-height: none !important;
-    inset: auto !important;
-    transform: none !important;
-    background: transparent !important;
-    box-shadow: none !important;
-    border: none !important;
-  }
-
-  /* Hide screen controls, toolbars, and close buttons during print */
-  button,
-  .no-print,
-  [class*="border-b"][class*="z-20"] {
+  /* 2. Completely remove the main application tree from document flow during any report print */
+  body.is-printing-report #root,
+  body.printing-dashboard-report #root,
+  body.dashboard-report-modal-open #root,
+  body.printing-statement #root,
+  body.printing-debts #root {
     display: none !important;
     visibility: hidden !important;
+    height: 0 !important;
+    max-height: 0 !important;
+    overflow: hidden !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    position: absolute !important;
+    left: -99999px !important;
   }
 
-  /* Hide all normal page elements by default during print */
-  body * {
-    visibility: hidden !important;
-  }
-
-  /* Show dedicated printable areas and descendants */
-  #debts-printable-area,
-  #debts-printable-area *,
-  #statement-printable-area,
-  #statement-printable-area *,
-  #dashboard-report-printable-area,
-  #dashboard-report-printable-area *,
-  #printable-area,
-  #printable-area *,
-  .printable-area,
-  .printable-area * {
-    visibility: visible !important;
-  }
-
-  /* Reset layout & force STATIC display for multi-page flow */
-  #debts-printable-area,
-  #statement-printable-area,
-  #dashboard-report-printable-area,
-  #printable-area,
-  .printable-area {
+  /* 3. Global Print Container: starts right at the top of Page 1 with natural multi-page flow */
+  #global-print-container,
+  body.is-printing-report #global-print-container {
     display: block !important;
+    visibility: visible !important;
     position: static !important;
     float: none !important;
     width: 100% !important;
@@ -664,19 +630,20 @@ html.dark body {
     height: auto !important;
   }
 
-  /* Completely remove the main application tree from document flow during dashboard report printing */
-  body.printing-dashboard-report #root,
-  body.dashboard-report-modal-open #root {
-    display: none !important;
-    visibility: hidden !important;
-    height: 0 !important;
-    max-height: 0 !important;
-    overflow: hidden !important;
-    margin: 0 !important;
-    padding: 0 !important;
+  #global-print-container *,
+  body.is-printing-report #global-print-container * {
+    visibility: visible !important;
   }
 
-  /* Make the portal overlay flow naturally from the very top of Page 1 */
+  /* Hide screen controls, toolbars, and buttons during print */
+  button,
+  .no-print,
+  [class*="border-b"][class*="z-20"] {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  /* Dashboard Reports Modal Overlay (for the blue and red buttons modal) */
   body.printing-dashboard-report .dashboard-report-modal-overlay,
   body.dashboard-report-modal-open .dashboard-report-modal-overlay {
     position: static !important;
@@ -759,6 +726,7 @@ html.dark body {
 
   /* Multi-Page Table Formatting & Break Prevention */
   table,
+  #global-print-container table,
   .printable-area table,
   #dashboard-report-printable-area table,
   #debts-printable-area table,
@@ -789,13 +757,14 @@ html.dark body {
     break-after: auto !important;
   }
 
-  td, th {
+  td, th,
+  #global-print-container th,
+  #global-print-container td {
     page-break-inside: avoid !important;
     break-inside: avoid !important;
     word-wrap: break-word !important;
     border: 1px solid #334155 !important;
     color: black !important;
-    background-color: transparent !important;
     padding: 6px 8px !important;
   }
 

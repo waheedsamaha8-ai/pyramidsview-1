@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { generateElementImage, generateElementImageBlob, GeneratedImageResult } from '../utils/imageExport';
+import { printReportElement } from '../utils/printReport';
 import { Resident, Payment, AppConfig, FloorConfig } from '../types';
 import { calculateResidentFinancials, getCarriedPreviousBalance, isMonthlySubscriptionType, getPrescribedFeeForMonth, isValidPaidPayment, isPendingUnpaidPayment, isPaymentForYearAndMonth, parsePaymentYear, parsePaymentMonth } from '../utils/financialCalculations';
 import { compareFlatNumbers, isSameFlatNumber, deriveFloorConfigsFromResidents, getUnitNumbersForFloor, getLatestOccupantFromHistory, getHistoricalActivityForDate, formatResidentOptionLabel } from '../utils/buildingStructure';
@@ -735,87 +736,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
   };
 
   const handlePrint = () => {
-    document.body.classList.add('printing-statement');
-    document.body.classList.remove('printing-debts');
-    window.focus();
-
-    try {
-      window.print();
-    } catch (err) {
-      console.warn('Direct print failed, trying iframe print fallback:', err);
-    }
-
-    const elem = document.getElementById('statement-printable-area');
-    if (elem) {
-      let iframe = document.getElementById('print-iframe-statement') as HTMLIFrameElement;
-      if (!iframe) {
-        iframe = document.createElement('iframe');
-        iframe.id = 'print-iframe-statement';
-        iframe.style.position = 'fixed';
-        iframe.style.right = '0';
-        iframe.style.bottom = '0';
-        iframe.style.width = '0px';
-        iframe.style.height = '0px';
-        iframe.style.border = 'none';
-        document.body.appendChild(iframe);
-      }
-      const doc = iframe.contentWindow?.document;
-      if (doc) {
-        doc.open();
-        doc.write(`
-          <!DOCTYPE html>
-          <html dir="rtl" lang="ar">
-          <head>
-            <title>كشف حساب وحدة ${activeResident ? activeResident.flatNumber : ''}</title>
-            <style>
-              body { font-family: system-ui, -apple-system, sans-serif; direction: rtl; padding: 20px; color: black; background: white; }
-              table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; }
-              th, td { border: 1px solid #334155; padding: 6px 8px; text-align: right; font-size: 11px; }
-              th { background-color: #f1f5f9; font-weight: bold; }
-              .bg-slate-100 { background-color: #f1f5f9 !important; }
-              .bg-slate-200 { background-color: #e2e8f0 !important; }
-              .bg-red-50 { background-color: #fef2f2 !important; }
-              .bg-red-100 { background-color: #fee2e2 !important; }
-              .bg-emerald-50 { background-color: #ecfdf5 !important; }
-              .text-center { text-align: center; }
-              .text-right { text-align: right; }
-              .font-bold { font-weight: bold; }
-              .font-black { font-weight: 900; }
-              .grid { display: grid; }
-              .grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-              .grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-              .grid-cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-              .grid-cols-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
-              .gap-3 { gap: 0.75rem; }
-              .gap-8 { gap: 2rem; }
-              .mb-6 { margin-bottom: 1.5rem; }
-              .mt-12 { margin-top: 3rem; }
-              .p-4 { padding: 1rem; }
-              .border { border: 1px solid #cbd5e1; }
-              .rounded-xl { border-radius: 0.75rem; }
-              @page { size: A4 portrait; margin: 1cm; }
-            </style>
-          </head>
-          <body>
-            ${elem.innerHTML}
-          </body>
-          </html>
-        `);
-        doc.close();
-        setTimeout(() => {
-          try {
-            iframe.contentWindow?.focus();
-            iframe.contentWindow?.print();
-          } catch (e) {
-            console.error('Iframe print error:', e);
-          }
-        }, 300);
-      }
-    }
-
-    setTimeout(() => {
-      document.body.classList.remove('printing-statement');
-    }, 1200);
+    printReportElement('statement-printable-area');
   };
 
   if (!activeResident) {

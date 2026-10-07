@@ -9,6 +9,7 @@ import { ShareReportModal } from './ShareReportModal';
 import { ReceiptClaimModal, ReceiptClaimData } from './ReceiptClaimModal';
 import { compressImageFile, compressBase64Image } from '../utils/imageCompressor';
 import { getImageFromIndexedDB, saveImageToIndexedDB } from '../services/imageStorage';
+import { printReportElement } from '../utils/printReport';
 
 interface PaymentsListProps {
   payments: Payment[];
@@ -348,56 +349,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
 
   // Print Collection Report Handler
   const handlePrintPaymentsReport = () => {
-    document.body.classList.remove('printing-statement', 'printing-debts');
-    window.focus();
-
-    try {
-      window.print();
-    } catch (err) {
-      console.warn('Direct print failed, trying iframe print fallback:', err);
-    }
-
-    const elem = document.getElementById('payments-monthly-printable-area');
-    if (elem) {
-      let iframe = document.getElementById('print-iframe-payments') as HTMLIFrameElement;
-      if (!iframe) {
-        iframe = document.createElement('iframe');
-        iframe.id = 'print-iframe-payments';
-        iframe.style.position = 'fixed';
-        iframe.style.right = '0';
-        iframe.style.bottom = '0';
-        iframe.style.width = '0px';
-        iframe.style.height = '0px';
-        iframe.style.border = 'none';
-        document.body.appendChild(iframe);
-      }
-      const doc = iframe.contentWindow?.document;
-      if (doc) {
-        doc.open();
-        doc.write(`
-          <!DOCTYPE html>
-          <html dir="rtl" lang="ar">
-          <head>
-            <title>طباعة تقرير التحصيلات</title>
-            <style>
-              body { font-family: system-ui, -apple-system, sans-serif; padding: 20px; background: white; color: black; direction: rtl; }
-              table { width: 100%; border-collapse: collapse; margin-top: 15px; }
-              th, td { border: 1px solid #334155; padding: 6px 8px; text-align: right; font-size: 12px; }
-              th { background-color: #f1f5f9; font-weight: bold; }
-            </style>
-          </head>
-          <body>
-            ${elem.innerHTML}
-          </body>
-          </html>
-        `);
-        doc.close();
-        setTimeout(() => {
-          iframe.contentWindow?.focus();
-          iframe.contentWindow?.print();
-        }, 400);
-      }
-    }
+    printReportElement('payments-monthly-printable-area');
   };
 
   // Generate High-Resolution Single Payment Official Receipt Canvas
