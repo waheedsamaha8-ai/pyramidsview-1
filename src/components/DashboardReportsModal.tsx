@@ -1,4 +1,5 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   X, 
   Printer, 
@@ -400,7 +401,18 @@ export const DashboardReportsModal: React.FC<DashboardReportsModalProps> = ({
     }
   }, [reportType, viewMode, targetMonthName, currentYear]);
 
-  return (
+  useEffect(() => {
+    if (isOpen) {
+      document.body.classList.add('dashboard-report-modal-open');
+      return () => {
+        document.body.classList.remove('dashboard-report-modal-open');
+      };
+    }
+  }, [isOpen]);
+
+  if (!isOpen || !reportType) return null;
+
+  const modalContent = (
     <div className="dashboard-report-modal-overlay fixed inset-0 z-50 w-full h-full flex flex-col bg-slate-100 overflow-hidden text-right animate-in fade-in duration-200">
       
       {/* Modal Toolbar (Screen only) */}
@@ -443,11 +455,11 @@ export const DashboardReportsModal: React.FC<DashboardReportsModalProps> = ({
       </div>
 
       {/* Modal Body & Printable Area */}
-      <div className="dashboard-report-modal-scroll flex-1 overflow-y-auto px-1 sm:px-3 md:px-5 py-2 sm:py-4 bg-slate-100/80 text-right print:p-0 print:bg-white print:overflow-visible">
-        <div id="dashboard-report-printable-area" className="printable-area dashboard-report-paper bg-white p-3 sm:p-6 md:p-8 rounded-xl sm:rounded-2xl border border-slate-200/90 shadow-2xs space-y-6 w-full max-w-none print:p-0 print:border-none print:shadow-none print:rounded-none">
+      <div className="dashboard-report-modal-scroll flex-1 overflow-y-auto px-1 sm:px-3 md:px-5 py-2 sm:py-4 bg-slate-100/80 text-right print:p-0 print:m-0 print:bg-white print:overflow-visible">
+        <div id="dashboard-report-printable-area" className="printable-area dashboard-report-paper bg-white p-3 sm:p-6 md:p-8 rounded-xl sm:rounded-2xl border border-slate-200/90 shadow-2xs space-y-6 w-full max-w-none print:p-0 print:m-0 print:space-y-3.5 print:border-none print:shadow-none print:rounded-none">
             
             {/* Official Report Header */}
-            <div className="border-b-2 border-slate-800 pb-4 flex items-center justify-between gap-4 print-avoid-break">
+            <div className="border-b-2 border-slate-800 pb-4 flex items-center justify-between gap-4 print-avoid-break print:pt-0 print:mt-0 print:pb-2.5">
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 rounded-2xl bg-slate-900 text-white flex items-center justify-center shrink-0">
                   <Building2 className="w-7 h-7 text-amber-400" />
@@ -1022,5 +1034,9 @@ export const DashboardReportsModal: React.FC<DashboardReportsModalProps> = ({
         </div>
 
       </div>
-    );
-  };
+  );
+
+  return typeof document !== 'undefined'
+    ? createPortal(modalContent, document.body)
+    : modalContent;
+};

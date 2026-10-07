@@ -643,7 +643,7 @@ html.dark body {
     visibility: visible !important;
   }
 
-  /* Reset layout & force STATIC display for multi-page flow with zero top offset */
+  /* Reset layout & force STATIC display for multi-page flow */
   #debts-printable-area,
   #statement-printable-area,
   #dashboard-report-printable-area,
@@ -655,9 +655,7 @@ html.dark body {
     width: 100% !important;
     max-width: none !important;
     margin: 0 !important;
-    margin-top: 0 !important;
     padding: 0 !important;
-    padding-top: 0 !important;
     background-color: white !important;
     color: black !important;
     box-shadow: none !important;
@@ -666,20 +664,67 @@ html.dark body {
     height: auto !important;
   }
 
-  /* Zero out top padding/margins on parent modal wrappers and top inner header */
-  div:has(> #dashboard-report-printable-area),
-  div:has(> #debts-printable-area),
-  div:has(> #statement-printable-area) {
-    margin-top: 0 !important;
-    padding-top: 0 !important;
+  /* Completely remove the main application tree from document flow during dashboard report printing */
+  body.printing-dashboard-report #root,
+  body.dashboard-report-modal-open #root {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    max-height: 0 !important;
+    overflow: hidden !important;
+    margin: 0 !important;
+    padding: 0 !important;
   }
 
-  #dashboard-report-printable-area > *:first-child,
-  #debts-printable-area > *:first-child,
-  #statement-printable-area > *:first-child,
-  .printable-area > *:first-child {
-    margin-top: 0 !important;
-    padding-top: 0 !important;
+  /* Make the portal overlay flow naturally from the very top of Page 1 */
+  body.printing-dashboard-report .dashboard-report-modal-overlay,
+  body.dashboard-report-modal-open .dashboard-report-modal-overlay {
+    position: static !important;
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: white !important;
+    overflow: visible !important;
+    height: auto !important;
+    visibility: visible !important;
+  }
+
+  body.printing-dashboard-report .dashboard-report-toolbar,
+  body.dashboard-report-modal-open .dashboard-report-toolbar {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  body.printing-dashboard-report .dashboard-report-modal-scroll,
+  body.dashboard-report-modal-open .dashboard-report-modal-scroll {
+    position: static !important;
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: white !important;
+    overflow: visible !important;
+    height: auto !important;
+    visibility: visible !important;
+  }
+
+  body.printing-dashboard-report #dashboard-report-printable-area,
+  body.dashboard-report-modal-open #dashboard-report-printable-area {
+    position: static !important;
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: white !important;
+    border: none !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+    height: auto !important;
+    visibility: visible !important;
   }
 
   /* Prevent overlapping if printing a specific section */
@@ -782,10 +827,10 @@ html.dark body {
     background-color: #ecfdf5 !important;
   }
 
-  /* Page setup - Compact top margin for top-aligned official reports */
+  /* Page setup */
   @page {
     size: A4 portrait;
-    margin: 0.4cm 0.8cm 0.8cm 0.8cm;
+    margin: 0.8cm 1cm;
   }
 }
 
