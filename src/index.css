@@ -572,213 +572,103 @@ html.dark body {
 }
 
 /* ==========================================================================
-   PRINT MEDIA STYLES - FOR BEAUTIFUL MULTI-PAGE PDF & PAPER PRINTING
+   PRINT MEDIA STYLES - FOR BEAUTIFUL PDF & PAPER PRINTING (MULTI-PAGE READY)
    ========================================================================== */
 @media print {
-  /* Global Page Setup - A4 Portrait with safe margins */
-  @page {
-    size: A4 portrait;
-    margin: 1cm;
-  }
-
-  /* Reset document root to allow natural multi-page flow without clipping */
-  html, body {
+  /* 1. Global Reset for Multi-Page Document Flow */
+  html,
+  body {
     height: auto !important;
-    min-height: 100% !important;
     max-height: none !important;
+    min-height: 0 !important;
     overflow: visible !important;
     position: static !important;
     background: white !important;
     color: black !important;
     margin: 0 !important;
     padding: 0 !important;
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
   }
 
   #root,
   #root > div {
     height: auto !important;
-    min-height: 0 !important;
     max-height: none !important;
     overflow: visible !important;
     position: static !important;
-    display: block !important;
   }
 
-  /* -------------------------------------------------------------------------
-     DASHBOARD REPORTS PRINTING (Blue & Red Button Official Reports)
-     ------------------------------------------------------------------------- */
-  body.printing-dashboard-report,
-  body.dashboard-report-open {
-    background: white !important;
-  }
-
-  /* When printing dashboard report, hide background screen elements and non-relevant printable areas */
-  body.printing-dashboard-report header,
-  body.dashboard-report-open header,
-  body.printing-dashboard-report nav,
-  body.dashboard-report-open nav,
-  body.printing-dashboard-report .dashboard-screen-content,
-  body.dashboard-report-open .dashboard-screen-content,
-  body.printing-dashboard-report #statement-printable-area,
-  body.dashboard-report-open #statement-printable-area,
-  body.printing-dashboard-report #debts-printable-area,
-  body.dashboard-report-open #debts-printable-area,
-  body.printing-dashboard-report #payments-monthly-printable-area,
-  body.dashboard-report-open #payments-monthly-printable-area,
-  body.printing-dashboard-report #expenses-monthly-printable-area,
-  body.dashboard-report-open #expenses-monthly-printable-area,
-  body.printing-dashboard-report .modal-backdrop {
-    display: none !important;
-    visibility: hidden !important;
-  }
-
-  /* Make modal overlay behave as a natural document flow container */
-  .dashboard-report-modal-overlay {
+  /* Reset fixed/absolute screen overlays so they flow naturally across pages */
+  .fixed,
+  .absolute,
+  .overflow-y-auto,
+  .overflow-hidden,
+  .backdrop-blur-xs,
+  .backdrop-blur-sm,
+  .backdrop-blur {
     position: static !important;
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
     inset: auto !important;
-    width: 100% !important;
-    height: auto !important;
-    min-height: 100% !important;
-    max-height: none !important;
-    overflow: visible !important;
-    background: white !important;
-    color: black !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    display: block !important;
-    z-index: auto !important;
+    transform: none !important;
+    background: transparent !important;
     box-shadow: none !important;
-    animation: none !important;
+    border: none !important;
   }
 
-  /* Hide screen-only modal toolbar */
-  .dashboard-report-toolbar {
+  /* Hide screen controls, toolbars, and close buttons during print */
+  button,
+  .no-print,
+  [class*="border-b"][class*="z-20"] {
     display: none !important;
     visibility: hidden !important;
   }
 
-  /* Inner scrollable area reset to auto height */
-  .dashboard-report-modal-scroll {
-    position: static !important;
-    height: auto !important;
-    max-height: none !important;
-    overflow: visible !important;
-    display: block !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    background: white !important;
+  /* Hide all normal page elements by default during print */
+  body * {
+    visibility: hidden !important;
   }
 
-  /* Dedicated Report Paper Layout */
-  #dashboard-report-printable-area {
-    display: block !important;
+  /* Show dedicated printable areas and descendants */
+  #debts-printable-area,
+  #debts-printable-area *,
+  #statement-printable-area,
+  #statement-printable-area *,
+  #dashboard-report-printable-area,
+  #dashboard-report-printable-area *,
+  #printable-area,
+  #printable-area *,
+  .printable-area,
+  .printable-area * {
     visibility: visible !important;
+  }
+
+  /* Reset layout & force STATIC display for multi-page flow */
+  #debts-printable-area,
+  #statement-printable-area,
+  #dashboard-report-printable-area,
+  #printable-area,
+  .printable-area {
+    display: block !important;
     position: static !important;
-    left: auto !important;
-    top: auto !important;
+    float: none !important;
     width: 100% !important;
-    max-width: 100% !important;
-    height: auto !important;
-    overflow: visible !important;
+    max-width: none !important;
     margin: 0 !important;
     padding: 0 !important;
     background-color: white !important;
     color: black !important;
     box-shadow: none !important;
-    border: none !important;
     direction: rtl !important;
-  }
-
-  /* Table styling & flawless multi-page pagination for Dashboard Report */
-  #dashboard-report-printable-area div {
     overflow: visible !important;
-    max-height: none !important;
+    height: auto !important;
   }
 
-  #dashboard-report-printable-area .overflow-x-auto,
-  #dashboard-report-printable-area .overflow-y-auto {
-    overflow: visible !important;
-    display: block !important;
-    width: 100% !important;
-    border: none !important;
-    box-shadow: none !important;
-  }
-
-  #dashboard-report-printable-area table {
-    width: 100% !important;
-    min-width: 0 !important;
-    max-width: 100% !important;
-    border-collapse: collapse !important;
-    table-layout: auto !important;
-    page-break-inside: auto !important;
-    break-inside: auto !important;
-    margin-bottom: 1.5rem !important;
-  }
-
-  #dashboard-report-printable-area thead {
-    display: table-header-group !important;
-    break-inside: avoid !important;
-    page-break-inside: avoid !important;
-  }
-
-  #dashboard-report-printable-area tfoot {
-    display: table-footer-group !important;
-    break-inside: avoid !important;
-    page-break-inside: avoid !important;
-  }
-
-  #dashboard-report-printable-area tbody {
-    break-inside: auto !important;
-    page-break-inside: auto !important;
-  }
-
-  #dashboard-report-printable-area tr {
-    break-inside: avoid !important;
-    page-break-inside: avoid !important;
-    page-break-after: auto !important;
-  }
-
-  #dashboard-report-printable-area th,
-  #dashboard-report-printable-area td {
-    border: 1px solid #334155 !important;
-    padding: 4px 6px !important;
-    font-size: 10px !important;
-    line-height: 1.35 !important;
-    color: #0f172a !important;
-    background-color: transparent !important;
-    break-inside: avoid !important;
-    page-break-inside: avoid !important;
-  }
-
-  #dashboard-report-printable-area th {
-    background-color: #f1f5f9 !important;
-    font-weight: 800 !important;
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-  }
-
-  /* Prevent awkward splits on headers, summary cards, and signatures */
-  #dashboard-report-printable-area .print-avoid-break,
-  #dashboard-report-printable-area .grid,
-  #dashboard-report-printable-area .signatures-section {
-    break-inside: avoid !important;
-    page-break-inside: avoid !important;
-  }
-
-  /* -------------------------------------------------------------------------
-     DEDICATED STYLES FOR OTHER SPECIFIC PRINT VIEWS (When active)
-     ------------------------------------------------------------------------- */
-  body.printing-statement #statement-printable-area {
-    display: block !important;
-    visibility: visible !important;
-    position: static !important;
-    width: 100% !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    background: white !important;
-    color: black !important;
+  /* Prevent overlapping if printing a specific section */
+  body.printing-debts #statement-printable-area,
+  body.printing-debts #dashboard-report-printable-area {
+    display: none !important;
+    visibility: hidden !important;
   }
 
   body.printing-statement #debts-printable-area,
@@ -787,52 +677,97 @@ html.dark body {
     visibility: hidden !important;
   }
 
-  body.printing-debts #debts-printable-area {
-    display: block !important;
-    visibility: visible !important;
-    position: static !important;
-    width: 100% !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    background: white !important;
-    color: black !important;
-  }
-
-  body.printing-debts #statement-printable-area,
-  body.printing-debts #dashboard-report-printable-area {
+  body.printing-dashboard-report #debts-printable-area,
+  body.printing-dashboard-report #statement-printable-area {
     display: none !important;
     visibility: hidden !important;
   }
 
-  /* General table print helpers */
+  /* Ensure table wrappers do not clip or hide content */
+  .printable-area div,
+  #dashboard-report-printable-area div,
+  #debts-printable-area div,
+  #statement-printable-area div {
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+    border: none !important;
+  }
+
+  /* Multi-Page Table Formatting & Break Prevention */
+  table,
+  .printable-area table,
+  #dashboard-report-printable-area table,
+  #debts-printable-area table,
+  #statement-printable-area table {
+    border-collapse: collapse !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    page-break-inside: auto !important;
+    break-inside: auto !important;
+  }
+
+  thead {
+    display: table-header-group !important;
+  }
+
+  tfoot {
+    display: table-footer-group !important;
+  }
+
+  tbody {
+    display: table-row-group !important;
+  }
+
+  tr {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+
+  td, th {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    word-wrap: break-word !important;
+    border: 1px solid #334155 !important;
+    color: black !important;
+    background-color: transparent !important;
+    padding: 6px 8px !important;
+  }
+
+  /* Prevent signature blocks from splitting across pages */
+  .break-inside-avoid,
+  .print-break-inside-avoid,
+  [class*="pt-6"][class*="border-t-2"] {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
   .bg-slate-100 {
     background-color: #f1f5f9 !important;
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
   }
 
   .bg-slate-200 {
     background-color: #e2e8f0 !important;
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
   }
 
   .bg-red-50 {
     background-color: #fef2f2 !important;
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
   }
 
   .bg-red-100 {
     background-color: #fee2e2 !important;
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
   }
 
   .bg-emerald-50 {
     background-color: #ecfdf5 !important;
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
+  }
+
+  /* Page setup */
+  @page {
+    size: A4 portrait;
+    margin: 1.2cm;
   }
 }
 
