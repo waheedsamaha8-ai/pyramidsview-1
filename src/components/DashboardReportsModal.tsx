@@ -28,7 +28,23 @@ import {
   parsePaymentYear
 } from '../utils/financialCalculations';
 import { compareFlatNumbers, isSameFlatNumber, getHistoricalOccupantForDate } from '../utils/buildingStructure';
-import { formatPhoneForDisplay } from '../utils/phoneUtils';
+import { formatMobileNumber, formatPhoneForDisplay } from '../utils/phoneUtils';
+
+/**
+ * Splits a phone string into individual formatted phone numbers,
+ * handling space, comma, slash, semicolon, pipe, or newlines.
+ */
+function splitAndFormatPhones(phoneStr?: string | number | null): string[] {
+  if (!phoneStr) return [];
+  const s = String(phoneStr).trim();
+  if (!s || s === '—' || s === '-') return [];
+  // Split on delimiters or spaces between numbers (e.g. "+2010... +2011...")
+  const rawParts = s.split(/[,/;|\n]+|\s+(?=[+0])/);
+  return rawParts
+    .map(p => p.trim())
+    .filter(p => p.length >= 7)
+    .map(p => formatMobileNumber(p) || p);
+}
 
 interface DashboardReportsModalProps {
   isOpen: boolean;
@@ -850,6 +866,8 @@ export const DashboardReportsModal: React.FC<DashboardReportsModalProps> = ({
                               const tenantName = hist?.tenantName || (item.resident.ownershipType === 'إيجار' ? item.resident.tenantName : undefined);
                               const ownerPhone = hist?.ownerPhone || item.resident.phone;
                               const tenantPhone = hist?.tenantPhone || (tenantName ? item.resident.tenantPhone : undefined);
+                              const ownerPhones = splitAndFormatPhones(ownerPhone);
+                              const tenantPhones = splitAndFormatPhones(tenantPhone);
                               return (
                                 <tr key={item.resident.id || idx} className="hover:bg-rose-50/20">
                                   <td className="p-2 text-center text-slate-500 font-mono text-[11px]">{idx + 1}</td>
@@ -884,16 +902,24 @@ export const DashboardReportsModal: React.FC<DashboardReportsModalProps> = ({
                                       {item.statusText}
                                     </span>
                                   </td>
-                                  <td className="p-2 text-center font-mono text-[10px]" dir="ltr">
-                                    <div className="text-slate-800 font-bold whitespace-nowrap phone-number-display">
-                                      {ownerPhone ? formatPhoneForDisplay(ownerPhone) : '—'}
+                                  <td className="p-2 text-center" dir="ltr">
+                                    <div className="flex flex-col items-center justify-center gap-0.5 font-mono text-[10px] leading-tight">
+                                      {ownerPhones.length > 0 ? (
+                                        ownerPhones.map((ph, pIdx) => (
+                                          <span key={`op-${pIdx}`} className="text-slate-900 font-bold whitespace-nowrap block">
+                                            {ph}
+                                          </span>
+                                        ))
+                                      ) : tenantPhones.length === 0 ? (
+                                        <span className="text-slate-400 font-semibold">—</span>
+                                      ) : null}
+
+                                      {tenantPhones.map((tPh, tIdx) => (
+                                        <span key={`tp-${tIdx}`} className="text-amber-800 font-bold whitespace-nowrap block" title="هاتف المستأجر">
+                                          {tPh}
+                                        </span>
+                                      ))}
                                     </div>
-                                    {tenantPhone && tenantPhone.trim() && (
-                                      <div className="text-amber-800 font-semibold text-[9px] mt-0.5 whitespace-nowrap flex items-center justify-center gap-1 phone-number-display" title="هاتف المستأجر">
-                                        <span className="text-[8px] text-slate-400 font-normal">مستأجر:</span>
-                                        <span className="font-mono">{formatPhoneForDisplay(tenantPhone.trim())}</span>
-                                      </div>
-                                    )}
                                   </td>
                                 </tr>
                               );
@@ -961,6 +987,8 @@ export const DashboardReportsModal: React.FC<DashboardReportsModalProps> = ({
                               const tenantName = hist?.tenantName || (item.resident.ownershipType === 'إيجار' ? item.resident.tenantName : undefined);
                               const ownerPhone = hist?.ownerPhone || item.resident.phone;
                               const tenantPhone = hist?.tenantPhone || (tenantName ? item.resident.tenantPhone : undefined);
+                              const ownerPhones = splitAndFormatPhones(ownerPhone);
+                              const tenantPhones = splitAndFormatPhones(tenantPhone);
                               return (
                                 <tr key={item.resident.id || idx} className="hover:bg-rose-50/20">
                                   <td className="p-2 text-center text-slate-500 font-mono text-[11px]">{idx + 1}</td>
@@ -989,16 +1017,24 @@ export const DashboardReportsModal: React.FC<DashboardReportsModalProps> = ({
                                   <td className="p-2 text-center font-mono font-black text-rose-700 text-xs">
                                     {item.totalDue.toLocaleString()} ج.م
                                   </td>
-                                  <td className="p-2 text-center font-mono text-[10px]" dir="ltr">
-                                    <div className="text-slate-800 font-bold whitespace-nowrap phone-number-display">
-                                      {ownerPhone ? formatPhoneForDisplay(ownerPhone) : '—'}
+                                  <td className="p-2 text-center" dir="ltr">
+                                    <div className="flex flex-col items-center justify-center gap-0.5 font-mono text-[10px] leading-tight">
+                                      {ownerPhones.length > 0 ? (
+                                        ownerPhones.map((ph, pIdx) => (
+                                          <span key={`op-${pIdx}`} className="text-slate-900 font-bold whitespace-nowrap block">
+                                            {ph}
+                                          </span>
+                                        ))
+                                      ) : tenantPhones.length === 0 ? (
+                                        <span className="text-slate-400 font-semibold">—</span>
+                                      ) : null}
+
+                                      {tenantPhones.map((tPh, tIdx) => (
+                                        <span key={`tp-${tIdx}`} className="text-amber-800 font-bold whitespace-nowrap block" title="هاتف المستأجر">
+                                          {tPh}
+                                        </span>
+                                      ))}
                                     </div>
-                                    {tenantPhone && tenantPhone.trim() && (
-                                      <div className="text-amber-800 font-semibold text-[9px] mt-0.5 whitespace-nowrap flex items-center justify-center gap-1 phone-number-display" title="هاتف المستأجر">
-                                        <span className="text-[8px] text-slate-400 font-normal">مستأجر:</span>
-                                        <span className="font-mono">{formatPhoneForDisplay(tenantPhone.trim())}</span>
-                                      </div>
-                                    )}
                                   </td>
                                 </tr>
                               );
