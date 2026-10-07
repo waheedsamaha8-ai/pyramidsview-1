@@ -643,7 +643,7 @@ html.dark body {
     visibility: visible !important;
   }
 
-  /* Reset layout & force STATIC display for multi-page flow */
+  /* Reset layout & force STATIC display for multi-page flow with zero top offset */
   #debts-printable-area,
   #statement-printable-area,
   #dashboard-report-printable-area,
@@ -655,13 +655,31 @@ html.dark body {
     width: 100% !important;
     max-width: none !important;
     margin: 0 !important;
+    margin-top: 0 !important;
     padding: 0 !important;
+    padding-top: 0 !important;
     background-color: white !important;
     color: black !important;
     box-shadow: none !important;
     direction: rtl !important;
     overflow: visible !important;
     height: auto !important;
+  }
+
+  /* Zero out top padding/margins on parent modal wrappers and top inner header */
+  div:has(> #dashboard-report-printable-area),
+  div:has(> #debts-printable-area),
+  div:has(> #statement-printable-area) {
+    margin-top: 0 !important;
+    padding-top: 0 !important;
+  }
+
+  #dashboard-report-printable-area > *:first-child,
+  #debts-printable-area > *:first-child,
+  #statement-printable-area > *:first-child,
+  .printable-area > *:first-child {
+    margin-top: 0 !important;
+    padding-top: 0 !important;
   }
 
   /* Prevent overlapping if printing a specific section */
@@ -764,10 +782,10 @@ html.dark body {
     background-color: #ecfdf5 !important;
   }
 
-  /* Page setup */
+  /* Page setup - Compact top margin for top-aligned official reports */
   @page {
     size: A4 portrait;
-    margin: 1.2cm;
+    margin: 0.4cm 0.8cm 0.8cm 0.8cm;
   }
 }
 
