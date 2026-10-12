@@ -161,8 +161,7 @@ export async function getResidentsFromFirestore(): Promise<Resident[]> {
     
     snapshot.forEach(docSnap => {
       const data = docSnap.data() as Resident;
-      const bldId = (data as any)?.buildingId;
-      if (!bldId || bldId === activeId || activeId === DEFAULT_BUILDING_ID) {
+      if (data && (data.id || (data as any).flatNumber)) {
         residents.push(data);
       }
     });
@@ -321,8 +320,7 @@ export async function getPaymentsFromFirestore(): Promise<Payment[]> {
 
     snapshot.forEach(docSnap => {
       const data = docSnap.data() as Payment;
-      const bldId = (data as any)?.buildingId;
-      if (!bldId || bldId === activeId || activeId === DEFAULT_BUILDING_ID) {
+      if (data && data.id) {
         payments.push(data);
       }
     });
@@ -521,8 +519,7 @@ export async function getExpensesFromFirestore(): Promise<Expense[]> {
 
     snapshot.forEach(docSnap => {
       const data = docSnap.data() as Expense;
-      const bldId = (data as any)?.buildingId;
-      if (!bldId || bldId === activeId || activeId === DEFAULT_BUILDING_ID) {
+      if (data && data.id) {
         expenses.push(data);
       }
     });
@@ -1365,10 +1362,7 @@ export function subscribeToFirestoreCollection<T>(
       const activeId = getActiveBuildingId();
 
       rootItemsMap.forEach((val, key) => {
-        const itemBldId = (val as any)?.buildingId;
-        if (!itemBldId || itemBldId === activeId || activeId === DEFAULT_BUILDING_ID) {
-          mergedMap.set(key, val);
-        }
+        mergedMap.set(key, val);
       });
 
       subItemsMap.forEach((val, key) => {
