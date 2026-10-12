@@ -76,9 +76,38 @@ export function getBuildingDocRef(colName: string, docId: string) {
   return doc(db, colName, docId);
 }
 
+// Persistent Deleted Entity IDs Tracker to permanently prevent deleted items from reappearing on refresh/sync
+const DELETED_ENTITY_IDS_KEY = 'pyramids_deleted_entity_ids_v1';
+
+export function getDeletedEntityIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(DELETED_ENTITY_IDS_KEY);
+    return new Set<string>(raw ? JSON.parse(raw) : []);
+  } catch {
+    return new Set<string>();
+  }
+}
+
+export function registerDeletedEntityId(id: string | number): void {
+  if (!id) return;
+  const cleanId = String(id);
+  try {
+    const set = getDeletedEntityIds();
+    set.add(cleanId);
+    const arr = Array.from(set).slice(-1000);
+    localStorage.setItem(DELETED_ENTITY_IDS_KEY, JSON.stringify(arr));
+  } catch {}
+}
+
+export function isEntityDeleted(id: string | number): boolean {
+  if (!id) return false;
+  return getDeletedEntityIds().has(String(id));
+}
+
 // Low-level helper to permanently delete document across all Firestore structures (root, building subcollections, etc.)
 async function deleteFromAllFirestorePaths(colName: string, id: string): Promise<void> {
   const cleanId = String(id);
+  registerDeletedEntityId(cleanId);
   const activeId = getActiveBuildingId();
   const deletePromises: Promise<any>[] = [];
 
@@ -1361,12 +1390,18 @@ export function subscribeToFirestoreCollection<T>(
       const mergedMap = new Map<string, T>();
       const activeId = getActiveBuildingId();
 
+      const deletedSet = getDeletedEntityIds();
+
       rootItemsMap.forEach((val, key) => {
-        mergedMap.set(key, val);
+        if (!deletedSet.has(key)) {
+          mergedMap.set(key, val);
+        }
       });
 
       subItemsMap.forEach((val, key) => {
-        mergedMap.set(key, val);
+        if (!deletedSet.has(key)) {
+          mergedMap.set(key, val);
+        }
       });
 
       let items = Array.from(mergedMap.values());

@@ -146,6 +146,14 @@ export interface Building {
   config?: AppConfig;
 }
 
+export interface DelegatedAdmin {
+  id: string;
+  email: string;
+  password: string;
+  name?: string;
+  createdAt?: string;
+}
+
 export interface AppConfig {
   buildingId?: string;
   buildingName?: string;
@@ -158,6 +166,7 @@ export interface AppConfig {
   paymentTypes: string[];
   activityTypes: string[];
   admins: string[]; // List of admin emails
+  delegatedAdmins?: DelegatedAdmin[]; // Delegated admin accounts with email & password
   managers: string[]; // List of manager emails
   assistantConfig?: AssistantConfig; // Technical Assistant credentials
   accountingStartDate?: string; // e.g. "2026-01-01"

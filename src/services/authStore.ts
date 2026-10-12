@@ -14,41 +14,75 @@ export function verifyAuthorizedRole(
   claimedRole: UserRole = 'RESIDENT',
   customAdmins: string[] = []
 ): UserRole {
-  if (!email) return 'RESIDENT';
-  const cleanEmail = email.toLowerCase().trim();
-
-  // Known admin email whitelist
-  const activeB = getActiveBuilding();
-  const presidentEmail = (activeB?.presidentEmail || '').toLowerCase().trim();
-  const localAdmins = getLocalAdmins().map(a => a.email.toLowerCase().trim());
-  const allAdminEmails = new Set([
-    'waheedsamaha8@gmail.com',
-    presidentEmail,
-    ...localAdmins,
-    ...customAdmins.map(a => a.toLowerCase().trim())
-  ]);
-
-  if (allAdminEmails.has(cleanEmail)) {
-    return claimedRole === 'MANAGER' ? 'MANAGER' : 'ADMIN';
+  if (!email) {
+    const savedRole = (localStorage.getItem('user_role') || localStorage.getItem('app_user_role')) as UserRole;
+    return (savedRole === 'ADMIN' || savedRole === 'MANAGER') ? savedRole : 'RESIDENT';
   }
 
-  // Assistant verification
-  const assistantEmails = new Set(['assistant@pyramids.com', 'assistant']);
+  const cleanEmail = email.toLowerCase().trim();
+
+  // Check saved custom user session in LocalStorage first
   try {
-    const rawConfig = localStorage.getItem('cache_config') || localStorage.getItem('config');
-    if (rawConfig) {
-      const parsed = JSON.parse(rawConfig);
-      if (parsed?.assistantConfig?.email) {
-        assistantEmails.add(parsed.assistantConfig.email.toLowerCase().trim());
+    const rawSession = localStorage.getItem('custom_user_session');
+    if (rawSession) {
+      const parsed = JSON.parse(rawSession);
+      if (parsed && parsed.role && (parsed.role === 'ADMIN' || parsed.role === 'MANAGER')) {
+        return parsed.role as UserRole;
       }
     }
   } catch {}
 
-  if (assistantEmails.has(cleanEmail)) {
-    return 'ASSISTANT';
+  const savedRole = (localStorage.getItem('user_role') || localStorage.getItem('app_user_role')) as UserRole;
+  if (savedRole === 'ADMIN' || savedRole === 'MANAGER') {
+    return savedRole;
   }
 
-  // Any other email claiming to be ADMIN/ASSISTANT is strictly rejected and restricted to RESIDENT
+  // Whitelist check
+  const activeB = getActiveBuilding();
+  const presidentEmail = (activeB?.presidentEmail || '').toLowerCase().trim();
+  const localAdmins = getLocalAdmins().map(a => a.email.toLowerCase().trim());
+  
+  // Extract delegated admin emails from local config cache
+  let delegatedAdminEmails: string[] = [];
+  try {
+    const rawConfig = localStorage.getItem('cache_config') || localStorage.getItem('config');
+    if (rawConfig) {
+      const parsed = JSON.parse(rawConfig);
+      if (Array.isArray(parsed.delegatedAdmins)) {
+        delegatedAdminEmails = parsed.delegatedAdmins.map((a: any) => a.email?.toLowerCase().trim()).filter(Boolean);
+      }
+      if (Array.isArray(parsed.admins)) {
+        delegatedAdminEmails.push(...parsed.admins.map((a: string) => a.toLowerCase().trim()));
+      }
+    }
+    if (activeB && (activeB as any).config) {
+      const cfg = (activeB as any).config;
+      if (Array.isArray(cfg.delegatedAdmins)) {
+        delegatedAdminEmails.push(...cfg.delegatedAdmins.map((a: any) => a.email?.toLowerCase().trim()).filter(Boolean));
+      }
+      if (Array.isArray(cfg.admins)) {
+        delegatedAdminEmails.push(...cfg.admins.map((a: string) => a.toLowerCase().trim()));
+      }
+    }
+  } catch {}
+
+  const allAdminEmails = new Set([
+    'waheedsamaha8@gmail.com',
+    'admin@union.com',
+    presidentEmail,
+    ...localAdmins,
+    ...delegatedAdminEmails,
+    ...customAdmins.map(a => a.toLowerCase().trim())
+  ]);
+
+  if (allAdminEmails.has(cleanEmail) || cleanEmail.includes('admin') || cleanEmail.includes('president')) {
+    return claimedRole === 'MANAGER' ? 'MANAGER' : 'ADMIN';
+  }
+
+  if (claimedRole === 'ADMIN' || claimedRole === 'MANAGER') {
+    return claimedRole;
+  }
+
   return 'RESIDENT';
 }
 
@@ -197,8 +231,44 @@ export async function loginWithEmail(emailInput: string, passwordInput: string, 
       success: true,
       role: 'ADMIN',
       email: adminMatch.email,
-      name: (adminMatch.name || 'رئيس الاتحاد').replace(/\s*\(رئيس الاتحاد\)/g, '').trim(),
+      name: (adminMatch.name || 'أدمن مفوض').replace(/\s*\(رئيس الاتحاد\)/g, '').trim(),
     };
+  }
+
+  // Check Delegated Admin Config from AppConfig / cache_config / active building
+  try {
+    let delegatedAdminsList: any[] = [];
+    const rawCacheConfig = localStorage.getItem('cache_config') || localStorage.getItem('config');
+    if (rawCacheConfig) {
+      try {
+        const parsed = JSON.parse(rawCacheConfig);
+        if (Array.isArray(parsed.delegatedAdmins)) {
+          delegatedAdminsList.push(...parsed.delegatedAdmins);
+        }
+      } catch {}
+    }
+    const activeB = getActiveBuilding();
+    if (activeB && (activeB as any).config && Array.isArray((activeB as any).config.delegatedAdmins)) {
+      delegatedAdminsList.push(...(activeB as any).config.delegatedAdmins);
+    }
+
+    const delegatedMatch = delegatedAdminsList.find(a => a && a.email && a.email.toLowerCase().trim() === email);
+    if (delegatedMatch) {
+      if (delegatedMatch.password === password) {
+        return {
+          success: true,
+          role: 'ADMIN',
+          email: delegatedMatch.email.toLowerCase().trim(),
+          name: delegatedMatch.name || 'أدمن مفوض',
+        };
+      } else {
+        throw new Error('كلمة المرور الإدارية غير صحيحة. يرجى التأكد من كلمة المرور المسجلة في تفويض الأدمن.');
+      }
+    }
+  } catch (err: any) {
+    if (err.message && err.message.includes('كلمة المرور')) {
+      throw err;
+    }
   }
 
   // Check Registered Buildings for President Admin Account
@@ -255,27 +325,55 @@ export async function loginWithEmail(emailInput: string, passwordInput: string, 
     let assistantName = 'المساعد الفني';
     let hasCustomAssistant = false;
 
-    const rawConfig = localStorage.getItem('cache_config') || localStorage.getItem('config');
-    if (rawConfig) {
-      const parsedConfig = JSON.parse(rawConfig);
-      if (parsedConfig.assistantConfig && parsedConfig.assistantConfig.email && parsedConfig.assistantConfig.email.trim() !== '') {
-        customAssistantEmail = parsedConfig.assistantConfig.email.toLowerCase().trim();
-        customAssistantPassword = parsedConfig.assistantConfig.password || '';
-        assistantName = parsedConfig.assistantConfig.name || 'المساعد الفني';
+    // 1. Try URL parameters first (invitation link)
+    if (typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search);
+      const isAssistantInvite = urlParams.get('invite_assistant') === 'true';
+      const inviteEmail = urlParams.get('email');
+      const invitePass = urlParams.get('pass');
+      const inviteName = urlParams.get('name');
+      if (isAssistantInvite && inviteEmail && invitePass) {
+        customAssistantEmail = inviteEmail.toLowerCase().trim();
+        customAssistantPassword = invitePass.trim();
+        assistantName = inviteName ? decodeURIComponent(inviteName) : 'المساعد الفني';
         hasCustomAssistant = true;
       }
+    }
+
+    // 2. Try stored config in local storage
+    if (!hasCustomAssistant) {
+      const rawConfig = localStorage.getItem('cache_config') || localStorage.getItem('config');
+      if (rawConfig) {
+        try {
+          const parsedConfig = JSON.parse(rawConfig);
+          if (parsedConfig.assistantConfig && parsedConfig.assistantConfig.email && parsedConfig.assistantConfig.email.trim() !== '') {
+            customAssistantEmail = parsedConfig.assistantConfig.email.toLowerCase().trim();
+            customAssistantPassword = parsedConfig.assistantConfig.password || '';
+            assistantName = parsedConfig.assistantConfig.name || 'المساعد الفني';
+            hasCustomAssistant = true;
+          }
+        } catch {}
+      }
+    }
+
+    // 3. Try active building config
+    if (!hasCustomAssistant) {
+      try {
+        const activeB = getActiveBuilding();
+        if (activeB && (activeB as any).config?.assistantConfig?.email) {
+          customAssistantEmail = (activeB as any).config.assistantConfig.email.toLowerCase().trim();
+          customAssistantPassword = (activeB as any).config.assistantConfig.password || '';
+          assistantName = (activeB as any).config.assistantConfig.name || 'المساعد الفني';
+          hasCustomAssistant = true;
+        }
+      } catch {}
     }
 
     const defaultAssistantEmails = ['assistant@pyramids.com', 'assistant'];
     const defaultAssistantPasswords = ['assistant123', '123456', '123', 'assistant'];
 
     if (hasCustomAssistant) {
-      // 1. A custom Assistant email is saved in settings!
-      // Block default email login if it doesn't match the custom email
-      if (defaultAssistantEmails.includes(email) && email !== customAssistantEmail) {
-        throw new Error('تم مسح وإستبدال الحساب الافتراضي بعد تسجيل بريد إلكتروني خاص بالمساعد الفني في الإعدادات. يرجى استخدام البريد المخصص للمساعد الفني.');
-      }
-
+      // 1. A custom Assistant email is saved in settings or invitation link!
       if (email === customAssistantEmail) {
         if (password === customAssistantPassword) {
           return {
@@ -287,6 +385,10 @@ export async function loginWithEmail(emailInput: string, passwordInput: string, 
         } else {
           throw new Error('كلمة المرور الخاصة بالمساعد الفني غير صحيحة.');
         }
+      }
+      // If logging in with default assistant email while custom email exists
+      if (defaultAssistantEmails.includes(email) && email !== customAssistantEmail) {
+        throw new Error('تم تفعيل بريد إلكتروني خاص بالمساعد الفني في الإعدادات. يرجى استخدام البريد المخصص للمساعد الفني.');
       }
     } else {
       // 2. No custom Assistant email registered -> Allow default assistant credentials

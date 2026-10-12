@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { 
   BookOpen, Edit3, Plus, Trash2, Shield, Briefcase, Check, X, 
-  UserCheck, AlertTriangle 
+  UserCheck, AlertTriangle, Eye, EyeOff, Lock, Mail 
 } from 'lucide-react';
-import { AppConfig } from '../../types';
+import { AppConfig, DelegatedAdmin } from '../../types';
 import * as firestoreService from '../../services/firestoreService';
 import { getActiveBuilding, deleteBuilding, deleteAllBuildings } from '../../services/buildingStore';
 import { logoutUser } from '../../services/firebaseConfig';
+import { saveLocalAdmins, getLocalAdmins, StoredAdmin } from '../../services/authStore';
 
 interface SettingsPermissionsSectionProps {
   config: AppConfig;
@@ -40,8 +41,15 @@ export const SettingsPermissionsSection: React.FC<SettingsPermissionsSectionProp
   onSaveConfig,
   onNotification,
 }) => {
-  // Input states for admins and assistant
+  // Input states for delegated admin authorization
   const [newAdminEmail, setNewAdminEmail] = useState('');
+  const [newAdminPassword, setNewAdminPassword] = useState('');
+  const [newAdminName, setNewAdminName] = useState('');
+  const [showPasswordMap, setShowPasswordMap] = useState<Record<string, boolean>>({});
+
+  const togglePasswordVisibility = (email: string) => {
+    setShowPasswordMap(prev => ({ ...prev, [email]: !prev[email] }));
+  };
   
   // Technical Assistant state
   const [assistantEmail, setAssistantEmail] = useState(config.assistantConfig?.email || '');
@@ -68,27 +76,104 @@ export const SettingsPermissionsSection: React.FC<SettingsPermissionsSectionProp
   const handleAddAdmin = (e: React.FormEvent) => {
     e.preventDefault();
     const email = newAdminEmail.trim().toLowerCase();
-    if (!email || effectiveAdmins.includes(email)) return;
-    const updated = {
-      ...config,
-      admins: [...effectiveAdmins, email],
+    const password = newAdminPassword.trim();
+    const name = newAdminName.trim() || 'أدمن مفوض';
+
+    if (!email || !email.includes('@')) {
+      alert('الرجاء إدخال بريد إلكتروني صالح للأدمن المفوض.');
+      return;
+    }
+
+    if (!password) {
+      alert('الرجاء كتابة كلمة المرور الخاصة بالأدمن المفوض لاستخدامها عند تسجيل الدخول.');
+      return;
+    }
+
+    const existingAdmins = config.admins || [];
+    const updatedAdmins = Array.from(new Set([...existingAdmins, email]));
+
+    const existingDelegated = config.delegatedAdmins || [];
+    const newDelegatedAdmin: DelegatedAdmin = {
+      id: 'del_admin_' + Date.now(),
+      email,
+      password,
+      name,
+      createdAt: new Date().toISOString(),
     };
-    onSaveConfig(updated);
+
+    const updatedDelegated = [
+      ...existingDelegated.filter(a => a.email.toLowerCase() !== email),
+      newDelegatedAdmin
+    ];
+
+    const updatedConfig: AppConfig = {
+      ...config,
+      admins: updatedAdmins,
+      delegatedAdmins: updatedDelegated,
+    };
+
+    // Update local storage fallback
+    const currentLocalAdmins = getLocalAdmins();
+    const newStoredAdmin: StoredAdmin = {
+      id: newDelegatedAdmin.id,
+      name: name,
+      phone: '',
+      email: email,
+      password: password,
+      role: 'ADMIN',
+      createdAt: newDelegatedAdmin.createdAt || new Date().toISOString(),
+    };
+    const updatedLocalAdmins = [
+      ...currentLocalAdmins.filter(a => a.email.toLowerCase() !== email),
+      newStoredAdmin
+    ];
+    saveLocalAdmins(updatedLocalAdmins);
+
+    try {
+      localStorage.setItem('cache_config', JSON.stringify(updatedConfig));
+      localStorage.setItem('config', JSON.stringify(updatedConfig));
+    } catch {}
+
+    onSaveConfig(updatedConfig);
     setNewAdminEmail('');
+    setNewAdminPassword('');
+    setNewAdminName('');
+
+    if (onNotification) {
+      onNotification('تم تفويض الأدمن بنجاح 🛡️', `تم تفويض حساب (${email}) بكلمة المرور المحددة ليتسنى له الدخول بكافة صلاحيات الأدمن.`, 'success');
+    }
   };
 
   const handleDeleteAdmin = (email: string) => {
     if (!isAdmin) return;
-    if (primaryAdminEmail && email.trim().toLowerCase() === primaryAdminEmail) {
+    const cleanEmail = email.trim().toLowerCase();
+    if (primaryAdminEmail && cleanEmail === primaryAdminEmail) {
       alert('لا يمكن إلغاء تفويض الأدمن الرئيسي (البريد الإلكتروني المسجل به الاتحاد).');
       return;
     }
-    const filtered = (config.admins || []).filter((x) => x.toLowerCase() !== email.toLowerCase());
-    const updated = {
+
+    const filteredAdmins = (config.admins || []).filter((x) => x.toLowerCase() !== cleanEmail);
+    const filteredDelegated = (config.delegatedAdmins || []).filter((x) => x.email.toLowerCase() !== cleanEmail);
+
+    const updatedConfig: AppConfig = {
       ...config,
-      admins: filtered,
+      admins: filteredAdmins,
+      delegatedAdmins: filteredDelegated,
     };
-    onSaveConfig(updated);
+
+    const currentLocalAdmins = getLocalAdmins();
+    saveLocalAdmins(currentLocalAdmins.filter(a => a.email.toLowerCase() !== cleanEmail));
+
+    try {
+      localStorage.setItem('cache_config', JSON.stringify(updatedConfig));
+      localStorage.setItem('config', JSON.stringify(updatedConfig));
+    } catch {}
+
+    onSaveConfig(updatedConfig);
+
+    if (onNotification) {
+      onNotification('تم إلغاء التفويض 🗑️', `تم إلغاء تفويض الأدمن (${cleanEmail}) بنجاح.`, 'info');
+    }
   };
 
   const handleSaveAssistantConfig = (e: React.FormEvent) => {
@@ -123,15 +208,27 @@ export const SettingsPermissionsSection: React.FC<SettingsPermissionsSectionProp
 
   const handleSendAssistantWhatsAppInvite = () => {
     if (!assistantEmail.trim() || !assistantPassword.trim()) {
-      alert('يرجى حفظ تفويض المساعد الفني وتعبئة البريد الإلكتروني وكلمة المرور أولاً.');
-      return;
-    }
-    if (!assistantPhone.trim()) {
-      alert('يرجى إدخال رقم موبايل المساعد الفني لإرسال الدعوة.');
+      alert('يرجى كتابة البريد الإلكتروني وكلمة المرور للمساعد الفني أولاً.');
       return;
     }
 
-    const cleanPhone = assistantPhone.trim().replace(/[^\d+]/g, '');
+    // Automatically activate assistant delegation in AppConfig and Local Storage
+    const updated: AppConfig = {
+      ...config,
+      assistantConfig: {
+        email: assistantEmail.trim().toLowerCase(),
+        password: assistantPassword.trim(),
+        name: assistantName.trim() || 'المساعد الفني',
+      },
+    };
+    onSaveConfig(updated);
+    try {
+      localStorage.setItem('cache_config', JSON.stringify(updated));
+      localStorage.setItem('config', JSON.stringify(updated));
+    } catch {}
+    setAssistantSavedSuccess(true);
+    setTimeout(() => setAssistantSavedSuccess(false), 3000);
+
     const activeBId = (typeof window !== 'undefined' && localStorage.getItem('active_building_id')) || '';
     const fbConfig = firestoreService.getActiveFirebaseConfig();
     const apiKeyParam = fbConfig.apiKey ? `&apiKey=${encodeURIComponent(fbConfig.apiKey)}` : '';
@@ -153,6 +250,7 @@ ${appUrl}
 
 نتمنى لك تجربة متميزة بالتطبيق!`;
 
+    const cleanPhone = assistantPhone.trim().replace(/[^\d+]/g, '');
     if (cleanPhone) {
       let formatted = cleanPhone;
       if (formatted.startsWith('01') && formatted.length === 11) {
@@ -162,7 +260,7 @@ ${appUrl}
       window.open(waUrl, '_blank');
     } else {
       navigator.clipboard.writeText(message);
-      alert('تم نسخ رسالة الدعوة للمساعد الفني بنجاح! يمكنك إرسالها يدوياً.');
+      alert('تم تفويض وتفعيل بيانات المساعد الفني بنجاح! تم نسخ رسالة الدعوة لترسلها عبر وسيلة التواصل المناسبة.');
     }
   };
 
@@ -380,53 +478,130 @@ ${appUrl}
       {/* Executive users configuration (admins and managers list) */}
       {isAdmin && (
         <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-100 shadow-xs grid grid-cols-1 md:grid-cols-2 gap-3">
-          {/* Admins Emails config */}
-          <div className="space-y-2.5">
-            <h4 className="text-xs font-black text-slate-800 border-b pb-1.5">تفويض بريد إلكتروني لرئاسة الاتحاد (الأدمن)</h4>
-            <p className="text-[10px] text-slate-400 font-semibold leading-relaxed">أدخل بريد جوجل الإلكتروني الخاص برئيس اتحاد الملاك لمنحه كل الصلاحيات.</p>
-            
-            <form onSubmit={handleAddAdmin} className="flex gap-1.5">
+          {/* Delegated Admin Config */}
+          <div className="space-y-2.5 bg-slate-50 p-3 rounded-xl border border-slate-200/80 col-span-1 md:col-span-1">
+            <div className="border-b border-slate-200/80 pb-2">
+              <h4 className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                <Shield className="w-4 h-4 text-blue-900" />
+                <span>تفويض أدمن (إيميل وباسورد)</span>
+              </h4>
+              <p className="text-[10px] text-slate-500 font-semibold leading-relaxed mt-0.5">
+                إضافة بريد إلكتروني وكلمة مرور لتفويض أدمن جديد بنفس كامل صلاحيات إدارة الاتحاد والدخول بها فلياً.
+              </p>
+            </div>
+
+            <form onSubmit={handleAddAdmin} className="space-y-2 pt-1">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[10px] font-bold text-slate-600 block mb-1">البريد الإلكتروني للأدمن (Email)</label>
+                  <div className="relative">
+                    <span className="absolute inset-y-0 right-0 pr-2.5 flex items-center pointer-events-none">
+                      <Mail className="w-3.5 h-3.5 text-slate-400" />
+                    </span>
+                    <input
+                      type="email"
+                      placeholder="admin@gmail.com"
+                      value={newAdminEmail}
+                      onChange={(e) => setNewAdminEmail(e.target.value)}
+                      className="w-full pl-2 pr-8 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none text-left"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold text-slate-600 block mb-1">كلمة المرور (Password)</label>
+                  <div className="relative">
+                    <span className="absolute inset-y-0 right-0 pr-2.5 flex items-center pointer-events-none">
+                      <Lock className="w-3.5 h-3.5 text-slate-400" />
+                    </span>
+                    <input
+                      type="text"
+                      placeholder="كلمة المرور"
+                      value={newAdminPassword}
+                      onChange={(e) => setNewAdminPassword(e.target.value)}
+                      className="w-full pl-2 pr-8 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none text-left"
+                      required
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-slate-600 block mb-1">اسم/صفة الأدمن المفوض (اختياري)</label>
+                <input
+                  type="text"
+                  placeholder="مثال: نائب رئيس الاتحاد / أدمن مفوض"
+                  value={newAdminName}
+                  onChange={(e) => setNewAdminName(e.target.value)}
+                  className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none text-right"
+                />
+              </div>
+
               <button
                 type="submit"
-                className="px-3 py-1.5 bg-blue-900 text-white text-xs font-bold rounded-lg hover:bg-blue-950 transition cursor-pointer"
+                className="w-full py-1.5 px-3 bg-blue-900 hover:bg-blue-950 text-white text-xs font-black rounded-lg transition cursor-pointer flex items-center justify-center gap-1.5 shadow-2xs"
               >
-                تفعيل تفويض أدمن
+                <Plus className="w-3.5 h-3.5" />
+                <span>تفعيل تفويض أدمن</span>
               </button>
-              <input
-                type="email"
-                placeholder="email@gmail.com"
-                value={newAdminEmail}
-                onChange={(e) => setNewAdminEmail(e.target.value)}
-                className="flex-1 px-2.5 py-1.5 bg-slate-50 border border-slate-100 focus:bg-white rounded-lg text-xs outline-none text-left font-bold transition"
-                required
-              />
             </form>
 
-            <div className="space-y-1 max-h-32 overflow-y-auto">
-              {effectiveAdmins.map((email) => {
-                const isPrimary = primaryAdminEmail && email.toLowerCase() === primaryAdminEmail;
-                return (
-                  <div key={email} className="flex items-center justify-between p-1.5 bg-slate-50 rounded-lg border border-slate-100">
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteAdmin(email)}
-                      className="p-1 text-red-500 hover:bg-red-50 rounded-md transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                      title={isPrimary ? 'الأدمن الرئيسي المسجل به الاتحاد (لا يمكن حذفه)' : 'إلغاء التفويض'}
-                      disabled={isPrimary || effectiveAdmins.length <= 1}
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                    <div className="flex items-center gap-1.5 dir-ltr">
-                      <span className="text-[10px] font-bold text-slate-700">{email}</span>
-                      {isPrimary && (
-                        <span className="text-[9px] font-black text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-                          (الأدمن الرئيسي - إيميل الاتحاد)
-                        </span>
-                      )}
+            <div className="mt-3 pt-2 border-t border-slate-200/80 space-y-1.5">
+              <h5 className="text-[10px] font-extrabold text-slate-700">الأدمن المعتمدون في الاتحاد ({effectiveAdmins.length})</h5>
+              <div className="space-y-1 max-h-36 overflow-y-auto">
+                {effectiveAdmins.map((email) => {
+                  const isPrimary = primaryAdminEmail && email.toLowerCase() === primaryAdminEmail;
+                  const delegatedInfo = (config.delegatedAdmins || []).find(d => d.email.toLowerCase() === email.toLowerCase());
+                  const isPassVisible = showPasswordMap[email];
+
+                  return (
+                    <div key={email} className="p-2 bg-white rounded-lg border border-slate-200/80 flex items-center justify-between gap-2 shadow-2xs">
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteAdmin(email)}
+                        className="p-1 text-red-500 hover:bg-red-50 rounded-md transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
+                        title={isPrimary ? 'الأدمن الرئيسي المسجل به الاتحاد (لا يمكن حذفه)' : 'إلغاء التفويض'}
+                        disabled={isPrimary || effectiveAdmins.length <= 1}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+
+                      <div className="flex-1 text-right min-w-0">
+                        <div className="flex items-center justify-end gap-1.5 dir-ltr flex-wrap">
+                          <span className="text-xs font-black text-slate-800 truncate">{email}</span>
+                          {isPrimary ? (
+                            <span className="text-[9px] font-black text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 shrink-0">
+                              (الأدمن الرئيسي - إيميل الاتحاد)
+                            </span>
+                          ) : (
+                            <span className="text-[9px] font-black text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200 shrink-0">
+                              ({delegatedInfo?.name || 'أدمن مفوض'})
+                            </span>
+                          )}
+                        </div>
+
+                        {delegatedInfo?.password && (
+                          <div className="mt-1 flex items-center justify-end gap-1.5 text-[10px] text-slate-500 font-bold dir-ltr">
+                            <span className="bg-slate-100 px-1.5 py-0.5 rounded font-mono text-[10px] text-slate-700">
+                              {isPassVisible ? delegatedInfo.password : '••••••••'}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => togglePasswordVisibility(email)}
+                              className="text-slate-400 hover:text-slate-600 transition cursor-pointer p-0.5"
+                              title={isPassVisible ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}
+                            >
+                              {isPassVisible ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                            </button>
+                            <span className="text-[9px] text-slate-400">:كلمة المرور</span>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
           </div>
 
