@@ -1,8 +1,10 @@
 import React, { useState, useRef } from 'react';
-import { Server, HardDrive, FileSpreadsheet, Download, Upload, CheckCircle2 } from 'lucide-react';
+import { Server, HardDrive, FileSpreadsheet, Download, Upload, CheckCircle2, RefreshCw } from 'lucide-react';
 import { AppConfig } from '../../types';
 import * as backupService from '../../services/backupService';
 import * as firestoreService from '../../services/firestoreService';
+
+import { getActiveBuilding } from '../../services/buildingStore';
 
 interface SettingsStorageSectionProps {
   config: AppConfig;
@@ -31,14 +33,49 @@ export const SettingsStorageSection: React.FC<SettingsStorageSectionProps> = ({
 
   const handleSaveCustomFb = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!customFbConfig.apiKey || !customFbConfig.projectId) {
+    if (!customFbConfig.apiKey?.trim() || !customFbConfig.projectId?.trim()) {
       onNotification?.('بيانات ناقصة ⚠️', 'يرجى إدخال مفتاح API ومعرف المشروع (Project ID) على الأقل.', 'warning');
       return;
     }
     try {
-      firestoreService.applyCustomFirebaseConfig(customFbConfig);
+      const cleanProjectId = customFbConfig.projectId.trim();
+      const cleanApiKey = customFbConfig.apiKey.trim();
+      const cleanConfig = {
+        projectId: cleanProjectId,
+        apiKey: cleanApiKey,
+        authDomain: customFbConfig.authDomain?.trim() || `${cleanProjectId}.firebaseapp.com`
+      };
+
+      // 1. Ensure active Admin session is saved so app opens directly in Dashboard upon connect
+      const activeBld = getActiveBuilding();
+      const existingSession = localStorage.getItem('custom_user_session');
+      if (!existingSession && activeBld) {
+        const adminUser = {
+          userId: activeBld.id + '_president',
+          email: activeBld.presidentEmail || 'admin@union.com',
+          name: activeBld.presidentName || 'رئيس اتحاد الملاك',
+          displayName: activeBld.presidentName || 'رئيس اتحاد الملاك',
+          role: 'ADMIN',
+          flatNumber: 'ADMIN',
+          phone: activeBld.presidentPhone || '',
+          buildingId: activeBld.id,
+          buildingCode: activeBld.code,
+          buildingName: activeBld.name,
+        };
+        localStorage.setItem('custom_user_session', JSON.stringify(adminUser));
+        localStorage.setItem('user_role', 'ADMIN');
+        localStorage.setItem('app_user_role', 'ADMIN');
+      }
+
+      localStorage.setItem('pyramids_active_tab', 'dashboard');
       setIsUsingCustomFb(true);
-      onNotification?.('تم التفعيل', 'تم تطبيق إعدادات مشروع Firebase المخصص بنجاح.', 'success');
+
+      onNotification?.('تم الربط التلقائي 🚀', `تم حفظ وتفعيل مشروع (${cleanProjectId}) بنجاح! جاري الانتقال للوحة التحكم...`, 'success');
+
+      // 2. Connect & reload to initialize custom Firebase
+      setTimeout(() => {
+        firestoreService.applyCustomFirebaseConfig(cleanConfig);
+      }, 350);
     } catch (err: any) {
       onNotification?.('خطأ', 'تعذر تطبيق الإعدادات المخصصة: ' + (err.message || ''), 'error');
     }
@@ -132,9 +169,28 @@ export const SettingsStorageSection: React.FC<SettingsStorageSectionProps> = ({
             </div>
           </div>
 
-          <span className="px-3 py-1 bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 rounded-xl text-[11px] font-black self-start sm:self-auto">
-            مزامنة فورية حية (Realtime)
-          </span>
+          <div className="flex items-center gap-2 self-start sm:self-auto">
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  await firestoreService.purgeAndSyncAllDataFromCloud();
+                  if (onRefreshAllData) await onRefreshAllData();
+                  onNotification?.('تمت المزامنة الجذرية بنجاح 🔄', 'تم مسح أي بيانات محليّة قديمة وجلب أحدث البيانات مباشرة من السحابة لتتطابق تماماً مع تطبيق الأندرويد.', 'success');
+                } catch (e: any) {
+                  onNotification?.('خطأ المزامنة', e.message || 'تعذر المزامنة', 'error');
+                }
+              }}
+              className="px-3 py-1.5 bg-blue-700 hover:bg-blue-600 text-white rounded-xl text-[11px] font-black transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+              title="تفريغ التخزين المحلي وإجبار جلب البيانات الحية مباشرة من الفيربيز للمطابقة مع الأندرويد"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>مزامنة جذرية مع الفيربيز/الأندرويد 🔄</span>
+            </button>
+            <span className="px-3 py-1 bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 rounded-xl text-[11px] font-black">
+              مزامنة فورية حية (Realtime)
+            </span>
+          </div>
         </div>
 
         <p className="text-[11px] text-blue-100 font-medium leading-relaxed">

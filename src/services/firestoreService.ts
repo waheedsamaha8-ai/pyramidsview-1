@@ -154,14 +154,19 @@ export async function getResidentsFromFirestore(): Promise<Resident[]> {
   const cacheKey = getBuildingCacheKey('residents');
   const cached = offlineSync.getCachedData<Resident[]>(cacheKey) || [];
   try {
+    const activeId = getActiveBuildingId();
     const colRef = getBuildingColRef('residents');
     const snapshot = await getDocs(colRef);
     const residents: Resident[] = [];
+    
     snapshot.forEach(docSnap => {
-      residents.push(docSnap.data() as Resident);
+      const data = docSnap.data() as Resident;
+      const bldId = (data as any)?.buildingId;
+      if (!bldId || bldId === activeId || activeId === DEFAULT_BUILDING_ID) {
+        residents.push(data);
+      }
     });
 
-    const activeId = getActiveBuildingId();
     if (activeId && activeId !== DEFAULT_BUILDING_ID) {
       try {
         const subSnap = await getDocs(collection(db, 'buildings', activeId, 'residents'));
@@ -174,15 +179,6 @@ export async function getResidentsFromFirestore(): Promise<Resident[]> {
     }
 
     const unique = deduplicateResidents(residents);
-    // Clean up any duplicate records from Firestore permanently
-    if (unique.length < residents.length) {
-      const keptIds = new Set(unique.map(r => r.id));
-      residents.forEach(r => {
-        if (!keptIds.has(r.id)) {
-          deleteResidentFromFirestore(r.id).catch(() => {});
-        }
-      });
-    }
     offlineSync.saveCachedData(cacheKey, unique);
     return unique;
   } catch (error) {
@@ -318,15 +314,20 @@ export async function getPaymentsFromFirestore(): Promise<Payment[]> {
   const cacheKey = getBuildingCacheKey('payments');
   const cached = offlineSync.getCachedData<Payment[]>(cacheKey) || [];
   try {
+    const activeId = getActiveBuildingId();
     const colRef = getBuildingColRef('payments');
     const snapshot = await getDocs(colRef);
     const payments: Payment[] = [];
+
     snapshot.forEach(docSnap => {
-      payments.push(docSnap.data() as Payment);
+      const data = docSnap.data() as Payment;
+      const bldId = (data as any)?.buildingId;
+      if (!bldId || bldId === activeId || activeId === DEFAULT_BUILDING_ID) {
+        payments.push(data);
+      }
     });
 
-    // Check subcollection fallback if any legacy data exists
-    const activeId = getActiveBuildingId();
+    // Check subcollection fallback if any data exists
     if (activeId && activeId !== DEFAULT_BUILDING_ID) {
       try {
         const subSnap = await getDocs(collection(db, 'buildings', activeId, 'payments'));
@@ -513,14 +514,19 @@ export async function getExpensesFromFirestore(): Promise<Expense[]> {
   const cacheKey = getBuildingCacheKey('expenses');
   const cached = offlineSync.getCachedData<Expense[]>(cacheKey) || [];
   try {
+    const activeId = getActiveBuildingId();
     const colRef = getBuildingColRef('expenses');
     const snapshot = await getDocs(colRef);
     const expenses: Expense[] = [];
+
     snapshot.forEach(docSnap => {
-      expenses.push(docSnap.data() as Expense);
+      const data = docSnap.data() as Expense;
+      const bldId = (data as any)?.buildingId;
+      if (!bldId || bldId === activeId || activeId === DEFAULT_BUILDING_ID) {
+        expenses.push(data);
+      }
     });
 
-    const activeId = getActiveBuildingId();
     if (activeId && activeId !== DEFAULT_BUILDING_ID) {
       try {
         const subSnap = await getDocs(collection(db, 'buildings', activeId, 'expenses'));
@@ -1351,20 +1357,67 @@ export function subscribeToFirestoreCollection<T>(
   sortFn?: (a: T, b: T) => number
 ): () => void {
   try {
-    const colRef = getBuildingColRef(collectionName);
-    const unsubscribe = onSnapshot(colRef, (snapshot) => {
-      const items: T[] = [];
-      snapshot.forEach(docSnap => {
-        items.push(docSnap.data() as T);
+    const rootItemsMap = new Map<string, T>();
+    const subItemsMap = new Map<string, T>();
+
+    const emitMerged = () => {
+      const mergedMap = new Map<string, T>();
+      const activeId = getActiveBuildingId();
+
+      rootItemsMap.forEach((val, key) => {
+        const itemBldId = (val as any)?.buildingId;
+        if (!itemBldId || itemBldId === activeId || activeId === DEFAULT_BUILDING_ID) {
+          mergedMap.set(key, val);
+        }
       });
+
+      subItemsMap.forEach((val, key) => {
+        mergedMap.set(key, val);
+      });
+
+      let items = Array.from(mergedMap.values());
       if (sortFn) {
         items.sort(sortFn);
       }
       onUpdate(items);
+    };
+
+    const colRef = getBuildingColRef(collectionName);
+    const unsubRoot = onSnapshot(colRef, (snapshot) => {
+      rootItemsMap.clear();
+      snapshot.forEach(docSnap => {
+        const data = docSnap.data() as T;
+        const id = (data as any)?.id || docSnap.id;
+        rootItemsMap.set(String(id), data);
+      });
+      emitMerged();
     }, (error) => {
-      console.warn(`[Firestore listener notice for ${collectionName}]:`, error.message);
+      console.warn(`[Firestore root listener notice for ${collectionName}]:`, error.message);
     });
-    return unsubscribe;
+
+    let unsubSub = () => {};
+    const activeId = getActiveBuildingId();
+    if (activeId && activeId !== DEFAULT_BUILDING_ID) {
+      try {
+        const subColRef = collection(db, 'buildings', activeId, collectionName);
+        unsubSub = onSnapshot(subColRef, (snapshot) => {
+          subItemsMap.clear();
+          snapshot.forEach(docSnap => {
+            const data = docSnap.data() as T;
+            const id = (data as any)?.id || docSnap.id;
+            subItemsMap.set(String(id), data);
+          });
+          emitMerged();
+        }, (error) => {
+          console.warn(`[Firestore subcollection listener notice for ${collectionName}]:`, error.message);
+        });
+      } catch {}
+    }
+
+    return () => {
+      unsubRoot();
+      unsubSub();
+    };
   } catch (error) {
     console.warn(`Failed to attach listener to ${collectionName}:`, error);
     return () => {};
@@ -1436,5 +1489,23 @@ export function subscribeToRules(callback: (rules: string[]) => void): () => voi
   } catch (error) {
     return () => {};
   }
+}
+
+/**
+ * Radical Data Sync Solution:
+ * Purges local offline caches for active building and re-syncs all collections live from Firestore.
+ */
+export async function purgeAndSyncAllDataFromCloud(): Promise<any> {
+  const activeId = getActiveBuildingId();
+  const keys = ['residents', 'payments', 'expenses', 'rules', 'craftsmen', 'chat_messages', 'decisions', 'polls', 'public_complaints', 'maintenance', 'events', 'config', 'building_layout'];
+  
+  keys.forEach(k => {
+    try {
+      localStorage.removeItem(`cache_${activeId}_${k}`);
+      localStorage.removeItem(`cache_${k}`);
+    } catch {}
+  });
+
+  return getAllDataFromFirestore();
 }
 

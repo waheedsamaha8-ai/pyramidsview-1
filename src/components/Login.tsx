@@ -555,10 +555,18 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
       });
 
       if (customFbProjectId.trim() && customFbApiKey.trim()) {
-        localStorage.setItem('custom_firebase_config', JSON.stringify({
-          projectId: customFbProjectId.trim(),
-          apiKey: customFbApiKey.trim(),
-        }));
+        const cleanProjectId = customFbProjectId.trim();
+        const cleanApiKey = customFbApiKey.trim();
+        const cleanConfig = {
+          projectId: cleanProjectId,
+          apiKey: cleanApiKey,
+          authDomain: `${cleanProjectId}.firebaseapp.com`
+        };
+        setSuccessMessage(`تم تسجيل اتحاد "${result.building.name}" وتخصيص مشروع الفيربيز المخصص (${cleanProjectId}). جاري الربط والدخول المباشر...`);
+        setTimeout(() => {
+          applyCustomFirebaseConfig(cleanConfig);
+        }, 400);
+        return;
       }
 
       setSuccessMessage(`تم تسجيل اتحاد "${result.building.name}" بنجاح! كود العمارة هو (${result.building.code}). جاري الدخول للوحة التحكم...`);
@@ -570,6 +578,54 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     } catch (err: any) {
       setError(err.message || 'حدث خطأ أثناء تسجيل العمارة والحساب الجديد.');
     } finally {
+      setLoading(false);
+    }
+  };
+
+  // Direct Custom Firebase Connection Handler
+  const handleDirectCustomFbConnect = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customFbProjectId.trim() || !customFbApiKey.trim()) {
+      setError('يرجى إدخال معرف المشروع (Project ID) ومفتاح API.');
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const cleanProjectId = customFbProjectId.trim();
+      const cleanApiKey = customFbApiKey.trim();
+      const cleanConfig = {
+        projectId: cleanProjectId,
+        apiKey: cleanApiKey,
+        authDomain: `${cleanProjectId}.firebaseapp.com`
+      };
+
+      const b = currentActiveBuilding || getActiveBuilding();
+      const adminUser = {
+        userId: (b.id || 'bld_main') + '_president',
+        email: b.presidentEmail || 'admin@union.com',
+        name: b.presidentName || 'رئيس اتحاد الملاك',
+        displayName: b.presidentName || 'رئيس اتحاد الملاك',
+        role: 'ADMIN' as UserRole,
+        flatNumber: 'ADMIN',
+        phone: b.presidentPhone || '',
+        buildingId: b.id || 'bld_main',
+        buildingCode: b.code || 'B-01',
+        buildingName: b.name || 'اتحاد الملاك',
+      };
+
+      localStorage.setItem('custom_user_session', JSON.stringify(adminUser));
+      localStorage.setItem('user_role', 'ADMIN');
+      localStorage.setItem('app_user_role', 'ADMIN');
+      localStorage.setItem('pyramids_active_tab', 'dashboard');
+
+      setSuccessMessage(`تم الربط التلقائي بمشروع (${cleanProjectId}) بنجاح! جاري الدخول للوحة التحكم...`);
+
+      setTimeout(() => {
+        applyCustomFirebaseConfig(cleanConfig);
+      }, 350);
+    } catch (err: any) {
+      setError(err?.message || 'تعذر الربط والدخول المباشر.');
       setLoading(false);
     }
   };
@@ -1426,6 +1482,70 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                     </div>
                   </div>
                 )}
+
+                {/* Quick Custom Firebase Connection Button & Form */}
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowCustomFbFields(!showCustomFbFields)}
+                    className="w-full py-2.5 px-3 bg-orange-50/80 dark:bg-orange-950/30 hover:bg-orange-100/80 dark:hover:bg-orange-900/40 border border-orange-200 dark:border-orange-800/60 rounded-2xl text-xs font-black text-orange-950 dark:text-orange-200 flex items-center justify-between transition cursor-pointer shadow-2xs"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Server className="w-4 h-4 text-orange-600" />
+                      <span>ربط مشروع الفيربيز المخصص (Project ID & API Key) والدخول التلقائي 🚀</span>
+                    </div>
+                    <span className="text-[11px] text-orange-700 dark:text-orange-300 font-extrabold">
+                      {showCustomFbFields ? 'إخفاء ▲' : 'إضافة المفاتيح والدخول ▼'}
+                    </span>
+                  </button>
+
+                  {showCustomFbFields && (
+                    <form onSubmit={handleDirectCustomFbConnect} className="mt-2.5 p-3.5 bg-gradient-to-br from-orange-50 to-amber-50 dark:from-orange-950/30 dark:to-amber-950/30 border border-orange-200 dark:border-orange-800/60 rounded-2xl space-y-3 text-right shadow-xs">
+                      <p className="text-[11px] text-slate-700 dark:text-slate-200 font-bold leading-relaxed">
+                        أدخل معرف المشروع ومفتاح API الخاص ببريدك للربط التلقائي بالمشروع ودخوله فوراً:
+                      </p>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <div>
+                          <label className="block text-[11px] font-extrabold text-slate-700 dark:text-slate-300 mb-1">
+                            معرف المشروع (Project ID) *
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="مثال: eskan-36079"
+                            value={customFbProjectId}
+                            onChange={(e) => setCustomFbProjectId(e.target.value)}
+                            className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl font-mono text-left font-bold outline-none focus:border-orange-500 dark:text-white"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-extrabold text-slate-700 dark:text-slate-300 mb-1">
+                            مفتاح API الخاص بك (API Key) *
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="AIzaSy..."
+                            value={customFbApiKey}
+                            onChange={(e) => setCustomFbApiKey(e.target.value)}
+                            className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl font-mono text-left font-bold outline-none focus:border-orange-500 dark:text-white"
+                          />
+                        </div>
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={loading}
+                        className="w-full py-2.5 px-4 bg-orange-600 hover:bg-orange-700 text-white rounded-xl text-xs font-black transition flex items-center justify-center gap-2 shadow-sm cursor-pointer disabled:opacity-50"
+                      >
+                        <Server className="w-4 h-4 text-orange-200" />
+                        <span>الربط التلقائي بالمشروع المخصص والدخول المباشر 🚀</span>
+                      </button>
+                    </form>
+                  )}
+                </div>
 
                 <div className="relative my-2 flex items-center justify-center">
                   <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-200 dark:border-slate-800"></div></div>

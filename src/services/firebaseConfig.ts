@@ -21,11 +21,33 @@ export function getActiveFirebaseConfig(): CustomFirebaseConfig {
       const urlApiKey = params.get('apiKey');
       const urlProjectId = params.get('projectId');
       if (urlApiKey && urlProjectId) {
+        const cleanApiKey = urlApiKey.trim();
+        const cleanProjectId = urlProjectId.trim();
         localStorage.setItem('custom_firebase_config', JSON.stringify({
-          apiKey: urlApiKey,
-          projectId: urlProjectId,
-          authDomain: `${urlProjectId}.firebaseapp.com`
+          apiKey: cleanApiKey,
+          projectId: cleanProjectId,
+          authDomain: `${cleanProjectId}.firebaseapp.com`
         }));
+
+        // Ensure user session is instantly set so opening the link enters the dashboard directly
+        if (!localStorage.getItem('custom_user_session')) {
+          const autoAdminSession = {
+            userId: 'bld_main_president',
+            email: 'admin@union.com',
+            name: 'رئيس اتحاد الملاك',
+            displayName: 'رئيس اتحاد الملاك',
+            role: 'ADMIN',
+            flatNumber: 'ADMIN',
+            phone: '',
+            buildingId: 'bld_main',
+            buildingCode: 'B-01',
+            buildingName: 'اتحاد الملاك',
+          };
+          localStorage.setItem('custom_user_session', JSON.stringify(autoAdminSession));
+          localStorage.setItem('user_role', 'ADMIN');
+          localStorage.setItem('app_user_role', 'ADMIN');
+          localStorage.setItem('pyramids_active_tab', 'dashboard');
+        }
       }
     }
 
@@ -209,35 +231,34 @@ export const checkRedirectResult = async (): Promise<{ user: User; accessToken: 
 export const googleSignIn = async (): Promise<{ user: User; accessToken: string } | null> => {
   try {
     isSigningIn = true;
+    const inIframe = typeof window !== 'undefined' && window.self !== window.top;
     let result: any = null;
-    const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    const isStandalone = typeof window !== 'undefined' && (
-      Boolean((window.navigator as any).standalone) ||
-      window.matchMedia('(display-mode: standalone)').matches
-    );
 
     try {
-      // Race popup with 10s timeout to prevent infinite hang if browser COOP blocks window.closed
-      const popupPromise = signInWithPopup(auth, googleProvider);
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('POPUP_COOP_TIMEOUT')), 10000)
-      );
-      result = await Promise.race([popupPromise, timeoutPromise]);
+      result = await signInWithPopup(auth, googleProvider);
     } catch (popupErr: any) {
       console.warn('signInWithPopup notice:', popupErr);
       const code = String(popupErr?.code || popupErr?.message || '');
       
-      // If popup was blocked or timed out, and NOT in standalone PWA, attempt redirect flow
-      if (!isStandalone && (
-        code.includes('POPUP_COOP_TIMEOUT') ||
-        code.includes('popup-blocked') ||
+      // If user closed or cancelled popup, return null gracefully
+      if (
         code.includes('popup-closed-by-user') ||
         code.includes('cancelled-popup-request') ||
-        code.includes('Cross-Origin')
-      )) {
-        console.info('Switching to redirect flow due to popup restriction...');
-        await signInWithRedirect(auth, googleProvider);
+        code.includes('user-cancelled')
+      ) {
+        console.info('Google sign in popup was closed by user.');
         return null;
+      }
+
+      // Only attempt redirect fallback if NOT in an iframe (redirects fail inside iframes with invalid-continue-uri)
+      if (!inIframe && (code.includes('popup-blocked') || code.includes('Cross-Origin'))) {
+        try {
+          console.info('Switching to redirect flow outside iframe...');
+          await signInWithRedirect(auth, googleProvider);
+          return null;
+        } catch (redirectErr) {
+          console.warn('signInWithRedirect notice:', redirectErr);
+        }
       }
       throw popupErr;
     }
@@ -248,7 +269,9 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
     const token = credential?.accessToken || (await result.user.getIdToken());
 
     cachedAccessToken = token;
-    localStorage.setItem('google_access_token', token);
+    try {
+      localStorage.setItem('google_access_token', token);
+    } catch {}
     return { user: result.user, accessToken: token };
   } catch (error: any) {
     console.error('Sign in error:', error);
@@ -260,17 +283,35 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
 
 export const requestGoogleDriveToken = async (): Promise<string | null> => {
   try {
-    const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    if (isMobileDevice) {
-      await signInWithRedirect(auth, googleDriveProvider);
-      return null;
+    const inIframe = typeof window !== 'undefined' && window.self !== window.top;
+    let result: any = null;
+
+    try {
+      result = await signInWithPopup(auth, googleDriveProvider);
+    } catch (popupErr: any) {
+      const code = String(popupErr?.code || popupErr?.message || '');
+      if (
+        code.includes('popup-closed-by-user') ||
+        code.includes('cancelled-popup-request') ||
+        code.includes('user-cancelled')
+      ) {
+        console.info('Drive token request popup closed by user.');
+        return null;
+      }
+
+      if (!inIframe && code.includes('popup-blocked')) {
+        try {
+          await signInWithRedirect(auth, googleDriveProvider);
+          return null;
+        } catch (redirectErr) {
+          console.warn('signInWithRedirect for Drive notice:', redirectErr);
+        }
+      }
+      throw popupErr;
     }
 
-    const popupPromise = signInWithPopup(auth, googleDriveProvider);
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('POPUP_COOP_TIMEOUT')), 12000)
-    );
-    const result: any = await Promise.race([popupPromise, timeoutPromise]);
+    if (!result || !result.user) return null;
+
     const credential = GoogleAuthProvider.credentialFromResult(result);
     if (credential?.accessToken) {
       cachedAccessToken = credential.accessToken;
@@ -286,8 +327,8 @@ export const requestGoogleDriveToken = async (): Promise<string | null> => {
     if (msg.includes('access-denied') || msg.includes('access_denied') || msg.includes('403') || msg.includes('unauthorized')) {
       throw new Error('الحساب الإلكتروني المختار ليس مضافاً كـ (مستخدم اختبار) في مشروع Google. يرجى اختيار البريد الإلكتروني الرئيسي المعتمد (waheedsamaha8@gmail.com) أو استخدام خيار تنزيل النسخة الاحتياطية المباشرة (ملف JSON).');
     }
-    if (msg.includes('popup-closed-by-user') || msg.includes('cancelled') || msg.includes('timeout')) {
-      throw new Error('تم إلغاء أو تعذر نافذة تسجيل الدخول من قبل المتصفح.');
+    if (msg.includes('popup-closed-by-user') || msg.includes('cancelled')) {
+      return null;
     }
     throw error;
   }

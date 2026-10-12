@@ -68,7 +68,7 @@ import * as googleApi from './services/googleApi';
 import * as offlineSync from './services/offlineSync';
 import { saveImageToIndexedDB, restoreEntityImagesFromIndexedDB } from './services/imageStorage';
 import { fetchAllJoinRequests, verifyAuthorizedRole } from './services/authStore';
-import { getActiveBuilding } from './services/buildingStore';
+import { getActiveBuilding, syncActiveBuildingToCustomFirebase } from './services/buildingStore';
 import { UserRole, Resident, Payment, Expense, AppNotification, BuildingRules, AppConfig, MaintenanceRequest, Poll, AdminDecision, BuildingEvent, ChatMessage, PublicComplaint, ComplaintComment, FloorConfig, Craftsman, CraftsmanComment } from './types';
 
 // Importing Custom Components
@@ -580,6 +580,9 @@ export default function App() {
   useEffect(() => {
     // Proactively free up localStorage space if bloated with stale building caches
     offlineSync.freeUpLocalStorageSpace();
+
+    // Auto-sync active building into custom Firebase if custom project is connected
+    syncActiveBuildingToCustomFirebase().catch(() => {});
 
     // One-time clean slate migration: wipe all dummy demo data and test sessions
     const CLEAN_SLATE_KEY = 'clean_slate_wipe_v4';
@@ -1155,6 +1158,70 @@ export default function App() {
       logError(err, 'refreshAllData');
     }
   };
+
+  // Real-time bidirectional Firestore subscriptions for instant sync with Android app
+  useEffect(() => {
+    if (isInitializingAuth) return;
+
+    const unsubs: (() => void)[] = [];
+
+    try {
+      unsubs.push(
+        firestoreService.subscribeToResidents((newResidents) => {
+          if (newResidents && newResidents.length > 0) {
+            const clean = deduplicateResidents(newResidents);
+            setResidents(clean);
+            offlineSync.saveCachedData('residents', clean);
+          }
+        })
+      );
+
+      unsubs.push(
+        firestoreService.subscribeToPayments((newPayments) => {
+          if (newPayments && Array.isArray(newPayments)) {
+            const clean = filterAndDeduplicatePayments(newPayments);
+            setPayments(clean);
+            offlineSync.saveCachedData('payments', clean);
+          }
+        })
+      );
+
+      unsubs.push(
+        firestoreService.subscribeToExpenses((newExpenses) => {
+          if (newExpenses && Array.isArray(newExpenses)) {
+            setExpenses(newExpenses);
+            offlineSync.saveCachedData('expenses', newExpenses);
+          }
+        })
+      );
+
+      unsubs.push(
+        firestoreService.subscribeToConfig((newConfig) => {
+          if (newConfig) {
+            setConfig(prev => ({ ...prev, ...newConfig }));
+            offlineSync.saveCachedData('config', newConfig);
+          }
+        })
+      );
+
+      unsubs.push(
+        firestoreService.subscribeToRules((newRules) => {
+          if (newRules && Array.isArray(newRules)) {
+            setRules(newRules);
+            offlineSync.saveCachedData('rules', { rules: newRules });
+          }
+        })
+      );
+    } catch (err) {
+      console.warn('Real-time subscriptions warning:', err);
+    }
+
+    return () => {
+      unsubs.forEach(unsub => {
+        try { unsub(); } catch {}
+      });
+    };
+  }, [isInitializingAuth]);
 
   const [isConnectingGoogle, setIsConnectingGoogle] = useState(false);
 

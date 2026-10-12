@@ -365,3 +365,30 @@ export async function deleteAllBuildings(): Promise<void> {
   }
 }
 
+// Ensure active building is registered/synced if custom Firebase project is connected
+export async function syncActiveBuildingToCustomFirebase(): Promise<void> {
+  try {
+    const rawCustom = localStorage.getItem('custom_firebase_config');
+    if (!rawCustom) return;
+    const activeBld = getActiveBuilding();
+    if (!activeBld || !activeBld.id) return;
+
+    const bDocRef = doc(db, 'buildings', activeBld.id);
+    const snap = await getDoc(bDocRef);
+
+    if (!snap.exists()) {
+      await setDoc(bDocRef, activeBld, { merge: true });
+
+      const cachedConfig = localStorage.getItem('commercial_cache_config');
+      if (cachedConfig) {
+        try {
+          const cfg = JSON.parse(cachedConfig);
+          await setDoc(doc(db, 'buildings', activeBld.id, 'config', 'app_config'), cfg, { merge: true });
+        } catch {}
+      }
+    }
+  } catch (err) {
+    console.warn('Notice syncing building to custom Firebase:', err);
+  }
+}
+
