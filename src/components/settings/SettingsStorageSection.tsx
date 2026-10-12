@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Server, HardDrive, FileSpreadsheet, Download, Upload, CheckCircle2, RefreshCw } from 'lucide-react';
+import { Server, HardDrive, FileSpreadsheet, Download, Upload, CheckCircle2, RefreshCw, Share2, Smartphone } from 'lucide-react';
 import { AppConfig } from '../../types';
 import * as backupService from '../../services/backupService';
 import * as firestoreService from '../../services/firestoreService';
@@ -196,6 +196,36 @@ export const SettingsStorageSection: React.FC<SettingsStorageSectionProps> = ({
         <p className="text-[11px] text-blue-100 font-medium leading-relaxed">
           جميع العمليات السكنية والتحصيلات والمصروفات والرسائل تُسجل وتُزامن فوراً في قاعدة بيانات Firebase Firestore السحابية بشكل آمن ودائم دون الحاجة لأي حسابات خارجية أو إعدادات إضافية.
         </p>
+      </div>
+
+      {/* Direct Sync Link Banner for Cross-Device Computer & Mobile Alignment */}
+      <div className="p-4 bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-200/90 rounded-2xl shadow-2xs space-y-2">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div className="space-y-1">
+            <h4 className="text-xs sm:text-sm font-black text-amber-950 flex items-center gap-2">
+              <Smartphone className="w-4.5 h-4.5 text-amber-600 shrink-0" />
+              <span>رابط التزامن المباشر الفوري بين الموبايل والكمبيوتر 📱💻</span>
+            </h4>
+            <p className="text-[11px] text-slate-700 font-bold leading-relaxed">
+              لضمان ظهور أي بيانات تسجلها على الكمبيوتر فوراً على هاتف الموبايل، انسخ هذا الرابط المباشر وافتحه على الموبايل ليرتبط مباشرة بنفس مشروع وقاعدة بيانات الفيربيز:
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              const activeCfg = firestoreService.getActiveFirebaseConfig();
+              const baseUrl = 'https://waheedsamaha8-ai.github.io/pyramidsview-1/';
+              const directLink = `${baseUrl}?projectId=${encodeURIComponent(activeCfg.projectId)}&apiKey=${encodeURIComponent(activeCfg.apiKey)}`;
+              navigator.clipboard.writeText(directLink);
+              onNotification?.('تم نسخ رابط التزامن 📋', 'افتح هذا الرابط المنسوخ على الموبايل ليرتبط بنفس مشروع الفيربيز وتظهر البيانات فوراً بنفس اللحظة!', 'success');
+            }}
+            className="px-4 py-2.5 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white rounded-xl text-xs font-black transition flex items-center justify-center gap-2 shadow-xs shrink-0 cursor-pointer"
+          >
+            <Share2 className="w-4 h-4" />
+            <span>نسخ رابط التزامن الفوري للموبايل 🔗</span>
+          </button>
+        </div>
       </div>
 
       {/* Backup & Export Suite (Monthly Excel & JSON Backup) */}
