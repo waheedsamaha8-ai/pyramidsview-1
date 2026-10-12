@@ -54,7 +54,7 @@ export function getActiveFirebaseConfig(): CustomFirebaseConfig {
     const raw = localStorage.getItem('custom_firebase_config');
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed && parsed.projectId && parsed.apiKey) {
+      if (parsed && parsed.projectId && parsed.apiKey && parsed.projectId !== 'gen-lang-client-0461364753') {
         return {
           ...parsed,
           authDomain: parsed.authDomain || `${parsed.projectId}.firebaseapp.com`

@@ -584,11 +584,13 @@ export default function App() {
     // Auto-sync active building into custom Firebase if custom project is connected
     syncActiveBuildingToCustomFirebase().catch(() => {});
 
-    // One-time clean slate migration: wipe all dummy demo data and test sessions
-    const CLEAN_SLATE_KEY = 'clean_slate_wipe_v4';
+    // One-time clean slate migration: wipe all dummy demo data and force unification with pyramids-view-1
+    const CLEAN_SLATE_KEY = 'clean_slate_wipe_v10_unified_pyramids_view_1';
     if (!localStorage.getItem(CLEAN_SLATE_KEY)) {
-      localStorage.removeItem('custom_user_session');
-      localStorage.removeItem('resident_flat_number');
+      const rawFb = localStorage.getItem('custom_firebase_config');
+      if (rawFb && rawFb.includes('gen-lang-client-0461364753')) {
+        localStorage.removeItem('custom_firebase_config');
+      }
       localStorage.removeItem('cache_residents');
       localStorage.removeItem('cache_payments');
       localStorage.removeItem('cache_expenses');
@@ -598,7 +600,6 @@ export default function App() {
       localStorage.removeItem('cache_events');
       localStorage.removeItem('cache_chat_messages');
       localStorage.removeItem('cache_public_complaints');
-      localStorage.removeItem('custom_join_requests');
       localStorage.setItem(CLEAN_SLATE_KEY, 'true');
     }
 
