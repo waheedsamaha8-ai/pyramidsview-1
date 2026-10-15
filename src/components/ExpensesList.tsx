@@ -1,6 +1,7 @@
 import React, { useState, useRef, useMemo } from 'react';
+import * as XLSX from 'xlsx';
 import { Expense, UserRole, Resident } from '../types';
-import { Search, Plus, Filter, Calendar, FileText, Image as ImageIcon, Camera, Trash2, Edit, AlertCircle, Eye, LayoutGrid, List, Upload, Download, RefreshCw, Share2, CheckCircle2, Printer } from 'lucide-react';
+import { Search, Plus, Filter, Calendar, FileText, Image as ImageIcon, Camera, Trash2, Edit, AlertCircle, Eye, LayoutGrid, List, Upload, Download, RefreshCw, Share2, CheckCircle2, Printer, X } from 'lucide-react';
 import { generateElementImageBlob, GeneratedImageResult } from '../utils/imageExport';
 import { shareImageViaWhatsApp } from '../utils/shareImageViaWhatsApp';
 import { ShareReportModal } from './ShareReportModal';
@@ -76,11 +77,141 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({
   const [error, setError] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const excelFileInputRef = useRef<HTMLInputElement>(null);
+  const [excelPreviewExpenses, setExcelPreviewExpenses] = useState<Array<{
+    expenseType: string;
+    amount: number;
+    month: string;
+    notes: string;
+    isValid: boolean;
+    errorMessage?: string;
+  }> | null>(null);
+  const [showExcelPreviewModal, setShowExcelPreviewModal] = useState(false);
 
   const monthNamesArabic = [
     'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
     'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'
   ];
+
+  const handleExcelExpensesFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+      const sheetName = workbook.SheetNames[0];
+      if (!sheetName) {
+        alert('ملف إكسل لا يحتوي على أوراق عمل.');
+        return;
+      }
+      const worksheet = workbook.Sheets[sheetName];
+      const rawRows = XLSX.utils.sheet_to_json<Record<string, any>>(worksheet, { defval: '' });
+
+      if (rawRows.length === 0) {
+        alert('ملف إكسل فارغ ولا يحتوي على بيانات.');
+        return;
+      }
+
+      const arabicMonthMap: Record<string, string> = {
+        'يناير': '01', 'فبراير': '02', 'مارس': '03', 'أبريل': '04', 'ابريل': '04',
+        'مايو': '05', 'يونيو': '06', 'يوليو': '07', 'أغسطس': '08', 'اغسطس': '08',
+        'سبتمبر': '09', 'أكتوبر': '10', 'اكتوبر': '10', 'نوفمبر': '11', 'ديسمبر': '12'
+      };
+
+      const findVal = (row: Record<string, any>, keywords: string[]) => {
+        const keys = Object.keys(row);
+        for (const kw of keywords) {
+          const matchedKey = keys.find(k => String(k).trim().toLowerCase().includes(kw.toLowerCase()));
+          if (matchedKey && row[matchedKey] !== undefined && row[matchedKey] !== null && String(row[matchedKey]).trim() !== '') {
+            return String(row[matchedKey]).trim();
+          }
+        }
+        return '';
+      };
+
+      const defaultType = (expenseTypes && expenseTypes.length > 0) ? expenseTypes[0] : 'صيانة عامة';
+
+      const parsedItems = rawRows.map((row) => {
+        const rawType = findVal(row, ['نوع المصروف', 'نوع المصروفات', 'البند', 'نوع البند', 'الفئة', 'expensetype', 'type', 'category']);
+        const rawAmount = findVal(row, ['قيمة المصروفات', 'قيمة المصروف', 'القيمة', 'المبلغ', 'قيمة', 'amount', 'cost', 'price']);
+        const rawMonth = findVal(row, ['شهر المصروفات', 'شهر المصروف', 'الشهر', 'شهر', 'التاريخ', 'تاريخ', 'month', 'date']);
+        const rawNotes = findVal(row, ['ملاحظات', 'الملاحظات', 'البيان', 'بيان', 'notes', 'description']);
+
+        let itemType = rawType ? rawType.trim() : defaultType;
+        if (expenseTypes && expenseTypes.length > 0) {
+          const matchedConfigured = expenseTypes.find(t => t.toLowerCase() === itemType.toLowerCase());
+          if (matchedConfigured) itemType = matchedConfigured;
+        }
+
+        const numAmount = parseFloat(rawAmount.replace(/[^0-9.]/g, '')) || 0;
+
+        let parsedMonth = month || actualCurrentMonth;
+        if (rawMonth) {
+          const trimmedMonth = rawMonth.trim();
+          if (arabicMonthMap[trimmedMonth]) {
+            parsedMonth = arabicMonthMap[trimmedMonth];
+          } else {
+            const numM = parseInt(trimmedMonth.replace(/[^0-9]/g, ''), 10);
+            if (!isNaN(numM) && numM >= 1 && numM <= 12) {
+              parsedMonth = String(numM).padStart(2, '0');
+            }
+          }
+        }
+
+        const isValid = numAmount > 0;
+        let errorMessage = '';
+        if (numAmount <= 0) errorMessage = 'قيمة المصروف 0 أو غير صحيحة';
+
+        return {
+          expenseType: itemType,
+          amount: numAmount,
+          month: parsedMonth,
+          notes: rawNotes,
+          isValid,
+          errorMessage,
+        };
+      });
+
+      setExcelPreviewExpenses(parsedItems);
+      setShowExcelPreviewModal(true);
+    } catch (err) {
+      console.error('Error reading Excel file:', err);
+      alert('حدث خطأ أثناء قراءة ملف إكسل. يرجى التأكد من أن الملف بصيغة Excel صالحة.');
+    } finally {
+      if (excelFileInputRef.current) {
+        excelFileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleConfirmExcelImport = () => {
+    if (!excelPreviewExpenses || excelPreviewExpenses.length === 0) return;
+
+    const validExpenses = excelPreviewExpenses.filter(e => e.isValid);
+    if (validExpenses.length === 0) {
+      alert('لا توجد مصروفات صالحة للاستيراد من هذا الملف.');
+      return;
+    }
+
+    validExpenses.forEach((item, idx) => {
+      const newExpense: Expense = {
+        id: `exp_excel_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 5)}`,
+        year: currentYear,
+        month: item.month,
+        expenseType: item.expenseType,
+        amount: item.amount,
+        notes: item.notes || `استيراد من إكسل - شهر ${monthNamesArabic[parseInt(item.month, 10) - 1]} ${currentYear}`,
+        date: new Date().toISOString().split('T')[0],
+      };
+      onAdd(newExpense);
+    });
+
+    setToastMsg(`تم استيراد ${validExpenses.length} بنود مصروفات بنجاح من ملف إكسل ✨`);
+    setShowExcelPreviewModal(false);
+    setExcelPreviewExpenses(null);
+    setShowModal(false);
+  };
 
   const handleGenerateMonthlyReportImage = async () => {
     setIsGeneratingImage(true);
@@ -650,8 +781,40 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
           <div className="w-full max-w-md bg-white rounded-3xl p-6 border border-slate-100 shadow-2xl animate-scale-up text-right">
-            <h3 className="text-lg font-extrabold text-slate-950 border-b pb-3 mb-5">
-              {selectedExpense ? (role === 'ASSISTANT' ? 'تعديل ملاحظات المصروف' : 'تعديل المصروف') : 'إضافة مصروف جديد'}
+            <h3 className="text-base sm:text-lg font-black text-slate-950 border-b pb-3 mb-4 flex items-center justify-between">
+              <span>{selectedExpense ? (role === 'ASSISTANT' ? 'تعديل ملاحظات المصروف' : 'تعديل المصروف') : 'إضافة مصروف جديد'}</span>
+              
+              <div className="flex items-center gap-2">
+                {!selectedExpense && (role === 'ADMIN' || role === 'MANAGER') && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => excelFileInputRef.current?.click()}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200 rounded-xl text-xs font-black transition active:scale-95 cursor-pointer shadow-3xs"
+                      title="استيراد بيانات المصروفات لشهر أو سنة من ملف Excel (.xlsx)"
+                    >
+                      <Upload className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                      <span>استيراد من إكسل</span>
+                    </button>
+                    <input
+                      type="file"
+                      ref={excelFileInputRef}
+                      onChange={handleExcelExpensesFileUpload}
+                      accept=".xlsx, .xls, .csv"
+                      className="hidden"
+                    />
+                  </>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setShowModal(false)}
+                  className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition cursor-pointer"
+                  title="إغلاق"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </h3>
 
             {role === 'ASSISTANT' && selectedExpense && (
@@ -1052,6 +1215,87 @@ export const ExpensesList: React.FC<ExpensesListProps> = ({
           setTimeout(() => setToastMsg(null), 8000);
         }}
       />
+
+      {/* Excel Expenses Import Preview Modal */}
+      {showExcelPreviewModal && excelPreviewExpenses && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-3 sm:p-4" dir="rtl">
+          <div className="w-full max-w-xl bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-5 border border-slate-100 shadow-2xl animate-scale-up text-right flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between border-b pb-3 mb-3">
+              <div>
+                <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
+                  <Upload className="w-5 h-5 text-red-600" />
+                  <span>معاينة استيراد المصروفات من ملف إكسل</span>
+                </h3>
+                <p className="text-xs text-slate-500 font-bold mt-0.5">
+                  إجمالي البنود: {excelPreviewExpenses.length} | المقبولة: <span className="text-emerald-700 font-black">{excelPreviewExpenses.filter(e => e.isValid).length}</span> | غير المقبولة: <span className="text-rose-600 font-black">{excelPreviewExpenses.filter(e => !e.isValid).length}</span>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setShowExcelPreviewModal(false); setExcelPreviewExpenses(null); }}
+                className="p-1.5 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded-lg transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto flex-1 border border-slate-100 rounded-xl mb-4">
+              <table className="w-full text-right text-xs">
+                <thead className="bg-slate-50 text-slate-600 font-black sticky top-0 border-b border-slate-100">
+                  <tr>
+                    <th className="p-2 border-l border-slate-100">نوع المصروفات</th>
+                    <th className="p-2 border-l border-slate-100 text-center">المبلغ</th>
+                    <th className="p-2 border-l border-slate-100 text-center">الشهر</th>
+                    <th className="p-2 border-l border-slate-100">الملاحظات</th>
+                    <th className="p-2 text-center">الحالة</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-bold">
+                  {excelPreviewExpenses.map((item, idx) => (
+                    <tr key={idx} className={item.isValid ? 'hover:bg-emerald-50/30' : 'bg-rose-50/50 text-rose-900'}>
+                      <td className="p-2 border-l border-slate-100 font-black text-red-900">{item.expenseType}</td>
+                      <td className="p-2 text-center font-black text-red-600 border-l border-slate-100">{item.amount.toLocaleString()} ج.م</td>
+                      <td className="p-2 text-center border-l border-slate-100">{item.month} ({monthNamesArabic[parseInt(item.month, 10) - 1]})</td>
+                      <td className="p-2 border-l border-slate-100 truncate max-w-[140px]" title={item.notes}>{item.notes || '—'}</td>
+                      <td className="p-2 text-center">
+                        {item.isValid ? (
+                          <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded text-[10px] font-black">جاهز للاستيراد ✓</span>
+                        ) : (
+                          <span className="px-1.5 py-0.5 bg-rose-100 text-rose-800 rounded text-[10px] font-black" title={item.errorMessage}>⚠️ {item.errorMessage}</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+              <div className="text-xs font-black text-slate-800">
+                إجمالي المصروفات المقبولة: <span className="text-red-600 text-sm">{excelPreviewExpenses.filter(e => e.isValid).reduce((sum, e) => sum + e.amount, 0).toLocaleString()} ج.م</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setShowExcelPreviewModal(false); setExcelPreviewExpenses(null); }}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmExcelImport}
+                  disabled={excelPreviewExpenses.filter(e => e.isValid).length === 0}
+                  className="px-5 py-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-xs font-black rounded-xl transition shadow-xs cursor-pointer flex items-center gap-1.5 active:scale-95"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>تأكيد واستيراد ({excelPreviewExpenses.filter(e => e.isValid).length}) مصروفات</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

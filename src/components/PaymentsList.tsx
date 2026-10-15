@@ -1,4 +1,5 @@
 import React, { useState, useRef, useMemo } from 'react';
+import * as XLSX from 'xlsx';
 import { Payment, Resident, UserRole, FloorConfig, AppConfig } from '../types';
 import { Search, Plus, Calendar, FileText, Image as ImageIcon, Camera, Trash2, Edit, AlertCircle, Eye, User, LayoutGrid, List, Building, ArrowUpDown, Upload, X, ZoomIn, Download, RefreshCw, Share2, CheckCircle2, Receipt, Printer, Users, Sparkles } from 'lucide-react';
 import { deriveFloorConfigsFromResidents, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber, getHistoricalOccupantForDate, formatResidentOptionLabel } from '../utils/buildingStructure';
@@ -100,11 +101,164 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
   const [error, setError] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const excelFileInputRef = useRef<HTMLInputElement>(null);
+  const [excelPreviewPayments, setExcelPreviewPayments] = useState<Array<{
+    flatNumber: string;
+    amount: number;
+    month: string;
+    receiptNumber: string;
+    paymentType: string;
+    notes: string;
+    residentId: string;
+    residentName: string;
+    isValid: boolean;
+    errorMessage?: string;
+  }> | null>(null);
+  const [showExcelPreviewModal, setShowExcelPreviewModal] = useState(false);
 
   const monthNamesArabic = [
     'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
     'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'
   ];
+
+  const handleExcelCollectionsFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+      const sheetName = workbook.SheetNames[0];
+      if (!sheetName) {
+        alert('ملف إكسل لا يحتوي على أوراق عمل.');
+        return;
+      }
+      const worksheet = workbook.Sheets[sheetName];
+      const rawRows = XLSX.utils.sheet_to_json<Record<string, any>>(worksheet, { defval: '' });
+
+      if (rawRows.length === 0) {
+        alert('ملف إكسل فارغ ولا يحتوي على بيانات.');
+        return;
+      }
+
+      const arabicMonthMap: Record<string, string> = {
+        'يناير': '01', 'فبراير': '02', 'مارس': '03', 'أبريل': '04', 'ابريل': '04',
+        'مايو': '05', 'يونيو': '06', 'يوليو': '07', 'أغسطس': '08', 'اغسطس': '08',
+        'سبتمبر': '09', 'أكتوبر': '10', 'اكتوبر': '10', 'نوفمبر': '11', 'ديسمبر': '12'
+      };
+
+      const findVal = (row: Record<string, any>, keywords: string[]) => {
+        const keys = Object.keys(row);
+        for (const kw of keywords) {
+          const matchedKey = keys.find(k => String(k).trim().toLowerCase().includes(kw.toLowerCase()));
+          if (matchedKey && row[matchedKey] !== undefined && row[matchedKey] !== null && String(row[matchedKey]).trim() !== '') {
+            return String(row[matchedKey]).trim();
+          }
+        }
+        return '';
+      };
+
+      const defaultType = (paymentTypes && paymentTypes.length > 0) ? paymentTypes[0] : 'اشتراك شهري';
+
+      const parsedItems = rawRows.map((row, index) => {
+        const rawFlat = findVal(row, ['وحدة', 'الوحدة', 'شقة', 'الشقة', 'flat', 'unit', 'رقم']);
+        const rawAmount = findVal(row, ['مبلغ', 'المبلغ', 'قيمة', 'القيمة', 'amount', 'price', 'تحصيل']);
+        const rawMonth = findVal(row, ['شهر', 'الشهر', 'تاريخ', 'month', 'date']);
+        const rawReceipt = findVal(row, ['إيصال', 'ايصال', 'الإيصال', 'الايصال', 'receipt', 'rec']);
+        const rawType = findVal(row, ['نوع', 'النوع', 'فئة', 'الفئة', 'type', 'cat']);
+        const rawNotes = findVal(row, ['ملاحظات', 'الملاحظات', 'بيان', 'البيان', 'notes']);
+
+        // Clean flat number
+        let cleanFlat = rawFlat.replace(/[^0-9a-zA-Z\u0621-\u064A]/g, '').trim();
+        if (!cleanFlat && rawFlat) cleanFlat = rawFlat.trim();
+
+        const resident = residents.find(r => isSameFlatNumber(r.flatNumber, cleanFlat) || isSameFlatNumber(r.flatNumber, rawFlat));
+
+        // Parse amount
+        const numAmount = parseFloat(rawAmount.replace(/[^0-9.]/g, '')) || 0;
+
+        // Parse month
+        let parsedMonth = month || actualCurrentMonth;
+        if (rawMonth) {
+          const trimmedMonth = rawMonth.trim();
+          if (arabicMonthMap[trimmedMonth]) {
+            parsedMonth = arabicMonthMap[trimmedMonth];
+          } else {
+            const numM = parseInt(trimmedMonth.replace(/[^0-9]/g, ''), 10);
+            if (!isNaN(numM) && numM >= 1 && numM <= 12) {
+              parsedMonth = String(numM).padStart(2, '0');
+            }
+          }
+        }
+
+        const itemType = rawType && paymentTypes.includes(rawType) ? rawType : defaultType;
+        const isValid = Boolean(resident && numAmount > 0);
+        let errorMessage = '';
+        if (!resident) errorMessage = `الوحدة "${rawFlat || 'غير المحددة'}" غير موجودة بالسكان`;
+        else if (numAmount <= 0) errorMessage = 'المبلغ يساوى 0 أو غير صحيح';
+
+        return {
+          flatNumber: String(resident ? resident.flatNumber : (cleanFlat || rawFlat || `سطر ${index + 1}`)),
+          amount: numAmount,
+          month: parsedMonth,
+          receiptNumber: rawReceipt,
+          paymentType: itemType,
+          notes: rawNotes,
+          residentId: resident ? resident.id : '',
+          residentName: resident ? resident.name : 'غير معروف',
+          isValid,
+          errorMessage,
+        };
+      });
+
+      setExcelPreviewPayments(parsedItems);
+      setShowExcelPreviewModal(true);
+    } catch (err) {
+      console.error('Error reading Excel file:', err);
+      alert('حدث خطأ أثناء قراءة ملف إكسل. يرجى التأكد من أن الملف بصيغة Excel صالحة.');
+    } finally {
+      if (excelFileInputRef.current) {
+        excelFileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleConfirmExcelImport = () => {
+    if (!excelPreviewPayments || excelPreviewPayments.length === 0) return;
+
+    const validPayments = excelPreviewPayments.filter(p => p.isValid);
+    if (validPayments.length === 0) {
+      alert('لا توجد بيانات صالحة للاستيراد من هذا الملف.');
+      return;
+    }
+
+    const newPayments: Payment[] = validPayments.map((item, idx) => ({
+      id: `pay_excel_${Date.now()}__${idx}_${Math.random().toString(36).substring(2, 5)}`,
+      year: currentYear,
+      month: item.month,
+      residentId: item.residentId,
+      residentName: item.residentName,
+      flatNumber: item.flatNumber,
+      paymentType: item.paymentType,
+      amount: item.amount,
+      receiptNumber: item.receiptNumber,
+      notes: item.notes || `استيراد من إكسل - شهر ${monthNamesArabic[parseInt(item.month, 10) - 1]} ${currentYear}`,
+      date: new Date().toISOString().split('T')[0],
+      isManuallyPaid: true,
+      status: 'collected',
+    }));
+
+    if (onAddBatchPayments) {
+      onAddBatchPayments(newPayments);
+    } else {
+      newPayments.forEach(p => onAdd(p));
+    }
+
+    setToastMsg(`تم استيراد ${newPayments.length} عملية تحصيل بنجاح من ملف إكسل ✨`);
+    setShowExcelPreviewModal(false);
+    setExcelPreviewPayments(null);
+    setShowModal(false);
+  };
 
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [receiptModalData, setReceiptModalData] = useState<ReceiptClaimData | null>(null);
@@ -2152,16 +2306,38 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
               <span>{selectedPayment ? (role === 'ASSISTANT' ? 'تعديل ملاحظات التحصيل' : 'تعديل التحصيل') : 'إضافة تحصيل جديد'}</span>
               
               <div className="flex items-center gap-1.5 sm:gap-2">
-                {/* زر توليد دفعة لكل الوحدات المستحقة - المكان المحدد بالصورة بجانب زر الإغلاق */}
+                {/* زر استيراد من إكسل */}
+                {!selectedPayment && (role === 'ADMIN' || role === 'MANAGER') && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => excelFileInputRef.current?.click()}
+                      className="inline-flex items-center gap-1 px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200 rounded-xl text-xs font-black transition active:scale-95 cursor-pointer shadow-3xs"
+                      title="استيراد بيانات التحصيل لشهر أو سنة من ملف Excel (.xlsx)"
+                    >
+                      <Upload className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                      <span>استيراد إكسل</span>
+                    </button>
+                    <input
+                      type="file"
+                      ref={excelFileInputRef}
+                      onChange={handleExcelCollectionsFileUpload}
+                      accept=".xlsx, .xls, .csv"
+                      className="hidden"
+                    />
+                  </>
+                )}
+
+                {/* زر توليد دفعة لكل الوحدات المستحقة */}
                 {!selectedPayment && (role === 'ADMIN' || role === 'MANAGER') && (
                   <button
                     type="button"
                     onClick={handleOpenGenerateMonthlyDuesModal}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-200 rounded-xl text-xs font-black transition active:scale-95 cursor-pointer shadow-3xs"
+                    className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-200 rounded-xl text-xs font-black transition active:scale-95 cursor-pointer shadow-3xs"
                     title={`توليد دفعات اشتراك شهر ${monthNamesArabic[parseInt(month, 10) - 1]} ${currentYear} لجميع الوحدات المستحقة بحالة "لم يتم التحصيل"`}
                   >
                     <Users className="w-3.5 h-3.5 text-blue-700 shrink-0" />
-                    <span>توليد لكل الوحدات</span>
+                    <span>توليد الكل</span>
                   </button>
                 )}
 
@@ -3236,6 +3412,93 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
           setTimeout(() => setToastMsg(null), 8000);
         }}
       />
+
+      {/* Excel Collections Import Preview Modal */}
+      {showExcelPreviewModal && excelPreviewPayments && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-3 sm:p-4" dir="rtl">
+          <div className="w-full max-w-2xl bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-5 border border-slate-100 shadow-2xl animate-scale-up text-right flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between border-b pb-3 mb-3">
+              <div>
+                <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
+                  <Upload className="w-5 h-5 text-emerald-600" />
+                  <span>معاينة استيراد بيانات التحصيل من ملف إكسل</span>
+                </h3>
+                <p className="text-xs text-slate-500 font-bold mt-0.5">
+                  إجمالي البنود: {excelPreviewPayments.length} | المقبولة: <span className="text-emerald-700 font-black">{excelPreviewPayments.filter(p => p.isValid).length}</span> | غير المقبولة: <span className="text-rose-600 font-black">{excelPreviewPayments.filter(p => !p.isValid).length}</span>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setShowExcelPreviewModal(false); setExcelPreviewPayments(null); }}
+                className="p-1.5 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded-lg transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto flex-1 border border-slate-100 rounded-xl mb-4">
+              <table className="w-full text-right text-xs">
+                <thead className="bg-slate-50 text-slate-600 font-black sticky top-0 border-b border-slate-100">
+                  <tr>
+                    <th className="p-2 border-l border-slate-100 text-center">الوحدة</th>
+                    <th className="p-2 border-l border-slate-100">اسم الساكن</th>
+                    <th className="p-2 border-l border-slate-100 text-center">المبلغ</th>
+                    <th className="p-2 border-l border-slate-100 text-center">الشهر</th>
+                    <th className="p-2 border-l border-slate-100 text-center">الإيصال</th>
+                    <th className="p-2 border-l border-slate-100">نوع التحصيل</th>
+                    <th className="p-2 border-l border-slate-100">الملاحظات</th>
+                    <th className="p-2 text-center">الحالة</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-bold">
+                  {excelPreviewPayments.map((item, idx) => (
+                    <tr key={idx} className={item.isValid ? 'hover:bg-emerald-50/30' : 'bg-rose-50/50 text-rose-900'}>
+                      <td className="p-2 text-center font-black border-l border-slate-100">وحدة {item.flatNumber}</td>
+                      <td className="p-2 border-l border-slate-100">{item.residentName}</td>
+                      <td className="p-2 text-center font-black text-emerald-700 border-l border-slate-100">{item.amount.toLocaleString()} ج.م</td>
+                      <td className="p-2 text-center border-l border-slate-100">{item.month} ({monthNamesArabic[parseInt(item.month, 10) - 1]})</td>
+                      <td className="p-2 text-center font-mono border-l border-slate-100">{item.receiptNumber || '—'}</td>
+                      <td className="p-2 border-l border-slate-100">{item.paymentType}</td>
+                      <td className="p-2 border-l border-slate-100 truncate max-w-[120px]" title={item.notes}>{item.notes || '—'}</td>
+                      <td className="p-2 text-center">
+                        {item.isValid ? (
+                          <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded text-[10px] font-black">جاهز للاستيراد ✓</span>
+                        ) : (
+                          <span className="px-1.5 py-0.5 bg-rose-100 text-rose-800 rounded text-[10px] font-black" title={item.errorMessage}>⚠️ {item.errorMessage}</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+              <div className="text-xs font-black text-slate-800">
+                إجمالي المبلغ المقبول: <span className="text-emerald-700 text-sm">{excelPreviewPayments.filter(p => p.isValid).reduce((sum, p) => sum + p.amount, 0).toLocaleString()} ج.م</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setShowExcelPreviewModal(false); setExcelPreviewPayments(null); }}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmExcelImport}
+                  disabled={excelPreviewPayments.filter(p => p.isValid).length === 0}
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-black rounded-xl transition shadow-xs cursor-pointer flex items-center gap-1.5 active:scale-95"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>تأكيد واستيراد ({excelPreviewPayments.filter(p => p.isValid).length}) عملية تحصيل</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

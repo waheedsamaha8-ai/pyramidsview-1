@@ -1226,7 +1226,7 @@ export const Summaries: React.FC<SummariesProps> = ({
 
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto" dir="rtl">
-            <div className="w-full max-w-lg bg-white rounded-xl sm:rounded-2xl border border-slate-100 shadow-xl animate-scale-up text-right flex flex-col max-h-[88vh] overflow-hidden my-auto">
+            <div className="w-full max-w-lg bg-white rounded-xl sm:rounded-2xl border border-slate-100 shadow-xl animate-scale-up text-right flex flex-col h-[92vh] max-h-[95vh] sm:h-auto sm:max-h-[90vh] overflow-hidden my-auto">
               {/* Header */}
               <div className="px-3.5 py-2 border-b border-slate-100 flex items-center justify-between bg-slate-50/80 shrink-0">
                 <div className="flex items-center gap-1.5">
@@ -1280,7 +1280,7 @@ export const Summaries: React.FC<SummariesProps> = ({
                           <p className="text-[10.5px] text-slate-400 font-bold">لا توجد دفعات مسجلة لهذا الشهر حالياً.</p>
                         </div>
                       ) : (
-                        <div className="space-y-1.5 max-h-[36vh] overflow-y-auto pr-0.5">
+                        <div className="space-y-1.5 max-h-[50vh] sm:max-h-[42vh] overflow-y-auto pr-0.5">
                           {activeCellPayments.map((pay) => {
                             const isEditing = editingPaymentId === pay.id;
                       const isCancelled = pay.status === 'cancelled' || pay.status === 'لاغي';
