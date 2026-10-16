@@ -91,6 +91,7 @@ export interface Payment {
   flatNumber: number | string;
   paymentType: string;
   amount: number;
+  expectedAmount?: number;
   receiptNumber?: string;
   notes?: string;
   fileId?: string; // Google Drive file ID
@@ -154,6 +155,24 @@ export interface DelegatedAdmin {
   createdAt?: string;
 }
 
+export interface AccountingPeriod {
+  id: string;
+  name: string;
+  startDate: string; // e.g. "2022-01-01" or "2022-01"
+  endDate: string; // e.g. "2023-12-31" or "2023-12"
+  notes?: string;
+  isClosed?: boolean;
+  closingDate?: string;
+  closingSummary?: {
+    totalCollections: number;
+    totalExpenses: number;
+    netBalance: number;
+    totalExpectedDues?: number;
+    totalDebt?: number;
+    closedAt?: string;
+  };
+}
+
 export interface AppConfig {
   buildingId?: string;
   buildingName?: string;
@@ -170,10 +189,22 @@ export interface AppConfig {
   managers: string[]; // List of manager emails
   assistantConfig?: AssistantConfig; // Technical Assistant credentials
   accountingStartDate?: string; // e.g. "2026-01-01"
+  accountingPeriods?: AccountingPeriod[]; // Multiple accounting periods
+  activePeriodId?: string; // Currently active accounting period ID or 'ALL'
   defaultMonthlyFee?: number; // e.g. 400
   activityDefaultFees?: Record<string, number>; // e.g. { 'سكني': 400, 'سكني مغلق': 200, 'مفروش': 600, 'إداري': 800, 'تجاري': 500 }
+  activityFeePeriods?: ActivityFeePeriod[]; // Managed pricing periods with fees per activity
   buildingLayout?: FloorConfig[];
   adminResidentProfile?: AdminResidentProfile;
+}
+
+export interface ActivityFeePeriod {
+  id: string;
+  name: string;
+  startDate: string; // "YYYY-MM-DD" e.g. "2022-01-01"
+  endDate: string; // "YYYY-MM-DD" e.g. "2023-12-31"
+  fees: Record<string, number>;
+  notes?: string;
 }
 
 export interface AppNotification {

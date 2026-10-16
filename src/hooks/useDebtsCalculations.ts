@@ -7,6 +7,11 @@ import {
   PaymentLookupIndex 
 } from '../utils/financialCalculations';
 import { compareFlatNumbers } from '../utils/buildingStructure';
+import { 
+  getActiveAccountingPeriod, 
+  getAllPeriodsDateRange, 
+  parseYearMonth 
+} from '../utils/periodUtils';
 
 export interface ResidentDebtItem {
   resident: Resident;
@@ -23,6 +28,7 @@ export interface DebtsCalculationResult {
   totalDebtorsCount: number;
   maxDebtItem: ResidentDebtItem | null;
   availableYears: number[];
+  activePeriodTitle: string;
 }
 
 export function useDebtsCalculations(
@@ -32,32 +38,47 @@ export function useDebtsCalculations(
   currentYear: number = new Date().getFullYear(),
   selectedYearFilter?: 'all' | number
 ): DebtsCalculationResult {
-  const accountingStartDate = config?.accountingStartDate || '2026-01-01';
+  const activePeriod = useMemo(() => getActiveAccountingPeriod(config), [config]);
   const defaultMonthlyFee = config?.defaultMonthlyFee || 400;
   const activityDefaultFees = config?.activityDefaultFees;
+  const activityFeePeriods = config?.activityFeePeriods;
 
-  const startYear = useMemo(() => {
-    const s = new Date(accountingStartDate);
-    return isNaN(s.getFullYear()) ? 2026 : s.getFullYear();
-  }, [accountingStartDate]);
+  // Determine effective start/end dates and boundaries based on active period vs all periods
+  const { 
+    effectiveStartDate, 
+    effectiveEndDate, 
+    availableYears, 
+    activePeriodTitle 
+  } = useMemo(() => {
+    if (activePeriod) {
+      const s = parseYearMonth(activePeriod.startDate) || { year: 2022, month: 1 };
+      const e = parseYearMonth(activePeriod.endDate) || { year: 2023, month: 12 };
+      const yrs: number[] = [];
+      for (let y = s.year; y <= e.year; y++) {
+        yrs.push(y);
+      }
+      return {
+        effectiveStartDate: activePeriod.startDate,
+        effectiveEndDate: activePeriod.endDate,
+        availableYears: yrs.length > 0 ? yrs : [s.year],
+        activePeriodTitle: activePeriod.name,
+      };
+    }
 
-  // Available fiscal years list
-  const availableYears = useMemo(() => {
-    const years = new Set<number>();
-    years.add(startYear);
-    years.add(currentYear);
-    payments.forEach(p => {
-      const y = Number(p.year) || (p.date ? new Date(p.date).getFullYear() : 0);
-      if (y >= startYear) years.add(y);
-    });
-    years.add(currentYear + 1);
-    return Array.from(years).sort((a, b) => a - b);
-  }, [startYear, currentYear, payments]);
+    // All Periods Mode: calculate boundaries across all existing periods in config
+    const allRange = getAllPeriodsDateRange(config);
+    return {
+      effectiveStartDate: allRange.earliestStartDate,
+      effectiveEndDate: allRange.latestEndDate,
+      availableYears: allRange.availableYears,
+      activePeriodTitle: 'جميع الفترات المحاسبية',
+    };
+  }, [activePeriod, config]);
 
   // Fast O(1) payment index
   const paymentIndex = useMemo(() => buildPaymentLookupIndex(payments), [payments]);
 
-  // Calculate financials for all residents
+  // Calculate financials for all residents strictly scoped to the active period or all periods
   const { allDebtorsList, allSurplusList, totalDebt, totalSurplus, maxDebtItem } = useMemo(() => {
     const targetYear = selectedYearFilter === 'all' ? undefined : selectedYearFilter;
     const debtors: ResidentDebtItem[] = [];
@@ -70,15 +91,18 @@ export function useDebtsCalculations(
       const fin = calculateResidentFinancials(
         res,
         paymentIndex,
-        accountingStartDate,
+        effectiveStartDate,
         defaultMonthlyFee,
         activityDefaultFees,
-        targetYear
+        targetYear,
+        effectiveEndDate,
+        activityFeePeriods
       );
 
+      // When scoped to a single active period, prior outside debt is not added to this period's debt
       const carriedBal = targetYear !== undefined
         ? fin.carriedPreviousBalance
-        : (res.initialBalance || 0);
+        : (activePeriod ? 0 : (res.initialBalance || 0));
 
       const item: ResidentDebtItem = {
         resident: res,
@@ -113,7 +137,17 @@ export function useDebtsCalculations(
       totalSurplus: surplusSum,
       maxDebtItem: maxDebt,
     };
-  }, [residents, paymentIndex, accountingStartDate, defaultMonthlyFee, activityDefaultFees, selectedYearFilter]);
+  }, [
+    residents, 
+    paymentIndex, 
+    effectiveStartDate, 
+    effectiveEndDate, 
+    defaultMonthlyFee, 
+    activityDefaultFees, 
+    activityFeePeriods,
+    selectedYearFilter, 
+    activePeriod
+  ]);
 
   return {
     paymentIndex,
@@ -124,5 +158,6 @@ export function useDebtsCalculations(
     totalDebtorsCount: allDebtorsList.length,
     maxDebtItem,
     availableYears,
+    activePeriodTitle,
   };
 }

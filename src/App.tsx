@@ -108,7 +108,25 @@ import {
   isExpenseForYearAndMonth,
   isValidPaidPayment
 } from './utils/financialCalculations';
-import { removeUnitFromBuildingLayout, addUnitToBuildingLayout, compareFlatNumbers, isSameFlatNumber, parseFlatNumber, getUnitNumbersForFloor, deriveFloorConfigsFromResidents, deduplicateResidents, syncResidentCurrentOccupant, syncResidentCurrentActivity } from './utils/buildingStructure';
+import { 
+  removeUnitFromBuildingLayout, 
+  addUnitToBuildingLayout, 
+  compareFlatNumbers, 
+  isSameFlatNumber, 
+  parseFlatNumber, 
+  getUnitNumbersForFloor, 
+  deriveFloorConfigsFromResidents, 
+  deduplicateResidents, 
+  syncResidentCurrentOccupant, 
+  syncResidentCurrentActivity 
+} from './utils/buildingStructure';
+import { 
+  getActiveAccountingPeriod, 
+  isPaymentInPeriod, 
+  isExpenseInPeriod, 
+  parseYearMonth,
+  formatPeriodDateRange
+} from './utils/periodUtils';
 import { formatMobileNumber, formatPhoneForDisplay } from './utils/phoneUtils';
 import { 
   canDeleteChatMessage, 
@@ -213,7 +231,61 @@ export default function App() {
         monthlyFee: 400,
         initialBalance: 0,
         notes: 'رئيس اتحاد الملاك',
-      }
+      },
+      accountingPeriods: [
+        {
+          id: 'period_2022_2023',
+          name: 'فترة 2022 - 2023',
+          startDate: '2022-01-01',
+          endDate: '2023-12-31',
+          notes: 'الفترة المحاسبية المالية الأولى (من 1/2022 إلى 12/2023)',
+          isClosed: true,
+          closingDate: '2023-12-31',
+        },
+        {
+          id: 'period_2024_2026',
+          name: 'فترة 2024 - 2026',
+          startDate: '2024-01-01',
+          endDate: '2026-12-31',
+          notes: 'الفترة المحاسبية الحالية (من 1/2024 إلى 12/2026)',
+          isClosed: false,
+        }
+      ],
+      activityFeePeriods: [
+        {
+          id: 'fee_period_2022_2023',
+          name: 'فترة 2022 - 2023',
+          startDate: '2022-01-01',
+          endDate: '2023-12-31',
+          fees: {
+            'سكني': 400,
+            'سكني مغلق': 200,
+            'تحت التشطيب': 200,
+            'بدون تشطيب': 0,
+            'مفروش': 600,
+            'إداري': 800,
+            'تجاري': 500,
+          },
+          notes: 'تسعير الاشتراكات الشهرية الافتراضية لعامي 2022 و 2023',
+        },
+        {
+          id: 'fee_period_2024_2026',
+          name: 'فترة 2024 - 2026',
+          startDate: '2024-01-01',
+          endDate: '2026-12-31',
+          fees: {
+            'سكني': 400,
+            'سكني مغلق': 200,
+            'تحت التشطيب': 200,
+            'بدون تشطيب': 0,
+            'مفروش': 600,
+            'إداري': 800,
+            'تجاري': 500,
+          },
+          notes: 'تسعير الاشتراكات للفترة الحالية (من 2024 إلى 2026)',
+        }
+      ],
+      activePeriodId: 'ALL',
     };
     try {
       const localConfig = offlineSync.getCachedData<AppConfig>('config');
@@ -221,6 +293,13 @@ export default function App() {
         return {
           ...baseConfig,
           ...localConfig,
+          accountingPeriods: (Array.isArray(localConfig.accountingPeriods) && localConfig.accountingPeriods.length > 0)
+            ? localConfig.accountingPeriods
+            : baseConfig.accountingPeriods,
+          activityFeePeriods: (Array.isArray(localConfig.activityFeePeriods) && localConfig.activityFeePeriods.length > 0)
+            ? localConfig.activityFeePeriods
+            : baseConfig.activityFeePeriods,
+          activePeriodId: localConfig.activePeriodId || 'ALL',
           adminResidentProfile: localConfig.adminResidentProfile || baseConfig.adminResidentProfile,
         };
       }
@@ -645,14 +724,18 @@ export default function App() {
       setExpenses(rawExpenses.filter(e => e && e.id && e.id !== 'e1'));
     }
     if (localConfig) {
-      setConfig({
+      setConfig(prev => ({
+        ...prev,
         ...localConfig,
         defaultMonthlyFee: localConfig.defaultMonthlyFee || 400,
         activityDefaultFees: { ...defaultActivityFees, ...(localConfig.activityDefaultFees || {}) },
+        activityFeePeriods: (Array.isArray(localConfig.activityFeePeriods) && localConfig.activityFeePeriods.length > 0)
+          ? localConfig.activityFeePeriods
+          : prev.activityFeePeriods,
         activityTypes: localConfig.activityTypes && localConfig.activityTypes.length > 0 
           ? Array.from(new Set([...localConfig.activityTypes, 'سكني', 'سكني مغلق', 'مفروش', 'إداري', 'تجاري', 'بدون تشطيب']))
           : ['سكني', 'سكني مغلق', 'مفروش', 'إداري', 'تجاري', 'بدون تشطيب'],
-      });
+      }));
     }
     if (localRules && localRules.rules) setRules(localRules.rules);
     if (localLayout) setBuildingLayout(localLayout);
@@ -2611,12 +2694,38 @@ export default function App() {
     }
   };
 
+  // Active accounting period and scoped filtered collections & expenses
+  const activeAccountingPeriod = useMemo(() => getActiveAccountingPeriod(config), [config]);
+
+  const filteredPaymentsByPeriod = useMemo(() => {
+    if (!activeAccountingPeriod) return payments;
+    return payments.filter(p => isPaymentInPeriod(p, activeAccountingPeriod));
+  }, [payments, activeAccountingPeriod]);
+
+  const filteredExpensesByPeriod = useMemo(() => {
+    if (!activeAccountingPeriod) return expenses;
+    return expenses.filter(e => isExpenseInPeriod(e, activeAccountingPeriod));
+  }, [expenses, activeAccountingPeriod]);
+
+  // Sync currentYear with the active accounting period's dates
+  useEffect(() => {
+    if (activeAccountingPeriod) {
+      const start = parseYearMonth(activeAccountingPeriod.startDate);
+      const end = parseYearMonth(activeAccountingPeriod.endDate);
+      if (start && end) {
+        if (currentYear < start.year || currentYear > end.year) {
+          setCurrentYear(end.year);
+        }
+      }
+    }
+  }, [activeAccountingPeriod]);
+
   // Stats summaries - strictly by financial accounting month and year (شهر المحاسبة)
-  const totalReceived = payments
+  const totalReceived = filteredPaymentsByPeriod
     .filter((p) => parsePaymentYear(p, currentYear) === currentYear && (viewMode === 'year' || parsePaymentMonth(p) === (currentMonth + 1)) && isValidPaidPayment(p) && ((p.amount || 0) > 0))
     .reduce((sum, p) => sum + p.amount, 0);
 
-  const totalSpent = expenses
+  const totalSpent = filteredExpensesByPeriod
     .filter((e) => parseExpenseYear(e, currentYear) === currentYear && (viewMode === 'year' || parseExpenseMonth(e) === (currentMonth + 1)))
     .reduce((sum, e) => sum + e.amount, 0);
 
@@ -2750,12 +2859,12 @@ export default function App() {
   ];
   const chartData = monthsAbbr.map((m, idx) => ({
     name: monthNamesArabic[idx],
-    التحصيلات: payments.filter((p) => isPaymentForYearAndMonth(p, currentYear, idx + 1) && isValidPaidPayment(p) && ((p.amount || 0) > 0)).reduce((sum, p) => sum + p.amount, 0),
-    المصروفات: expenses.filter((e) => isExpenseForYearAndMonth(e, currentYear, idx + 1)).reduce((sum, e) => sum + e.amount, 0),
+    التحصيلات: filteredPaymentsByPeriod.filter((p) => isPaymentForYearAndMonth(p, currentYear, idx + 1) && isValidPaidPayment(p) && ((p.amount || 0) > 0)).reduce((sum, p) => sum + p.amount, 0),
+    المصروفات: filteredExpensesByPeriod.filter((e) => isExpenseForYearAndMonth(e, currentYear, idx + 1)).reduce((sum, e) => sum + e.amount, 0),
   }));
 
   // Filtering for Resident view only
-  const filteredResidentPayments = payments.filter(p => p.year === currentYear && (!flatNumber || isSameFlatNumber(p.flatNumber, flatNumber)));
+  const filteredResidentPayments = filteredPaymentsByPeriod.filter(p => p.year === currentYear && (!flatNumber || isSameFlatNumber(p.flatNumber, flatNumber)));
 
   // Resolve the resident/tenant object for the current logged in user
   const currentResidentObj = useMemo(() => {
@@ -3010,7 +3119,46 @@ export default function App() {
 
 
 
-                {/* Dashboard Tab */}
+        {/* Active Accounting Period Filter Banner */}
+        {activeAccountingPeriod && (
+          <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-blue-950 text-white p-3 sm:p-3.5 rounded-2xl shadow-sm border border-blue-700/60 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-fade-in" dir="rtl">
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span className="text-xs font-bold text-blue-200">الفترة المحاسبية النشطة:</span>
+              <span className="px-2.5 py-0.5 bg-white/20 text-white rounded-lg text-xs font-black">
+                {activeAccountingPeriod.name}
+              </span>
+              <span className="text-xs text-blue-100 font-bold bg-white/10 border border-white/20 px-2.5 py-0.5 rounded-md">
+                {formatPeriodDateRange(activeAccountingPeriod.startDate, activeAccountingPeriod.endDate)}
+              </span>
+              <span className="text-[11px] font-bold text-amber-300">
+                (تصفية نشطة: يعرض التطبيق حالياً بيانات وتحصيلات ومصروفات ومديونيات هذه الفترة فقط ويخفي الفترات الأخرى)
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2 self-end sm:self-auto flex-wrap">
+              <button
+                type="button"
+                onClick={() => {
+                  handleSaveAppConfig({ ...config, activePeriodId: 'ALL' });
+                }}
+                className="px-3 py-1 bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-xl text-xs font-black transition cursor-pointer"
+                title="إلغاء حصر البيانات وعرض كافة الفترات"
+              >
+                إلغاء التقييد (عرض الكل)
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('settings')}
+                className="px-3 py-1 bg-amber-400 hover:bg-amber-300 text-slate-950 rounded-xl text-xs font-black transition cursor-pointer shadow-xs"
+              >
+                إدارة الفترات والختامي
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Dashboard Tab */}
         {activeTab === 'dashboard' && (
           <Dashboard
             currentYear={currentYear}
@@ -3020,8 +3168,8 @@ export default function App() {
             viewMode={viewMode}
             setViewMode={setViewMode}
             residents={residents}
-            payments={payments}
-            expenses={expenses}
+            payments={filteredPaymentsByPeriod}
+            expenses={filteredExpensesByPeriod}
             config={config}
             role={role}
             currentResidentObj={currentResidentObj}
@@ -3052,7 +3200,7 @@ export default function App() {
         {activeTab === 'residents' && (
           <ResidentsList 
             residents={residents}
-            payments={payments}
+            payments={filteredPaymentsByPeriod}
             config={config}
             activityTypes={config.activityTypes}
             role={role}
@@ -3069,7 +3217,7 @@ export default function App() {
         {activeTab === 'debts-report' && (
           <DebtsReport 
             residents={residents}
-            payments={payments}
+            payments={filteredPaymentsByPeriod}
             config={config}
             role={role}
             floorConfigs={buildingLayout}
@@ -3082,7 +3230,7 @@ export default function App() {
         {/* Payments Tab */}
         {activeTab === 'payments' && (
           <PaymentsList 
-            payments={payments}
+            payments={filteredPaymentsByPeriod}
             residents={residents}
             paymentTypes={config.paymentTypes}
             role={role}
@@ -3104,7 +3252,7 @@ export default function App() {
         {/* Expenses Tab */}
         {activeTab === 'expenses' && (
           <ExpensesList 
-            expenses={expenses}
+            expenses={filteredExpensesByPeriod}
             expenseTypes={config.expenseTypes}
             role={role}
             currentYear={currentYear}
@@ -3122,8 +3270,8 @@ export default function App() {
         {activeTab === 'summaries' && (
           <Summaries 
             residents={residents}
-            payments={payments}
-            expenses={expenses}
+            payments={filteredPaymentsByPeriod}
+            expenses={filteredExpensesByPeriod}
             currentYear={currentYear}
             currentMonth={currentMonth}
             setCurrentMonth={setCurrentMonth}
@@ -3146,8 +3294,8 @@ export default function App() {
         {/* History Tab */}
         {activeTab === 'history' && (
           <History 
-            payments={payments}
-            expenses={expenses}
+            payments={filteredPaymentsByPeriod}
+            expenses={filteredExpensesByPeriod}
           />
         )}
 
@@ -3255,6 +3403,9 @@ export default function App() {
             onDeleteRule={handleDeleteRule}
             onOpenEditRulesModal={() => setShowRulesEditModal(true)}
             onRefreshAllData={refreshAllData}
+            payments={payments}
+            expenses={expenses}
+            residents={residents}
           />
         )}
 

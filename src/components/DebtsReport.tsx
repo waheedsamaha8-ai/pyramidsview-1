@@ -13,6 +13,7 @@ import {
   isMonthlySubscriptionType,
   calculateUnitClaimBreakdown
 } from '../utils/financialCalculations';
+import { getActiveAccountingPeriod, formatPeriodDateRange } from '../utils/periodUtils';
 import { formatMobileNumber, formatPhoneForDisplay, formatPhoneForText, toWhatsAppNumber } from '../utils/phoneUtils';
 import { monthNamesArabic } from '../utils/receiptClaimGenerator';
 import { 
@@ -163,6 +164,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
     totalDebtorsCount,
     maxDebtItem,
     availableYears,
+    activePeriodTitle,
   } = useDebtsCalculations(
     residents,
     payments,
@@ -170,6 +172,15 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
     currentYear,
     selectedYearFilter
   );
+
+  const activePeriod = useMemo(() => getActiveAccountingPeriod(config), [config]);
+
+  // Ensure year filter resets if switching to a period with different years
+  React.useEffect(() => {
+    if (selectedYearFilter !== 'all' && availableYears.length > 0 && !availableYears.includes(Number(selectedYearFilter))) {
+      setSelectedYearFilter('all');
+    }
+  }, [availableYears, selectedYearFilter]);
 
   const stats = useMemo(() => ({
     totalDebt,
@@ -357,7 +368,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
     if (residentsWithDebt.length === 0) return;
 
     const yearLabel = selectedYearFilter === 'all' 
-      ? 'تراكمي شامل حتى تاريخه' 
+      ? (activePeriod ? `للفترة المحاسبية: ${activePeriod.name} (${formatPeriodDateRange(activePeriod.startDate, activePeriod.endDate)})` : 'شامل لكافة الفترات المحاسبية المقيدة') 
       : `للسنة المالية ${selectedYearFilter}`;
 
     let text = `📋 *كشف مديونيات شواغل عمارة بيراميدز فيو ١ (${yearLabel})*\n`;
@@ -443,7 +454,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
       payments,
       currentYearNum,
       currentMonthNum,
-      '2026-01-01',
+      activePeriod?.startDate || accountingStartDate,
       config?.defaultMonthlyFee,
       config?.activityDefaultFees
     );
@@ -550,7 +561,33 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
   };
 
   return (
-    <div className="space-y-5 sm:space-y-6 text-right" dir="rtl">
+    <div className="space-y-4 sm:space-y-5 text-right" dir="rtl">
+      {/* Active Accounting Period Scope Indicator in Debts Page */}
+      <div className={`p-3 sm:p-3.5 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-2xs transition ${
+        activePeriod 
+          ? 'bg-gradient-to-r from-blue-900 via-indigo-900 to-blue-950 text-white border-blue-700' 
+          : 'bg-white border-slate-200 text-slate-800'
+      }`}>
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <span className={`w-2.5 h-2.5 rounded-full ${activePeriod ? 'bg-emerald-400 animate-pulse' : 'bg-slate-400'}`}></span>
+          <span className="text-xs font-bold opacity-90">نطاق احتساب المديونيات المعروضة:</span>
+          <span className={`px-2.5 py-0.5 rounded-lg text-xs font-black ${activePeriod ? 'bg-white/20 text-white' : 'bg-blue-50 text-blue-950 border border-blue-200'}`}>
+            {activePeriod ? activePeriod.name : 'جميع الفترات المحاسبية (كافة السنوات المقيدة)'}
+          </span>
+          <span className={`text-[11px] font-bold ${activePeriod ? 'text-amber-300' : 'text-slate-500'}`}>
+            {activePeriod 
+              ? `(تظهر مديونيات ${formatPeriodDateRange(activePeriod.startDate, activePeriod.endDate)} فقط)`
+              : '(تظهر مديونيات كافة الفترات والسنوات مجمعة)'}
+          </span>
+        </div>
+
+        {activePeriod && (
+          <span className="text-[11px] font-mono text-blue-200 bg-white/10 px-2 py-0.5 rounded-md self-start sm:self-auto" dir="rtl">
+            {formatPeriodDateRange(activePeriod.startDate, activePeriod.endDate, true)}
+          </span>
+        )}
+      </div>
+
       {/* Top Banner Stats - 3 Compact Cards in 1 Single Row */}
       <div className="grid grid-cols-3 gap-1.5 sm:gap-4">
         {/* Card 1: Total Debt */}
@@ -566,7 +603,9 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
               {Math.round(stats.totalDebt).toLocaleString()} <span className="text-[8px] sm:text-xs font-bold text-red-900">ج.م</span>
             </span>
             <span className="text-[8px] sm:text-[10px] text-red-900/90 font-bold block truncate mt-0.5">
-              {selectedYearFilter === 'all' ? 'مستحقة قائمة' : `سنة ${selectedYearFilter}`}
+              {selectedYearFilter === 'all' 
+                ? (activePeriod ? `فترة: ${activePeriod.name}` : 'كافة الفترات والسنوات') 
+                : `سنة ${selectedYearFilter}`}
             </span>
           </div>
         </div>

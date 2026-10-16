@@ -1,4 +1,5 @@
-import { Resident, FloorConfig, UnitHistoryRecord, UnitActivityRecord } from '../types';
+import { Resident, FloorConfig, UnitHistoryRecord, UnitActivityRecord, ActivityFeePeriod } from '../types';
+import { findMatchingActivityFeePeriod } from './periodUtils';
 
 export const floorTypeLabels: Record<FloorConfig['type'], string> = {
   basement: 'دور البدروم',
@@ -1027,10 +1028,22 @@ export function sortActivityRecordsChronologically(records: UnitActivityRecord[]
 export function getDefaultFeeForActivity(
   activityType: string,
   defaultMonthlyFee: number = 400,
-  activityDefaultFees?: Record<string, number>
+  activityDefaultFees?: Record<string, number>,
+  targetDateOrPeriod?: string | number | { year: number; month: number } | null,
+  activityFeePeriods?: ActivityFeePeriod[]
 ): number {
   if (!activityType) return defaultMonthlyFee || 400;
   const cleanType = activityType.trim();
+
+  // 1. Check if matching activity fee period exists for this date/period
+  if (targetDateOrPeriod && activityFeePeriods && activityFeePeriods.length > 0) {
+    const matched = findMatchingActivityFeePeriod(targetDateOrPeriod, activityFeePeriods);
+    if (matched && matched.fees && matched.fees[cleanType] !== undefined) {
+      return matched.fees[cleanType];
+    }
+  }
+
+  // 2. Fallback to general activityDefaultFees
   if (activityDefaultFees && activityDefaultFees[cleanType] !== undefined) {
     return activityDefaultFees[cleanType];
   }
@@ -1058,7 +1071,8 @@ export function getLatestActivityFromHistory(
   resident: Resident,
   targetDateOrPeriod?: string | number,
   defaultMonthlyFee: number = 400,
-  activityDefaultFees?: Record<string, number>
+  activityDefaultFees?: Record<string, number>,
+  activityFeePeriods?: ActivityFeePeriod[]
 ): {
   activityType: string;
   monthlyFee: number;
@@ -1066,9 +1080,9 @@ export function getLatestActivityFromHistory(
   toDate?: string;
 } {
   const fallbackActivity = (resident.activityType || 'سكني').trim();
-  const fallbackFee = (resident.monthlyFee !== undefined && !isNaN(resident.monthlyFee) && resident.monthlyFee >= 0)
+  const fallbackFee = (resident.monthlyFee !== undefined && !isNaN(resident.monthlyFee) && resident.monthlyFee >= 0 && (!activityFeePeriods || activityFeePeriods.length === 0))
     ? resident.monthlyFee
-    : getDefaultFeeForActivity(fallbackActivity, defaultMonthlyFee, activityDefaultFees);
+    : getDefaultFeeForActivity(fallbackActivity, defaultMonthlyFee, activityDefaultFees, targetDateOrPeriod, activityFeePeriods);
 
   const fallback = {
     activityType: fallbackActivity,
@@ -1125,7 +1139,7 @@ export function getLatestActivityFromHistory(
     const actType = matchedRecord.activityType.trim();
     const fee = (matchedRecord.monthlyFee !== undefined && !isNaN(matchedRecord.monthlyFee) && matchedRecord.monthlyFee >= 0)
       ? matchedRecord.monthlyFee
-      : getDefaultFeeForActivity(actType, defaultMonthlyFee, activityDefaultFees);
+      : getDefaultFeeForActivity(actType, defaultMonthlyFee, activityDefaultFees, targetDateOrPeriod, activityFeePeriods);
 
     return {
       activityType: actType,
@@ -1145,12 +1159,16 @@ export function getHistoricalActivityForDate(
   resident: Resident,
   dateOrPeriod?: string | number,
   defaultMonthlyFee?: number,
-  activityDefaultFees?: Record<string, number>
+  activityDefaultFees?: Record<string, number>,
+  activityFeePeriods?: ActivityFeePeriod[]
 ): { activityType: string; monthlyFee: number } {
   if (!resident) {
-    return { activityType: 'سكني', monthlyFee: defaultMonthlyFee || 400 };
+    return { 
+      activityType: 'سكني', 
+      monthlyFee: getDefaultFeeForActivity('سكني', defaultMonthlyFee || 400, activityDefaultFees, dateOrPeriod, activityFeePeriods) 
+    };
   }
-  return getLatestActivityFromHistory(resident, dateOrPeriod, defaultMonthlyFee, activityDefaultFees);
+  return getLatestActivityFromHistory(resident, dateOrPeriod, defaultMonthlyFee, activityDefaultFees, activityFeePeriods);
 }
 
 /**

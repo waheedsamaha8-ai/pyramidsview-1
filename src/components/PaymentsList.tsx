@@ -2,7 +2,7 @@ import React, { useState, useRef, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { Payment, Resident, UserRole, FloorConfig, AppConfig } from '../types';
 import { Search, Plus, Calendar, FileText, Image as ImageIcon, Camera, Trash2, Edit, AlertCircle, Eye, User, LayoutGrid, List, Building, ArrowUpDown, Upload, X, ZoomIn, Download, RefreshCw, Share2, CheckCircle2, Receipt, Printer, Users, Sparkles } from 'lucide-react';
-import { deriveFloorConfigsFromResidents, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber, getHistoricalOccupantForDate, formatResidentOptionLabel } from '../utils/buildingStructure';
+import { deriveFloorConfigsFromResidents, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber, getHistoricalOccupantForDate, formatResidentOptionLabel, getDefaultFeeForActivity } from '../utils/buildingStructure';
 import { getResidentMonthlyFee, calculateResidentFinancials, calculateUnitClaimBreakdown, getPrescribedFeeForMonth, isPaymentForYearAndMonth, isMonthlySubscriptionType } from '../utils/financialCalculations';
 import { generateElementImageBlob, GeneratedImageResult } from '../utils/imageExport';
 import { shareImageViaWhatsApp } from '../utils/shareImageViaWhatsApp';
@@ -91,6 +91,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
   const [showMultiMonthPicker, setShowMultiMonthPicker] = useState<boolean>(false);
   const [targetActivityType, setTargetActivityType] = useState<string>('سكني');
   const [paymentType, setPaymentType] = useState('');
+  const [dueAmount, setDueAmount] = useState<number | ''>('');
   const [amount, setAmount] = useState<number | ''>('');
   const [receiptNumber, setReceiptNumber] = useState('');
   const [paymentStatus, setPaymentStatus] = useState<'collected' | 'pending' | 'cancelled'>('collected');
@@ -321,7 +322,8 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
           targetMonthNum,
           [],
           defaultFee,
-          actFees
+          actFees,
+          config?.activityFeePeriods
         );
 
         toGenerate.push({
@@ -803,6 +805,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
 
   const defaultMonthlyFee = config?.defaultMonthlyFee || 400;
   const activityDefaultFees = config?.activityDefaultFees;
+  const activityFeePeriods = config?.activityFeePeriods;
 
   const allAvailableActivityTypes = useMemo(() => {
     const fromConfig = config?.activityTypes || [];
@@ -810,22 +813,14 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
     return Array.from(new Set([...defaults, ...fromConfig]));
   }, [config?.activityTypes]);
 
-  const getActivityDefaultFee = (act: string): number => {
-    if (config?.activityDefaultFees && config.activityDefaultFees[act] !== undefined) {
-      return config.activityDefaultFees[act];
-    }
-    switch (act) {
-      case 'بدون تحصيل': return 0;
-      case 'بدون تشطيب': return 0;
-      case 'سكني': return 400;
-      case 'سكني مغلق': return 200;
-      case 'مفروش': return 600;
-      case 'إداري': return 800;
-      case 'تجاري': return 500;
-      default:
-        if (act.includes('بدون تحصيل') || act.includes('بدون تشطيب')) return 0;
-        return config?.defaultMonthlyFee || 400;
-    }
+  const getActivityDefaultFee = (act: string, targetDateOrPeriod?: string | number): number => {
+    return getDefaultFeeForActivity(
+      act,
+      defaultMonthlyFee,
+      activityDefaultFees,
+      targetDateOrPeriod || `${currentYear}-${String(month).padStart(2, '0')}`,
+      activityFeePeriods
+    );
   };
 
   const handleResidentSelect = (newResidentId: string) => {
@@ -833,27 +828,36 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
     const selectedRes = residents.find(r => r.id === newResidentId);
     if (selectedRes) {
       setTargetActivityType(selectedRes.activityType || 'سكني');
+      const targetYearNum = Number(currentYear) || new Date().getFullYear();
+      const targetMonthNum = parseInt(month, 10) || 1;
+      const prescribed = getPrescribedFeeForMonth(selectedRes, targetYearNum, targetMonthNum, payments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods);
+      const fee = prescribed.monthlyFee;
+      const totalMonthsCount = (isAggregatedCollection && coveredMonths.length > 0) ? coveredMonths.length : 1;
+      const calcDue = fee * totalMonthsCount;
+      setDueAmount(calcDue);
       if (!selectedPayment) {
-        const fee = getResidentMonthlyFee(selectedRes, defaultMonthlyFee, activityDefaultFees);
-        const totalMonthsCount = (isAggregatedCollection && coveredMonths.length > 0) ? coveredMonths.length : 1;
-        setAmount(fee * totalMonthsCount);
+        setAmount(calcDue);
       }
     }
   };
 
   const handleActivityTypeChange = (newAct: string) => {
     setTargetActivityType(newAct);
+    const actFee = getActivityDefaultFee(newAct);
+    const totalMonthsCount = (isAggregatedCollection && coveredMonths.length > 0) ? coveredMonths.length : 1;
+    const calcDue = actFee * totalMonthsCount;
+    setDueAmount(calcDue);
     if (!selectedPayment) {
-      const actFee = getActivityDefaultFee(newAct);
-      const totalMonthsCount = (isAggregatedCollection && coveredMonths.length > 0) ? coveredMonths.length : 1;
-      setAmount(actFee * totalMonthsCount);
+      setAmount(calcDue);
     }
   };
 
   const applyDefaultFeeForActivity = (act: string) => {
     const actFee = getActivityDefaultFee(act);
     const totalMonthsCount = (isAggregatedCollection && coveredMonths.length > 0) ? coveredMonths.length : 1;
-    setAmount(actFee * totalMonthsCount);
+    const calcDue = actFee * totalMonthsCount;
+    setDueAmount(calcDue);
+    setAmount(calcDue);
   };
 
   const toggleCoveredMonth = (m: string) => {
@@ -868,11 +872,16 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
 
     const selectedRes = residents.find(r => r.id === residentId);
     if (selectedRes && (!paymentType || paymentType === 'اشتراك شهري' || paymentType.includes('اشتراك'))) {
+      const targetYearNum = Number(currentYear) || new Date().getFullYear();
+      const targetMonthNum = parseInt(month, 10) || 1;
+      const prescribed = getPrescribedFeeForMonth(selectedRes, targetYearNum, targetMonthNum, payments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods);
       const baseFee = targetActivityType !== selectedRes.activityType
         ? getActivityDefaultFee(targetActivityType)
-        : getResidentMonthlyFee(selectedRes, defaultMonthlyFee, activityDefaultFees);
+        : prescribed.monthlyFee;
       const totalMonthsCount = updated.length > 0 ? updated.length : 1;
-      setAmount(baseFee * totalMonthsCount);
+      const calcDue = baseFee * totalMonthsCount;
+      setDueAmount(calcDue);
+      setAmount(calcDue);
     }
   };
 
@@ -884,11 +893,16 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
 
     const selectedRes = residents.find(r => r.id === residentId);
     if (selectedRes && (!paymentType || paymentType === 'اشتراك شهري' || paymentType.includes('اشتراك'))) {
+      const targetYearNum = Number(currentYear) || new Date().getFullYear();
+      const targetMonthNum = parseInt(month, 10) || 1;
+      const prescribed = getPrescribedFeeForMonth(selectedRes, targetYearNum, targetMonthNum, payments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods);
       const baseFee = targetActivityType !== selectedRes.activityType
         ? getActivityDefaultFee(targetActivityType)
-        : getResidentMonthlyFee(selectedRes, defaultMonthlyFee, activityDefaultFees);
+        : prescribed.monthlyFee;
       const totalMonthsCount = uniqueSorted.length > 0 ? uniqueSorted.length : 1;
-      setAmount(baseFee * totalMonthsCount);
+      const calcDue = baseFee * totalMonthsCount;
+      setDueAmount(calcDue);
+      setAmount(calcDue);
     }
   };
 
@@ -940,11 +954,16 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       const selectedRes = residents.find(r => r.id === residentId);
       if (selectedRes) {
         if (newType === 'اشتراك شهري' || newType.includes('اشتراك') || newType.includes('شهري')) {
+          const targetYearNum = Number(currentYear) || new Date().getFullYear();
+          const targetMonthNum = parseInt(month, 10) || 1;
+          const prescribed = getPrescribedFeeForMonth(selectedRes, targetYearNum, targetMonthNum, payments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods);
           const fee = targetActivityType !== selectedRes.activityType
             ? getActivityDefaultFee(targetActivityType)
-            : getResidentMonthlyFee(selectedRes, defaultMonthlyFee, activityDefaultFees);
+            : prescribed.monthlyFee;
           const totalMonthsCount = (isAggregatedCollection && coveredMonths.length > 0) ? coveredMonths.length : 1;
-          setAmount(fee * totalMonthsCount);
+          const calcDue = fee * totalMonthsCount;
+          setDueAmount(calcDue);
+          setAmount(calcDue);
         }
       }
     }
@@ -959,11 +978,19 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       : (firstRes?.id || '');
     const initialRes = residents.find(r => r.id === initialResId) || firstRes;
     const initialType = paymentTypes[0] || 'اشتراك شهري';
-    const initialFee = initialRes ? getResidentMonthlyFee(initialRes, defaultMonthlyFee, activityDefaultFees) : '';
 
     const defaultTargetMonth = (filterMonth && filterMonth.trim()) 
       ? filterMonth 
       : actualCurrentMonth;
+
+    const targetYearNum = Number(currentYear) || new Date().getFullYear();
+    const targetMonthNum = parseInt(defaultTargetMonth, 10) || 1;
+    const initialPrescribed = initialRes 
+      ? getPrescribedFeeForMonth(initialRes, targetYearNum, targetMonthNum, payments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods)
+      : null;
+    const initialFee = initialPrescribed 
+      ? initialPrescribed.monthlyFee 
+      : (initialRes ? getResidentMonthlyFee(initialRes, defaultMonthlyFee, activityDefaultFees, undefined, undefined, activityFeePeriods) : '');
 
     setResidentId(initialResId);
     setMonth(defaultTargetMonth);
@@ -972,6 +999,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
     setShowMultiMonthPicker(false);
     setTargetActivityType(initialRes?.activityType || 'سكني');
     setPaymentType(initialType);
+    setDueAmount(initialFee);
     setAmount(initialFee);
     setReceiptNumber('');
     setPaymentStatus('collected');
@@ -1109,6 +1137,18 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       setMonth(masterMonthNorm);
 
       setPaymentType(payment.paymentType || masterPayment.paymentType || 'اشتراك شهري');
+
+      const editYear = Number(payment.year) || currentYear;
+      const editMonthNum = parseInt(String(payment.month || masterPayment.month), 10) || 1;
+      const editPrescribed = foundRes
+        ? getPrescribedFeeForMonth(foundRes, editYear, editMonthNum, payments, defaultMonthlyFee, activityDefaultFees)
+        : null;
+      const defaultCalculatedDue = editPrescribed ? editPrescribed.monthlyFee : '';
+      const initialDueAmount = (payment.expectedAmount !== undefined && payment.expectedAmount !== null)
+        ? payment.expectedAmount
+        : ((masterPayment.expectedAmount !== undefined && masterPayment.expectedAmount !== null) ? masterPayment.expectedAmount : defaultCalculatedDue);
+      setDueAmount(initialDueAmount);
+
       setReceiptNumber(payment.receiptNumber || masterPayment.receiptNumber || '');
       setPaymentStatus(((payment.status || masterPayment.status) as any) || 'collected');
       setNotes(masterPayment.notes || payment.notes || '');
@@ -1213,6 +1253,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
     setError(null);
 
     const numAmount = Number(amount);
+    const numDueAmount = dueAmount !== '' && !isNaN(Number(dueAmount)) ? Number(dueAmount) : undefined;
     if (!residentId || !paymentType || !amount || isNaN(numAmount) || numAmount <= 0) {
       setError('يرجى ملء جميع الحقول المطلوبة (الساكن، نوع التحصيل، مبلغ صحيح وموجب).');
       return;
@@ -1290,6 +1331,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
           flatNumber: resident.flatNumber,
           paymentType,
           amount: masterAmountAllocated,
+          expectedAmount: numDueAmount,
           receiptNumber: (receiptNumber || '').trim(),
           notes: cleanNotes,
           fileId: base64Image ? '' : (existingFileUrl ? (selectedPayment?.fileId || '') : ''),
@@ -1351,6 +1393,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
           flatNumber: resident.flatNumber,
           paymentType,
           amount: numAmount,
+          expectedAmount: numDueAmount,
           receiptNumber: (receiptNumber || '').trim(),
           notes: (notes || '').trim(),
           fileId: base64Image ? '' : (existingFileUrl ? (selectedPayment?.fileId || '') : ''),
@@ -1408,6 +1451,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
           flatNumber: resident.flatNumber,
           paymentType,
           amount: masterAmountAllocated,
+          expectedAmount: numDueAmount,
           receiptNumber: (receiptNumber || '').trim(),
           notes: cleanNotes,
           fileId: base64Image ? '' : (existingFileUrl ? (selectedPayment?.fileId || '') : ''),
@@ -1467,6 +1511,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
           flatNumber: resident.flatNumber,
           paymentType,
           amount: numAmount,
+          expectedAmount: numDueAmount,
           receiptNumber: (receiptNumber || '').trim(),
           notes: (notes || '').trim(),
           fileId: base64Image ? '' : (existingFileUrl ? (selectedPayment?.fileId || '') : ''),
@@ -2456,6 +2501,21 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                           setCurrentMonth(mIdx);
                         }
                       }
+                      const selectedRes = residents.find(r => r.id === residentId);
+                      if (selectedRes && (!paymentType || paymentType === 'اشتراك شهري' || isMonthlySubscriptionType(paymentType))) {
+                        const targetYearNum = Number(currentYear) || new Date().getFullYear();
+                        const targetMonthNum = parseInt(newM, 10) || 1;
+                        const prescribed = getPrescribedFeeForMonth(selectedRes, targetYearNum, targetMonthNum, payments, defaultMonthlyFee, activityDefaultFees);
+                        const fee = targetActivityType !== selectedRes.activityType
+                          ? getActivityDefaultFee(targetActivityType)
+                          : prescribed.monthlyFee;
+                        const totalMonthsCount = (isAggregatedCollection && coveredMonths.length > 0) ? coveredMonths.length : 1;
+                        const calcDue = fee * totalMonthsCount;
+                        setDueAmount(calcDue);
+                        if (!selectedPayment) {
+                          setAmount(calcDue);
+                        }
+                      }
                     }}
                     disabled={role === 'ASSISTANT' && !!selectedPayment}
                     className="w-full px-2.5 py-2 bg-slate-50 border border-slate-200 focus:bg-white rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-500/10 outline-none text-right font-bold transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
@@ -2708,32 +2768,84 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                 </p>
               </div>
 
-              <div className="grid grid-cols-2 gap-2.5">
-                <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-slate-500">المبلغ المستلم بالجنيه <span className="text-red-500">*</span></label>
-                  <input
-                    type="number"
-                    placeholder="مثال: 200"
-                    value={amount === '' || isNaN(Number(amount)) ? '' : amount}
-                    onChange={(e) => setAmount(e.target.value !== '' ? Number(e.target.value) : '')}
-                    disabled={role === 'ASSISTANT' && !!selectedPayment}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 focus:bg-white rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-500/10 outline-none text-right font-bold transition disabled:opacity-60 disabled:cursor-not-allowed"
-                    required
-                  />
-                </div>
+              {/* Amounts and Receipt Number Row */}
+              {(!paymentType || paymentType === 'اشتراك شهري' || isMonthlySubscriptionType(paymentType)) ? (
+                <div className="grid grid-cols-3 gap-2 sm:gap-2.5">
+                  {/* 1. المبلغ المستحق */}
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-500 block truncate" title="المبلغ المستحق المسجل بسجل الوحدة أو الرسوم المقررة">
+                      المبلغ المستحق
+                    </label>
+                    <input
+                      type="number"
+                      placeholder="المستحق"
+                      value={dueAmount === '' || isNaN(Number(dueAmount)) ? '' : dueAmount}
+                      onChange={(e) => setDueAmount(e.target.value !== '' ? Number(e.target.value) : '')}
+                      disabled={role === 'ASSISTANT' && !!selectedPayment}
+                      className="w-full px-2 sm:px-3 py-2 bg-slate-50 border border-slate-200 focus:bg-white rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-500/10 outline-none text-right font-bold transition disabled:opacity-60 disabled:cursor-not-allowed text-blue-950"
+                      title="قيمة الاشتراك المستحق من سجل الوحدة أو الرسوم المقررة (يمكن تعديلها يدوياً)"
+                    />
+                  </div>
 
-                <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-slate-500">رقم الإيصال</label>
-                  <input
-                    type="text"
-                    placeholder="مثال: 4501"
-                    value={receiptNumber}
-                    onChange={(e) => setReceiptNumber(e.target.value)}
-                    disabled={role === 'ASSISTANT' && !!selectedPayment}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 focus:bg-white rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-500/10 outline-none text-right font-bold transition disabled:opacity-60 disabled:cursor-not-allowed"
-                  />
+                  {/* 2. المبلغ المستلم */}
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-500 block truncate">
+                      المبلغ المستلم <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      placeholder="المستلم"
+                      value={amount === '' || isNaN(Number(amount)) ? '' : amount}
+                      onChange={(e) => setAmount(e.target.value !== '' ? Number(e.target.value) : '')}
+                      disabled={role === 'ASSISTANT' && !!selectedPayment}
+                      className="w-full px-2 sm:px-3 py-2 bg-slate-50 border border-slate-200 focus:bg-white rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-500/10 outline-none text-right font-bold transition disabled:opacity-60 disabled:cursor-not-allowed"
+                      required
+                    />
+                  </div>
+
+                  {/* 3. رقم الإيصال */}
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-500 block truncate">
+                      رقم الإيصال
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="مثال: 4501"
+                      value={receiptNumber}
+                      onChange={(e) => setReceiptNumber(e.target.value)}
+                      disabled={role === 'ASSISTANT' && !!selectedPayment}
+                      className="w-full px-2 sm:px-3 py-2 bg-slate-50 border border-slate-200 focus:bg-white rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-500/10 outline-none text-right font-bold transition disabled:opacity-60 disabled:cursor-not-allowed"
+                    />
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-500">المبلغ المستلم بالجنيه <span className="text-red-500">*</span></label>
+                    <input
+                      type="number"
+                      placeholder="مثال: 200"
+                      value={amount === '' || isNaN(Number(amount)) ? '' : amount}
+                      onChange={(e) => setAmount(e.target.value !== '' ? Number(e.target.value) : '')}
+                      disabled={role === 'ASSISTANT' && !!selectedPayment}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 focus:bg-white rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-500/10 outline-none text-right font-bold transition disabled:opacity-60 disabled:cursor-not-allowed"
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-500">رقم الإيصال</label>
+                    <input
+                      type="text"
+                      placeholder="مثال: 4501"
+                      value={receiptNumber}
+                      onChange={(e) => setReceiptNumber(e.target.value)}
+                      disabled={role === 'ASSISTANT' && !!selectedPayment}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 focus:bg-white rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-500/10 outline-none text-right font-bold transition disabled:opacity-60 disabled:cursor-not-allowed"
+                    />
+                  </div>
+                </div>
+              )}
 
               {/* 3 Buttons for Payment/Receipt Status */}
               <div className="space-y-1">

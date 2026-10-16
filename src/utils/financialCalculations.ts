@@ -1,4 +1,4 @@
-import { Resident, Payment, Expense, AppConfig } from '../types';
+import { Resident, Payment, Expense, AppConfig, ActivityFeePeriod } from '../types';
 import { 
   isSameFlatNumber, 
   parseFlatNumber,
@@ -8,26 +8,29 @@ import {
   parseToStandardDate,
   isPeriodMatchingTarget
 } from './buildingStructure';
+import { findMatchingActivityFeePeriod } from './periodUtils';
 
 /**
  * Determines the effective monthly fee for a resident (optionally for a specific historical date/period)
  * Hierarchy:
  * 1. Month-specific collection payment (if a payment exists for this unit in that month, its amount is the prescribed fee)
- * 2. Unit-specific fee if manually set in the units table (resident.monthlyFee)
- * 3. Default fee for the activity from Settings tab (config.activityDefaultFees or defaultMonthlyFee)
+ * 2. Activity fee defined for the period covering targetDateOrPeriod (ActivityFeePeriod)
+ * 3. Unit-specific fee if manually set in the units table (resident.monthlyFee)
+ * 4. Default fee for the activity from Settings tab (config.activityDefaultFees or defaultMonthlyFee)
  */
 export function getResidentMonthlyFee(
   resident: Resident,
   defaultMonthlyFee: number = 400,
   activityDefaultFees?: Record<string, number>,
   targetDateOrPeriod?: string | number,
-  payments?: Payment[] | PaymentLookupIndex
+  payments?: Payment[] | PaymentLookupIndex,
+  activityFeePeriods?: ActivityFeePeriod[]
 ): number {
   if (!resident) return defaultMonthlyFee || 400;
 
   // 1. If activity history is present on resident, determine fee from possession/activity history for target date/period
   if (resident.activityHistory && resident.activityHistory.length > 0) {
-    const act = getHistoricalActivityForDate(resident, targetDateOrPeriod, defaultMonthlyFee, activityDefaultFees);
+    const act = getHistoricalActivityForDate(resident, targetDateOrPeriod, defaultMonthlyFee, activityDefaultFees, activityFeePeriods);
     if (act && act.monthlyFee !== undefined && !isNaN(act.monthlyFee) && act.monthlyFee >= 0) {
       return act.monthlyFee;
     }
@@ -54,21 +57,34 @@ export function getResidentMonthlyFee(
     }
   }
 
-  // 3. Otherwise if manually changed in the fees column in the units table
-  if (resident.monthlyFee !== undefined && !isNaN(resident.monthlyFee) && resident.monthlyFee > 0) {
+  // 3. If an activityFeePeriod matches targetDateOrPeriod, apply the period's fee for this resident's activity
+  const cleanAct = (resident.activityType || 'سكني').trim();
+  if (cleanAct === 'بدون تشطيب' || cleanAct === 'بدون تحصيل' || cleanAct.includes('بدون تشطيب') || cleanAct.includes('بدون تحصيل')) {
+    return 0;
+  }
+  if (targetDateOrPeriod && activityFeePeriods && activityFeePeriods.length > 0) {
+    const matched = findMatchingActivityFeePeriod(targetDateOrPeriod, activityFeePeriods);
+    if (matched && matched.fees && matched.fees[cleanAct] !== undefined) {
+      return matched.fees[cleanAct];
+    }
+  }
+
+  // 4. Otherwise if manually changed in the fees column in the units table (and no activity periods defined)
+  if (resident.monthlyFee !== undefined && !isNaN(resident.monthlyFee) && resident.monthlyFee > 0 && (!activityFeePeriods || activityFeePeriods.length === 0)) {
     return resident.monthlyFee;
   }
 
-  // 4. Default fee for activity from Settings
-  return getDefaultFeeForActivity(resident.activityType, defaultMonthlyFee, activityDefaultFees);
+  // 5. Default fee for activity from Settings
+  return getDefaultFeeForActivity(resident.activityType, defaultMonthlyFee, activityDefaultFees, targetDateOrPeriod, activityFeePeriods);
 }
 
 /**
  * Resolves the prescribed monthly subscription fee and activity type for a resident for a specific year and month:
  * Priority Rules (User Rule):
  * 1. Historical Activity Record for this month (if an explicit matching record exists in activityHistory for this month/period).
- * 2. Monthly subscription fee specified in the recorded unpaid/pending subscription payment for this month (if one exists).
- * 3. Monthly subscription fee specified for the unit in the units table (resident.monthlyFee if > 0) or default activity fee.
+ * 2. Activity Fee Period (ActivityFeePeriod) defined in settings covering this year and month.
+ * 3. Monthly subscription fee specified for the unit in the units table (resident.monthlyFee if > 0).
+ * 4. Default activity fee from Settings.
  */
 export function getPrescribedFeeForMonth(
   resident: Resident,
@@ -76,7 +92,8 @@ export function getPrescribedFeeForMonth(
   month: number,
   allResidentPayments: Payment[] = [],
   defaultMonthlyFee: number = 400,
-  activityDefaultFees?: Record<string, number>
+  activityDefaultFees?: Record<string, number>,
+  activityFeePeriods?: ActivityFeePeriod[]
 ): { monthlyFee: number; activityType: string } {
   if (!resident) {
     return { monthlyFee: defaultMonthlyFee || 400, activityType: 'سكني' };
@@ -97,22 +114,35 @@ export function getPrescribedFeeForMonth(
         const actType = explicitMatch.activityType.trim();
         const fee = (explicitMatch.monthlyFee !== undefined && !isNaN(explicitMatch.monthlyFee) && explicitMatch.monthlyFee >= 0)
           ? explicitMatch.monthlyFee
-          : getDefaultFeeForActivity(actType, defaultMonthlyFee, activityDefaultFees);
+          : getDefaultFeeForActivity(actType, defaultMonthlyFee, activityDefaultFees, periodStr, activityFeePeriods);
         return { monthlyFee: fee, activityType: actType };
       }
     }
   }
 
-  // 2. طبقاً للقيمة الواردة في كشف الوحدات للوحدة
-  if (resident.monthlyFee !== undefined && !isNaN(resident.monthlyFee) && resident.monthlyFee > 0) {
+  // 2. طبقاً لفترة تسعير النشاط (ActivityFeePeriod) المحددة لهذا الشهر
+  const cleanAct = (resident.activityType || 'سكني').trim();
+  if (cleanAct === 'بدون تشطيب' || cleanAct === 'بدون تحصيل' || cleanAct.includes('بدون تشطيب') || cleanAct.includes('بدون تحصيل')) {
+    return { monthlyFee: 0, activityType: cleanAct };
+  }
+
+  if (activityFeePeriods && activityFeePeriods.length > 0) {
+    const matched = findMatchingActivityFeePeriod(periodStr, activityFeePeriods);
+    if (matched && matched.fees && matched.fees[cleanAct] !== undefined) {
+      return { monthlyFee: matched.fees[cleanAct], activityType: cleanAct };
+    }
+  }
+
+  // 3. طبقاً للقيمة الواردة في كشف الوحدات للوحدة (في حال عدم وجود فترة تسعير محددة لهذا الشهر)
+  if (resident.monthlyFee !== undefined && !isNaN(resident.monthlyFee) && resident.monthlyFee > 0 && (!activityFeePeriods || activityFeePeriods.length === 0)) {
     return {
       monthlyFee: resident.monthlyFee,
       activityType: resident.activityType || 'سكني',
     };
   }
 
-  // 3. القيمة الافتراضية للنشاط من الإعدادات
-  const hist = getHistoricalActivityForDate(resident, periodStr, defaultMonthlyFee, activityDefaultFees);
+  // 4. القيمة الافتراضية للنشاط من الإعدادات
+  const hist = getHistoricalActivityForDate(resident, periodStr, defaultMonthlyFee, activityDefaultFees, activityFeePeriods);
   return {
     monthlyFee: hist.monthlyFee,
     activityType: hist.activityType || resident.activityType || 'سكني',
@@ -487,7 +517,8 @@ export function getCarriedPreviousBalance(
   paymentsOrIndex: Payment[] | PaymentLookupIndex = [],
   accountingStartDate: string = '2026-01-01',
   defaultMonthlyFee: number = 400,
-  activityDefaultFees?: Record<string, number>
+  activityDefaultFees?: Record<string, number>,
+  activityFeePeriods?: ActivityFeePeriod[]
 ): number {
   const start = new Date(accountingStartDate || '2026-01-01');
   const startYear = isNaN(start.getFullYear()) ? 2026 : start.getFullYear();
@@ -497,7 +528,7 @@ export function getCarriedPreviousBalance(
     return resident.initialBalance || 0;
   }
 
-  const fee = getResidentMonthlyFee(resident, defaultMonthlyFee, activityDefaultFees);
+  const fee = getResidentMonthlyFee(resident, defaultMonthlyFee, activityDefaultFees, undefined, undefined, activityFeePeriods);
 
   // Calculate elapsed months from accountingStartDate up to the end of (targetYear - 1)
   // End date is December of targetYear - 1
@@ -505,13 +536,12 @@ export function getCarriedPreviousBalance(
   const elapsedMonthsPrior = (yearsDiff * 12) + (12 - startMonth);
   let duesPrior = 0;
 
-  if (resident.activityHistory && resident.activityHistory.length > 0) {
+  if ((resident.activityHistory && resident.activityHistory.length > 0) || (activityFeePeriods && activityFeePeriods.length > 0)) {
     for (let y = startYear; y < targetYear; y++) {
       const mStart = (y === startYear) ? startMonth + 1 : 1;
       for (let m = mStart; m <= 12; m++) {
-        const mStr = String(m).padStart(2, '0');
-        const monthFee = getResidentMonthlyFee(resident, defaultMonthlyFee, activityDefaultFees, `${y}-${mStr}`, paymentsOrIndex);
-        duesPrior += monthFee;
+        const prescribed = getPrescribedFeeForMonth(resident, y, m, [], defaultMonthlyFee, activityDefaultFees, activityFeePeriods);
+        duesPrior += prescribed.monthlyFee;
       }
     }
   } else {
@@ -553,9 +583,11 @@ export function calculateResidentFinancials(
   accountingStartDate: string = '2026-01-01',
   defaultMonthlyFee: number = 400,
   activityDefaultFees?: Record<string, number>,
-  targetYear?: number
+  targetYear?: number,
+  accountingEndDate?: string,
+  activityFeePeriods?: ActivityFeePeriod[]
 ) {
-  const fee = getResidentMonthlyFee(resident, defaultMonthlyFee, activityDefaultFees);
+  const fee = getResidentMonthlyFee(resident, defaultMonthlyFee, activityDefaultFees, undefined, undefined, activityFeePeriods);
   const allResidentPayments = getPaymentsForResident(resident, paymentsOrIndex);
 
   const validPayments = allResidentPayments.filter(isValidPaidPayment);
@@ -569,7 +601,8 @@ export function calculateResidentFinancials(
       paymentsOrIndex,
       accountingStartDate,
       defaultMonthlyFee,
-      activityDefaultFees
+      activityDefaultFees,
+      activityFeePeriods
     );
 
     const now = new Date();
@@ -590,6 +623,17 @@ export function calculateResidentFinancials(
       loopEndMonth = currentCalendarMonth + 1; // 1-indexed
     } else if (targetYear > currentCalendarYear) {
       loopEndMonth = 0;
+    }
+
+    if (accountingEndDate) {
+      const end = new Date(accountingEndDate);
+      const endYear = !isNaN(end.getFullYear()) ? end.getFullYear() : 9999;
+      const endMonth = !isNaN(end.getMonth()) ? end.getMonth() : 11;
+      if (targetYear === endYear) {
+        loopEndMonth = Math.min(loopEndMonth, endMonth + 1);
+      } else if (targetYear > endYear) {
+        loopEndMonth = 0;
+      }
     }
 
     const monthsInYear = Math.max(0, loopEndMonth - loopStartMonth + 1);
@@ -639,7 +683,7 @@ export function calculateResidentFinancials(
 
     for (let m = loopStartMonth; m <= loopEndMonth; m++) {
       const mStr = String(m).padStart(2, '0');
-      const hist = getHistoricalActivityForDate(resident, `${targetYear}-${mStr}`, defaultMonthlyFee, activityDefaultFees);
+      const hist = getHistoricalActivityForDate(resident, `${targetYear}-${mStr}`, defaultMonthlyFee, activityDefaultFees, activityFeePeriods);
       const isExempt = Boolean(
         hist.activityType === 'بدون تشطيب' ||
         hist.activityType === 'بدون تحصيل' ||
@@ -655,8 +699,8 @@ export function calculateResidentFinancials(
       const monthValidSubs = validSubsPaymentsInYear.filter(p => isPaymentForYearAndMonth(p, targetYear, m));
       const monthPendingSubs = pendingPaymentsInYear.filter(p => isMonthlySubscriptionType(p.paymentType) && isPaymentForYearAndMonth(p, targetYear, m));
 
-      // Prescribed monthly fee for this unit in this month using 3-step priority logic
-      const prescribed = getPrescribedFeeForMonth(resident, targetYear, m, allResidentPayments, defaultMonthlyFee, activityDefaultFees);
+      // Prescribed monthly fee for this unit in this month using priority logic (period fee, history, or default)
+      const prescribed = getPrescribedFeeForMonth(resident, targetYear, m, allResidentPayments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods);
       let mFee = prescribed.monthlyFee;
 
       if (mFee <= 0) continue;
@@ -733,8 +777,16 @@ export function calculateResidentFinancials(
   const now = new Date();
   const startYear = isNaN(start.getFullYear()) ? 2026 : start.getFullYear();
   const startMonth = isNaN(start.getMonth()) ? 0 : start.getMonth(); // 0-indexed
-  const currY = now.getFullYear();
-  const currM = now.getMonth(); // 0-indexed
+  let currY = now.getFullYear();
+  let currM = now.getMonth(); // 0-indexed
+
+  if (accountingEndDate) {
+    const end = new Date(accountingEndDate);
+    if (!isNaN(end.getFullYear()) && !isNaN(end.getMonth())) {
+      currY = end.getFullYear();
+      currM = end.getMonth();
+    }
+  }
 
   interface CumulativeMonthInfo {
     year: number;
@@ -756,7 +808,7 @@ export function calculateResidentFinancials(
   while (y < currY || (y === currY && m <= currM + 1)) {
     totalCalendarMonthsElapsed++;
     const mStr = String(m).padStart(2, '0');
-    const hist = getHistoricalActivityForDate(resident, `${y}-${mStr}`, defaultMonthlyFee, activityDefaultFees);
+    const hist = getHistoricalActivityForDate(resident, `${y}-${mStr}`, defaultMonthlyFee, activityDefaultFees, activityFeePeriods);
     const isExempt = Boolean(
       hist.activityType === 'بدون تشطيب' ||
       hist.activityType === 'بدون تحصيل' ||
@@ -769,7 +821,7 @@ export function calculateResidentFinancials(
       const monthPendingSubs = pendingPayments.filter(p => isMonthlySubscriptionType(p.paymentType) && isPaymentForYearAndMonth(p, y, m));
 
       const monthAllPayments = validPayments.concat(pendingPayments);
-      const prescribed = getPrescribedFeeForMonth(resident, y, m, monthAllPayments, defaultMonthlyFee, activityDefaultFees);
+      const prescribed = getPrescribedFeeForMonth(resident, y, m, monthAllPayments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods);
       let mFee = prescribed.monthlyFee;
 
       if (mFee > 0) {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AppConfig, UserRole } from '../types';
+import { AppConfig, UserRole, Payment, Expense, Resident } from '../types';
 import { Settings, Shield, Calendar, Cloud } from 'lucide-react';
 import { getActiveBuilding, getAllBuildings } from '../services/buildingStore';
 import { SettingsGeneralSection } from './settings/SettingsGeneralSection';
@@ -20,6 +20,9 @@ interface SettingsTabProps {
   isDarkMode?: boolean;
   onToggleTheme?: (isDark: boolean) => void;
   onRefreshAllData?: () => void;
+  payments?: Payment[];
+  expenses?: Expense[];
+  residents?: Resident[];
 }
 
 export const SettingsTab: React.FC<SettingsTabProps> = ({
@@ -35,6 +38,9 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   isDarkMode = false,
   onToggleTheme,
   onRefreshAllData,
+  payments = [],
+  expenses = [],
+  residents = [],
 }) => {
   const isAdmin = role === 'ADMIN';
 
@@ -224,6 +230,10 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
           savedSuccess={savedSuccess}
           handleSaveAccountingSettings={handleSaveAccountingSettings}
           getElapsedMonths={getElapsedMonths}
+          payments={payments}
+          expenses={expenses}
+          residents={residents}
+          onSaveConfig={onSaveConfig}
         />
       )}
 

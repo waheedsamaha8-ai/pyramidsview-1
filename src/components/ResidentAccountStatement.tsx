@@ -5,6 +5,7 @@ import { Resident, Payment, AppConfig, FloorConfig } from '../types';
 import { calculateResidentFinancials, getCarriedPreviousBalance, isMonthlySubscriptionType, getPrescribedFeeForMonth, isValidPaidPayment, isPendingUnpaidPayment, isPaymentForYearAndMonth, parsePaymentYear, parsePaymentMonth } from '../utils/financialCalculations';
 import { compareFlatNumbers, isSameFlatNumber, deriveFloorConfigsFromResidents, getUnitNumbersForFloor, getLatestOccupantFromHistory, getHistoricalActivityForDate, formatResidentOptionLabel } from '../utils/buildingStructure';
 import { formatMobileNumber, formatPhoneForDisplay, toWhatsAppNumber } from '../utils/phoneUtils';
+import { getActiveAccountingPeriod, parseYearMonth, formatPeriodDateRange } from '../utils/periodUtils';
 import { 
   FileText, 
   CheckCircle2, 
@@ -215,27 +216,37 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
     return groups;
   }, [floorConfigs, config?.buildingLayout, residents]);
 
+  const activePeriod = useMemo(() => getActiveAccountingPeriod(config), [config]);
   const accountingStartDate = config?.accountingStartDate || '2026-01-01';
   const defaultMonthlyFee = config?.defaultMonthlyFee || 400;
   const activityDefaultFees = config?.activityDefaultFees;
+  const activityFeePeriods = config?.activityFeePeriods;
+
+  const effectiveStartDate = activePeriod ? activePeriod.startDate : accountingStartDate;
+  const effectiveEndDate = activePeriod ? activePeriod.endDate : undefined;
 
   const startYear = useMemo(() => {
-    const s = new Date(accountingStartDate);
+    const s = new Date(effectiveStartDate);
     return isNaN(s.getFullYear()) ? 2026 : s.getFullYear();
-  }, [accountingStartDate]);
+  }, [effectiveStartDate]);
 
   // Compute carried forward previous balance automatically for multi-year accounting continuity
   const effectiveCarriedBalance = useMemo(() => {
     if (!activeResident) return 0;
+    if (activePeriod) {
+      // In active period mode, outside previous debt is not mixed into this period
+      return 0;
+    }
     return getCarriedPreviousBalance(
       activeResident,
       currentYear,
       payments,
       accountingStartDate,
       defaultMonthlyFee,
-      activityDefaultFees
+      activityDefaultFees,
+      activityFeePeriods
     );
-  }, [activeResident, currentYear, payments, accountingStartDate, defaultMonthlyFee, activityDefaultFees]);
+  }, [activeResident, currentYear, payments, accountingStartDate, defaultMonthlyFee, activityDefaultFees, activityFeePeriods, activePeriod]);
 
   // Calculate high-level financials matching Debts page logic & synchronized with monthsTimeline
   const rawFinancials = useMemo(() => {
@@ -263,12 +274,14 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
     return calculateResidentFinancials(
       activeResident,
       payments,
-      accountingStartDate,
+      effectiveStartDate,
       defaultMonthlyFee,
       activityDefaultFees,
-      currentYear
+      undefined,
+      effectiveEndDate,
+      activityFeePeriods
     );
-  }, [activeResident, payments, accountingStartDate, defaultMonthlyFee, activityDefaultFees, currentYear]);
+  }, [activeResident, payments, effectiveStartDate, effectiveEndDate, defaultMonthlyFee, activityDefaultFees, activityFeePeriods]);
 
   // All payments belonging to this unit (excluding zero-value distribution payments, ordered Jan to Dec)
   const unitPayments = useMemo(() => {
@@ -372,17 +385,35 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
     return groups;
   }, [activeResident, unitPayments, currentYear, defaultMonthlyFee, activityDefaultFees]);
 
-  // Generate detailed breakdown of all months from accounting start date up to current date
+  // Generate detailed breakdown of all months from accounting start date up to current date (or strictly scoped to active accounting period)
   const monthsTimeline = useMemo(() => {
     if (!activeResident) return [];
 
-    let start = new Date(accountingStartDate);
-    if (isNaN(start.getTime())) {
-      start = new Date(currentYear, 0, 1);
+    let startYear: number;
+    let startMonth: number; // 0-indexed
+    let endYear: number;
+    let endMonth: number; // 0-indexed
+
+    if (activePeriod) {
+      const s = parseYearMonth(activePeriod.startDate) || { year: 2022, month: 1 };
+      const e = parseYearMonth(activePeriod.endDate) || { year: 2023, month: 12 };
+      startYear = s.year;
+      startMonth = s.month - 1;
+      endYear = e.year;
+      endMonth = e.month - 1;
+    } else {
+      let start = new Date(accountingStartDate);
+      if (isNaN(start.getTime())) {
+        start = new Date(currentYear, 0, 1);
+      }
+      const now = new Date();
+      startYear = start.getFullYear();
+      startMonth = start.getMonth();
+      endYear = now.getFullYear();
+      endMonth = now.getMonth();
     }
-    const now = new Date();
     
-    // We iterate from start month to current month
+    // We iterate from start month to end month
     const timeline: Array<{
       monthNum: number;
       monthStr: string;
@@ -396,15 +427,10 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
       isFuture: boolean;
     }> = [];
 
-    const startYear = start.getFullYear();
-    const startMonth = start.getMonth(); // 0-indexed
-    const currentY = now.getFullYear();
-    const currentM = now.getMonth(); // 0-indexed
-
     let y = startYear;
     let m = startMonth;
 
-    while (y < currentY || (y === currentY && m <= currentM)) {
+    while (y < endYear || (y === endYear && m <= endMonth)) {
       const monthNum = m + 1;
       const monthStr = String(monthNum).padStart(2, '0');
       const monthLabel = `${monthNamesArabic[m]} ${y}`;
@@ -421,7 +447,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
       const pendingSubsMatching = matchingSubPayments.filter(isPendingUnpaidPayment);
 
       const paidSubAmount = validPaidSubsMatching.reduce((sum, p) => sum + (p.amount || 0), 0);
-      const prescribed = getPrescribedFeeForMonth(activeResident, y, monthNum, unitPayments, defaultMonthlyFee, activityDefaultFees);
+      const prescribed = getPrescribedFeeForMonth(activeResident, y, monthNum, unitPayments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods);
       const effectiveFee = prescribed.monthlyFee;
       const effectiveActivityType = prescribed.activityType;
       const hasValidPaidPayment = validPaidSubsMatching.some(p => ((p.amount || 0) > 0 || p.isManuallyPaid));
@@ -449,7 +475,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
     }
 
     return timeline;
-  }, [activeResident, accountingStartDate, currentYear, unitPayments, defaultMonthlyFee, activityDefaultFees]);
+  }, [activeResident, activePeriod, accountingStartDate, currentYear, unitPayments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods]);
 
   const paidMonthsList = useMemo(() => monthsTimeline.filter(m => m.isPaid), [monthsTimeline]);
   const unpaidMonthsList = useMemo(() => monthsTimeline.filter(m => !m.isPaid && !m.isFuture), [monthsTimeline]);
@@ -1119,12 +1145,21 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
         {/* Section: Months Breakdown (الشهور المسددة وغير المسددة) */}
         <div className="space-y-3 pt-2 w-full">
           <div>
-            <h3 className="text-sm sm:text-base font-black text-slate-950 flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-blue-900" />
-              <span>كشف الشهور تفصيلياً (الشهور المسددة وغير المسددة)</span>
-            </h3>
-            <p className="text-[11px] text-slate-400 font-semibold mt-0.5">
-              متابعة حالة كل شهر من تاريخ بدء المحاسبة حتى الشهر الحالي
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <h3 className="text-sm sm:text-base font-black text-slate-950 flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-blue-900" />
+                <span>كشف الشهور تفصيلياً (الشهور المسددة وغير المسددة)</span>
+              </h3>
+              {activePeriod && (
+                <span className="px-2.5 py-0.5 bg-blue-50 border border-blue-200 text-blue-900 text-[11px] font-black rounded-lg">
+                  فترة: {activePeriod.name} ({formatPeriodDateRange(activePeriod.startDate, activePeriod.endDate)})
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-500 font-semibold mt-0.5">
+              {activePeriod
+                ? `متابعة حالة كل شهر للفترة المحاسبية النشطة (${formatPeriodDateRange(activePeriod.startDate, activePeriod.endDate)})`
+                : 'متابعة حالة كل شهر من تاريخ بدء المحاسبة حتى الشهر الحالي'}
             </p>
           </div>
 

@@ -36,7 +36,6 @@ const columnLabels: Record<string, string> = {
   ownerName: "المالك / المستأجر",
   ownerPhone: "أرقام التليفون",
   monthlyFee: "الرسوم الشهرية",
-  balance: "الرصيد / المديونية",
   activityType: "نوع النشاط",
   notes: "ملاحظات",
   actions: "الإجراءات",
@@ -63,7 +62,6 @@ const DEFAULT_VISIBLE_COLUMNS: Record<string, boolean> = {
   ownerName: true,
   ownerPhone: true,
   monthlyFee: true,
-  balance: true,
   activityType: true,
   notes: true,
   actions: true,
@@ -555,25 +553,6 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                               <span className="text-slate-500 font-bold">الرسوم الشهرية:</span>
                               <span className="font-black text-slate-800">{fin.monthlyFee.toLocaleString()} ج.م</span>
                             </div>
-
-                            <div className="flex items-center justify-between text-[10px] pt-1 border-t border-slate-200/60">
-                              <span className="text-slate-600 font-black">الرصيد المحاسبي:</span>
-                              {isDebt ? (
-                                <span className="inline-flex items-center gap-0.5 px-2 py-0.5 bg-rose-50 text-rose-600 border border-rose-200 rounded-md font-black text-[11px]" dir="ltr">
-                                  <ArrowDownRight className="w-3 h-3" />
-                                  <span>-{Math.abs(fin.netBalance).toLocaleString()} ج.م</span>
-                                </span>
-                              ) : isSurplus ? (
-                                <span className="inline-flex items-center gap-0.5 px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md font-black text-[11px]" dir="ltr">
-                                  <ArrowUpRight className="w-3 h-3" />
-                                  <span>+{fin.netBalance.toLocaleString()} ج.م</span>
-                                </span>
-                              ) : (
-                                <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md font-black text-[11px]">
-                                  0 ج.م (مسدد)
-                                </span>
-                              )}
-                            </div>
                           </div>
 
                           {res.notes && !res.notes.includes('توليد تلقائي') && (
@@ -645,9 +624,6 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                       )}
                       {visibleColumns.monthlyFee && (
                         <th className="w-16 sm:w-20 px-1 py-1.5 text-center whitespace-nowrap">الرسوم</th>
-                      )}
-                      {visibleColumns.balance && (
-                        <th className="w-20 sm:w-24 px-1 py-1.5 text-center whitespace-nowrap">الرصيد / المديونية</th>
                       )}
                       {visibleColumns.activityType && (
                         <th className="w-16 sm:w-18 px-1 py-1.5 text-center whitespace-nowrap">النشاط</th>
@@ -853,27 +829,6 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                                 <span className="px-1.5 py-0.2 bg-slate-100 text-slate-800 rounded font-black text-[10.5px]">
                                   {fin.monthlyFee.toLocaleString()} ج.م
                                 </span>
-                              </td>
-                            )}
-
-                            {/* Balance */}
-                            {visibleColumns.balance && (
-                              <td className="w-20 sm:w-24 px-1 py-1.5 text-center whitespace-nowrap" title={`محسوب لعدد ${fin.monthsElapsed} شهر: مستحق ${fin.expectedDues.toLocaleString()} ج.م | مسدد ${fin.totalPaid.toLocaleString()} ج.م`}>
-                                {isDebt ? (
-                                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-rose-50 text-rose-600 border border-rose-200 rounded font-black text-[10px]" dir="ltr">
-                                    <ArrowDownRight className="w-3 h-3" />
-                                    <span>-{Math.abs(fin.netBalance).toLocaleString()} ج.م</span>
-                                  </span>
-                                ) : isSurplus ? (
-                                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded font-black text-[10px]" dir="ltr">
-                                    <ArrowUpRight className="w-3 h-3" />
-                                    <span>+{fin.netBalance.toLocaleString()} ج.م</span>
-                                  </span>
-                                ) : (
-                                  <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded font-black text-[10px]">
-                                    0 ج.م
-                                  </span>
-                                )}
                               </td>
                             )}
 
