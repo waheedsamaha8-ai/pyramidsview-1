@@ -138,7 +138,7 @@ const ReceiptClaimModalContent: React.FC<{
   const occupancyType = data.occupancyType || residentRecord?.ownershipType || 'تمليك';
   const targetPeriodStr = `${data.year}-${String(data.month).padStart(2, '0')}`;
   const histActForClaim = residentRecord 
-    ? getHistoricalActivityForDate(residentRecord, targetPeriodStr, config?.defaultMonthlyFee, config?.activityDefaultFees)
+    ? getHistoricalActivityForDate(residentRecord, targetPeriodStr, config?.defaultMonthlyFee, config?.activityDefaultFees, config?.activityFeePeriods)
     : null;
 
   const displayMonthlyFee = (data.claimBreakdown?.currentMonthFee !== undefined && data.claimBreakdown.currentMonthFee > 0)

@@ -3119,44 +3119,7 @@ export default function App() {
 
 
 
-        {/* Active Accounting Period Filter Banner */}
-        {activeAccountingPeriod && (
-          <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-blue-950 text-white p-3 sm:p-3.5 rounded-2xl shadow-sm border border-blue-700/60 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-fade-in" dir="rtl">
-            <div className="flex items-center gap-2.5 flex-wrap">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
-              <span className="text-xs font-bold text-blue-200">الفترة المحاسبية النشطة:</span>
-              <span className="px-2.5 py-0.5 bg-white/20 text-white rounded-lg text-xs font-black">
-                {activeAccountingPeriod.name}
-              </span>
-              <span className="text-xs text-blue-100 font-bold bg-white/10 border border-white/20 px-2.5 py-0.5 rounded-md">
-                {formatPeriodDateRange(activeAccountingPeriod.startDate, activeAccountingPeriod.endDate)}
-              </span>
-              <span className="text-[11px] font-bold text-amber-300">
-                (تصفية نشطة: يعرض التطبيق حالياً بيانات وتحصيلات ومصروفات ومديونيات هذه الفترة فقط ويخفي الفترات الأخرى)
-              </span>
-            </div>
 
-            <div className="flex items-center gap-2 self-end sm:self-auto flex-wrap">
-              <button
-                type="button"
-                onClick={() => {
-                  handleSaveAppConfig({ ...config, activePeriodId: 'ALL' });
-                }}
-                className="px-3 py-1 bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-xl text-xs font-black transition cursor-pointer"
-                title="إلغاء حصر البيانات وعرض كافة الفترات"
-              >
-                إلغاء التقييد (عرض الكل)
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('settings')}
-                className="px-3 py-1 bg-amber-400 hover:bg-amber-300 text-slate-950 rounded-xl text-xs font-black transition cursor-pointer shadow-xs"
-              >
-                إدارة الفترات والختامي
-              </button>
-            </div>
-          </div>
-        )}
 
         {/* Dashboard Tab */}
         {activeTab === 'dashboard' && (
@@ -3210,6 +3173,7 @@ export default function App() {
             onDelete={deleteResident}
             floorConfigs={buildingLayout}
             onSetFloorConfigs={updateBuildingLayout}
+            onUpdateConfig={(newConfig) => setConfig(newConfig)}
           />
         )}
 

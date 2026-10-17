@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Resident, UserRole, FloorConfig, Payment, AppConfig, JoinRequest } from '../types';
-import { Search, Phone, Edit, Trash2, Home, AlertCircle, LayoutGrid, List, Settings2, Plus, X, Building2, Save, User, KeyRound, Wallet, ArrowDownRight, ArrowUpRight, CheckCircle2, UserCheck, UserX, Clock, Share2, RefreshCw, ShieldCheck, SlidersHorizontal, Contact, History } from 'lucide-react';
+import { Resident, UserRole, FloorConfig, Payment, AppConfig, JoinRequest, CustomUnitFeePeriod } from '../types';
+import { Search, Phone, Edit, Trash2, Home, AlertCircle, LayoutGrid, List, Settings2, Plus, X, Building2, Save, User, KeyRound, Wallet, ArrowDownRight, ArrowUpRight, CheckCircle2, UserCheck, UserX, Clock, Share2, RefreshCw, ShieldCheck, SlidersHorizontal, Contact, History, DollarSign } from 'lucide-react';
 import { deriveFloorConfigsFromResidents, floorTypeLabels, getFloorName, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber, parseFlatNumber, getLatestOccupantFromHistory, getLatestActivityFromHistory } from '../utils/buildingStructure';
 import * as googleApi from '../services/googleApi';
 import { 
@@ -55,6 +55,7 @@ interface ResidentsListProps {
   onDelete: (id: string) => void;
   floorConfigs: FloorConfig[];
   onSetFloorConfigs: (configs: FloorConfig[]) => void;
+  onUpdateConfig?: (newConfig: AppConfig) => void;
 }
 
 const DEFAULT_VISIBLE_COLUMNS: Record<string, boolean> = {
@@ -81,6 +82,7 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
   onDelete,
   floorConfigs,
   onSetFloorConfigs,
+  onUpdateConfig,
 }) => {
   const [showModal, setShowModal] = useState(false);
   const [showConfigModal, setShowConfigModal] = useState(false);
@@ -121,12 +123,180 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
     floorToDeleteLabel?: string;
   } | null>(null);
 
-  const [subTab, setSubTab] = useState<'residents' | 'join-requests'>('residents');
+  const [subTab, setSubTab] = useState<'residents' | 'join-requests' | 'unit-subscriptions'>('residents');
   const [requestToDecline, setRequestToDecline] = useState<JoinRequest | null>(null);
   const [requestToDelete, setRequestToDelete] = useState<JoinRequest | null>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [inviteResidentTarget, setInviteResidentTarget] = useState<Resident | null>(null);
   const [historyModalResident, setHistoryModalResident] = useState<Resident | null>(null);
+
+  const [showPeriodModal, setShowPeriodModal] = useState(false);
+  const [editingPeriodId, setEditingPeriodId] = useState<string | null>(null);
+  const [periodFormTitle, setPeriodFormTitle] = useState('');
+  const [periodFormIsCurrent, setPeriodFormIsCurrent] = useState(false);
+  const [periodFormStartYear, setPeriodFormStartYear] = useState<number>(new Date().getFullYear());
+  const [periodFormStartMonth, setPeriodFormStartMonth] = useState<number>(1);
+  const [periodFormEndYear, setPeriodFormEndYear] = useState<number>(new Date().getFullYear());
+  const [periodFormEndMonth, setPeriodFormEndMonth] = useState<number>(12);
+
+  const monthNamesArabic = ['يناير', 'فبراير', 'مارس', 'إبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+
+  // Ensure there is always a 'الحالي' period column
+  const effectiveCustomFeePeriods: CustomUnitFeePeriod[] = useMemo(() => {
+    const raw = config?.customUnitFeePeriods;
+    if (!raw || raw.length === 0) {
+      const initialFees: Record<string, number> = {};
+      residents.forEach(r => {
+        if (r.monthlyFee !== undefined && !isNaN(r.monthlyFee) && r.monthlyFee > 0) {
+          initialFees[String(r.flatNumber)] = r.monthlyFee;
+        }
+      });
+      return [{
+        id: 'current_period',
+        title: 'الحالي',
+        startYear: 2026,
+        startMonth: 1,
+        isCurrent: true,
+        unitFees: initialFees,
+      }];
+    }
+    const hasCurrent = raw.some(p => p.isCurrent || p.title === 'الحالي');
+    if (!hasCurrent) {
+      return raw.map((p, idx) => idx === 0 ? { ...p, isCurrent: true, title: p.title || 'الحالي' } : p);
+    }
+    return raw;
+  }, [config?.customUnitFeePeriods, residents]);
+
+  const handleOpenAddPeriod = () => {
+    setEditingPeriodId(null);
+    setPeriodFormTitle('فترة تسعير جديدة');
+    setPeriodFormIsCurrent(false);
+    setPeriodFormStartYear(new Date().getFullYear());
+    setPeriodFormStartMonth(1);
+    setPeriodFormEndYear(new Date().getFullYear());
+    setPeriodFormEndMonth(12);
+    setShowPeriodModal(true);
+  };
+
+  const handleOpenEditPeriod = (period: CustomUnitFeePeriod) => {
+    setEditingPeriodId(period.id);
+    setPeriodFormTitle(period.title);
+    setPeriodFormIsCurrent(Boolean(period.isCurrent || period.title === 'الحالي'));
+    setPeriodFormStartYear(period.startYear || new Date().getFullYear());
+    setPeriodFormStartMonth(period.startMonth || 1);
+    setPeriodFormEndYear(period.endYear || new Date().getFullYear());
+    setPeriodFormEndMonth(period.endMonth || 12);
+    setShowPeriodModal(true);
+  };
+
+  const handleSaveCustomPeriod = () => {
+    if (!periodFormTitle.trim()) return;
+    const currentPeriods = effectiveCustomFeePeriods;
+    let updatedPeriods: CustomUnitFeePeriod[];
+
+    if (editingPeriodId) {
+      updatedPeriods = currentPeriods.map(p => {
+        if (p.id === editingPeriodId) {
+          return {
+            ...p,
+            title: periodFormTitle.trim(),
+            isCurrent: periodFormIsCurrent,
+            startYear: Number(periodFormStartYear) || 2026,
+            startMonth: Number(periodFormStartMonth) || 1,
+            endYear: periodFormIsCurrent ? undefined : (Number(periodFormEndYear) || 2026),
+            endMonth: periodFormIsCurrent ? undefined : (Number(periodFormEndMonth) || 12),
+          };
+        }
+        if (periodFormIsCurrent && p.isCurrent) {
+          return { ...p, isCurrent: false };
+        }
+        return p;
+      });
+    } else {
+      const newPeriod: CustomUnitFeePeriod = {
+        id: `period_${Date.now()}`,
+        title: periodFormTitle.trim(),
+        isCurrent: periodFormIsCurrent,
+        startYear: Number(periodFormStartYear) || 2026,
+        startMonth: Number(periodFormStartMonth) || 1,
+        endYear: periodFormIsCurrent ? undefined : (Number(periodFormEndYear) || 2026),
+        endMonth: periodFormIsCurrent ? undefined : (Number(periodFormEndMonth) || 12),
+        unitFees: {},
+      };
+      updatedPeriods = periodFormIsCurrent
+        ? [...currentPeriods.map(p => ({ ...p, isCurrent: false })), newPeriod]
+        : [...currentPeriods, newPeriod];
+    }
+
+    const updatedConfig: AppConfig = {
+      ...(config || { expenseTypes: [], paymentTypes: [], activityTypes: [], admins: [], managers: [] }),
+      customUnitFeePeriods: updatedPeriods,
+    };
+    if (onUpdateConfig) {
+      onUpdateConfig(updatedConfig);
+    }
+    setShowPeriodModal(false);
+    setToastMsg(editingPeriodId ? 'تم تعديل عمود فترة التسعير بنجاح.' : 'تم إضافة عمود فترة التسعير الجديدة بنجاح.');
+  };
+
+  const handleDeleteCustomPeriod = (periodId: string) => {
+    const currentPeriods = effectiveCustomFeePeriods;
+    if (currentPeriods.length <= 1) {
+      setToastMsg('لا يمكن حذف الفترة الوحيدة المتبقية.');
+      return;
+    }
+    const updatedPeriods = currentPeriods.filter(p => p.id !== periodId);
+    if (!updatedPeriods.some(p => p.isCurrent || p.title === 'الحالي') && updatedPeriods.length > 0) {
+      updatedPeriods[0] = { ...updatedPeriods[0], isCurrent: true, title: updatedPeriods[0].title || 'الحالي' };
+    }
+    const updatedConfig: AppConfig = {
+      ...(config || { expenseTypes: [], paymentTypes: [], activityTypes: [], admins: [], managers: [] }),
+      customUnitFeePeriods: updatedPeriods,
+    };
+    if (onUpdateConfig) {
+      onUpdateConfig(updatedConfig);
+    }
+    setToastMsg('تم حذف عمود فترة التسعير بنجاح.');
+  };
+
+  const handleUpdateUnitPeriodFee = (periodId: string, flatNumber: string | number, fee: number | undefined) => {
+    const currentPeriods = effectiveCustomFeePeriods;
+    const targetPeriod = currentPeriods.find(p => p.id === periodId);
+    const isCurrentPeriod = Boolean(targetPeriod?.isCurrent || targetPeriod?.title === 'الحالي');
+
+    const updatedPeriods = currentPeriods.map(p => {
+      if (p.id === periodId) {
+        const nextFees = { ...(p.unitFees || {}) };
+        if (fee === undefined || isNaN(fee) || fee < 0) {
+          delete nextFees[String(flatNumber)];
+        } else {
+          nextFees[String(flatNumber)] = fee;
+        }
+        return { ...p, unitFees: nextFees };
+      }
+      return p;
+    });
+    const updatedConfig: AppConfig = {
+      ...(config || { expenseTypes: [], paymentTypes: [], activityTypes: [], admins: [], managers: [] }),
+      customUnitFeePeriods: updatedPeriods,
+    };
+    if (onUpdateConfig) {
+      onUpdateConfig(updatedConfig);
+    }
+
+    // When updating the current pricing period, immediately sync resident.monthlyFee so it reflects everywhere!
+    if (isCurrentPeriod && onEdit) {
+      const targetRes = residents.find(r => String(r.flatNumber) === String(flatNumber));
+      if (targetRes) {
+        onEdit({
+          ...targetRes,
+          monthlyFee: (fee !== undefined && fee >= 0) ? fee : undefined,
+        });
+      }
+    }
+
+    setToastMsg('تم تحديث اشتراك الوحدة للفترة بنجاح.');
+  };
 
   const {
     searchTerm,
@@ -224,6 +394,17 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
           >
             <UserCheck className="w-4 h-4" />
             <span>الوحدات المفعلة ({activatedResidents.length})</span>
+          </button>
+          <button
+            onClick={() => setSubTab('unit-subscriptions')}
+            className={`flex-1 sm:flex-none px-5 py-2.5 text-xs font-black rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              subTab === 'unit-subscriptions'
+                ? 'bg-blue-900 text-white shadow-md'
+                : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'
+            }`}
+          >
+            <DollarSign className="w-4 h-4" />
+            <span>إدارة اشتراكات الوحدات</span>
           </button>
         </div>
       )}
@@ -433,7 +614,7 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
                     {group.residents.map((res) => {
-                    const fin = calculateResidentFinancials(res, paymentIndex, config?.accountingStartDate, config?.defaultMonthlyFee, config?.activityDefaultFees, new Date().getFullYear());
+                    const fin = calculateResidentFinancials(res, paymentIndex, config?.accountingStartDate, config?.defaultMonthlyFee, config?.activityDefaultFees, new Date().getFullYear(), undefined, config?.activityFeePeriods, effectiveCustomFeePeriods);
                     const isDebt = fin.netBalance < 0;
                     const isSurplus = fin.netBalance > 0;
 
@@ -703,7 +884,7 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                         </tr>
                       ) : (
                         group.residents.map((res) => {
-                        const fin = calculateResidentFinancials(res, paymentIndex, config?.accountingStartDate, config?.defaultMonthlyFee, config?.activityDefaultFees, new Date().getFullYear());
+                        const fin = calculateResidentFinancials(res, paymentIndex, config?.accountingStartDate, config?.defaultMonthlyFee, config?.activityDefaultFees, new Date().getFullYear(), undefined, config?.activityFeePeriods, effectiveCustomFeePeriods);
                         const isDebt = fin.netBalance < 0;
                         const isSurplus = fin.netBalance > 0;
                         const displayNotes = (res.notes || '').includes('توليد تلقائي') ? '' : (res.notes || '');
@@ -1196,6 +1377,397 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                   })}
                 </tbody>
               </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Unit Subscriptions Management Tab View */}
+      {role === 'ADMIN' && subTab === 'unit-subscriptions' && (
+        <div className="space-y-4">
+          {/* Top Controls Bar */}
+          <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-100 shadow-xs flex flex-col md:flex-row items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 w-full md:w-auto">
+              <div className="relative flex-1 md:w-72">
+                <input
+                  type="text"
+                  placeholder="البحث بالاسم أو رقم الوحدة..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-4 pr-9 py-2 bg-slate-50 border border-slate-200/80 rounded-xl text-xs focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none text-right font-semibold transition"
+                />
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute top-3 right-3" />
+              </div>
+              <div className="text-[11px] font-bold text-slate-500 bg-slate-50 px-2.5 py-1.5 rounded-xl border border-slate-100 hidden sm:block">
+                إجمالي: <span className="text-blue-950 font-black">{filteredResidents.length}</span> وحدة
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex items-center gap-2 w-full md:w-auto">
+              <button
+                type="button"
+                onClick={handleOpenAddPeriod}
+                className="flex-1 md:flex-none flex items-center justify-center gap-1.5 px-3.5 py-2 bg-blue-900 text-white rounded-xl font-bold text-xs hover:bg-blue-950 active:scale-[0.98] transition shadow-xs cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>إضافة عمود فترة تسعير جديدة</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Unified Full-Width Table matching ResidentsList design */}
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-xs overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-right border-collapse min-w-[500px]">
+                <thead>
+                  <tr className="bg-slate-50/90 text-slate-500 font-extrabold text-[10px] border-b border-slate-200">
+                    {/* 1. Frozen Unit Column */}
+                    <th className="w-12 sm:w-14 px-1 py-1.5 sticky right-0 bg-slate-50 shadow-xs z-10 border-l border-slate-200 text-center whitespace-nowrap">
+                      الوحدة
+                    </th>
+                    {/* 2. Compact Owner/Tenant Column */}
+                    <th className="w-28 sm:w-36 min-w-[90px] max-w-[125px] px-1.5 py-1.5 whitespace-nowrap">
+                      المالك / المستأجر
+                    </th>
+                    {/* 3. Compact Activity Column */}
+                    <th className="w-14 sm:w-16 px-1 py-1.5 text-center whitespace-nowrap">
+                      النشاط
+                    </th>
+                    {/* 4. Compact Default Fee Column */}
+                    <th className="w-14 sm:w-16 px-1 py-1.5 text-center whitespace-nowrap">
+                      الافتراضي
+                    </th>
+                    {/* 5+. Dynamic Custom Fee Periods */}
+                    {effectiveCustomFeePeriods.map((p) => {
+                      const isCurrent = Boolean(p.isCurrent || p.title === 'الحالي');
+                      return (
+                        <th key={p.id} className="w-28 sm:w-32 min-w-[100px] max-w-[130px] px-1.5 py-1 text-center bg-blue-50/70 border-r border-blue-100 whitespace-nowrap">
+                          <div className="flex flex-col items-center gap-0.5">
+                            <div className="flex items-center justify-between w-full gap-1 px-0.5">
+                              <div className="flex items-center gap-1 min-w-0">
+                                <span className="text-blue-950 font-black text-[10.5px] truncate max-w-[65px]" title={p.title}>
+                                  {p.title}
+                                </span>
+                                {isCurrent && (
+                                  <span className="text-[7.5px] font-black bg-emerald-100 text-emerald-800 px-1 py-0.2 rounded border border-emerald-200 shrink-0">
+                                    الحالي
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-0.5 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleOpenEditPeriod(p);
+                                  }}
+                                  className="text-blue-700 hover:text-blue-950 p-0.5 rounded cursor-pointer transition hover:bg-blue-100"
+                                  title="تعديل هذا العمود والفترة"
+                                >
+                                  <Edit className="w-3 h-3" />
+                                </button>
+                                {effectiveCustomFeePeriods.length > 1 && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDeleteCustomPeriod(p.id);
+                                    }}
+                                    className="text-rose-400 hover:text-rose-600 p-0.5 rounded cursor-pointer transition hover:bg-rose-100"
+                                    title="حذف هذا العمود والفترة"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                            <span className="text-[8.5px] text-slate-500 font-bold leading-tight" dir="rtl">
+                              {isCurrent
+                                ? `من ${p.startMonth}/${p.startYear} حتى تاريخه`
+                                : `من ${p.startMonth}/${p.startYear} إلى ${p.endMonth || 12}/${p.endYear || p.startYear}`}
+                            </span>
+                          </div>
+                        </th>
+                      );
+                    })}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-xs font-bold text-slate-800">
+                  {filteredResidents.length === 0 ? (
+                    <tr>
+                      <td colSpan={4 + effectiveCustomFeePeriods.length} className="px-4 py-8 text-center text-slate-400 font-bold">
+                        لا توجد نتائج تطابق معايير البحث.
+                      </td>
+                    </tr>
+                  ) : (
+                    floorResidentGroups.map((group) => {
+                      const totalCols = 4 + effectiveCustomFeePeriods.length;
+
+                      return (
+                        <React.Fragment key={group.floor.id}>
+                          {/* Floor Separator Row - exact match to Residents table */}
+                          <tr className="bg-slate-200/90 dark:bg-[#16223b] border-y-2 border-slate-300 dark:border-slate-700">
+                            <td colSpan={totalCols} className="py-3 px-4 text-right border-r-4 border-r-blue-700 dark:border-r-blue-400 sticky right-0 z-5 bg-slate-200/95 dark:bg-[#16223b]/95">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2.5">
+                                  <div className="w-6 h-6 rounded-lg bg-blue-900 dark:bg-blue-600 text-white flex items-center justify-center shadow-2xs">
+                                    <Building2 className="w-3.5 h-3.5" />
+                                  </div>
+                                  <span className="text-xs sm:text-sm font-black text-slate-900 dark:text-slate-100">
+                                    {group.floor.floorLabel}
+                                  </span>
+                                  <span className="text-[10px] sm:text-xs font-bold text-slate-600 dark:text-slate-300 bg-white/90 dark:bg-slate-900/90 px-2 py-0.5 rounded-md border border-slate-200 dark:border-slate-700 shadow-2xs">
+                                    {group.residents.length} {group.residents.length === 1 ? 'وحدة' : 'وحدات'}
+                                  </span>
+                                </div>
+                                <span className="text-[10px] font-extrabold text-blue-900 dark:text-blue-300 bg-white/90 dark:bg-slate-900/90 px-3 py-1 rounded-lg border border-slate-200/80 dark:border-slate-700 shadow-2xs">
+                                  {group.floor.activityType || 'سكني'}
+                                </span>
+                              </div>
+                            </td>
+                          </tr>
+
+                          {/* Floor Residents */}
+                          {group.residents.length === 0 ? (
+                            <tr>
+                              <td colSpan={totalCols} className="py-2.5 px-3 text-center text-slate-400 bg-slate-50/50">
+                                لا توجد وحدات مسجلة في هذا الدور حالياً.
+                              </td>
+                            </tr>
+                          ) : (
+                            group.residents.map((res) => {
+                              const activityDefault = getDefaultFeeForActivity(res.activityType || 'سكني');
+                              const occ = res.history && res.history.length > 0 ? getLatestOccupantFromHistory(res) : null;
+                              const displayOwnerName = occ ? (occ.ownerName || res.name) : res.name;
+                              const displayTenantName = occ ? occ.tenantName : (res.ownershipType === 'إيجار' ? res.tenantName : undefined);
+                              const hasTenant = Boolean(displayTenantName && displayTenantName.trim());
+                              const isSelected = selectedItemId === res.id;
+
+                              return (
+                                <tr
+                                  key={res.id}
+                                  onClick={() => setSelectedItemId(isSelected ? null : res.id)}
+                                  className={`group transition cursor-pointer border-b border-slate-100 ${
+                                    isSelected
+                                      ? 'bg-yellow-200 hover:bg-yellow-200/90 border-y-2 border-yellow-400 font-semibold text-slate-900'
+                                      : 'hover:bg-slate-50/70'
+                                  }`}
+                                >
+                                  {/* 1. Frozen Unit Column */}
+                                  <td className={`w-12 sm:w-14 px-1 py-1.5 font-black whitespace-nowrap sticky right-0 z-5 border-l border-slate-100 shadow-xs transition text-center ${
+                                    isSelected
+                                      ? 'bg-yellow-200 text-amber-950 font-black'
+                                      : 'bg-white text-blue-900 group-hover:bg-slate-50'
+                                  }`}>
+                                    <span className="text-[10px] sm:text-xs">وحدة {res.flatNumber}</span>
+                                  </td>
+
+                                  {/* 2. Compact Owner/Tenant Name */}
+                                  <td className="w-28 sm:w-36 min-w-[90px] max-w-[125px] px-1.5 py-1.5 whitespace-nowrap">
+                                    <div className="flex flex-col gap-0.5 justify-center">
+                                      <div className="flex items-center gap-1">
+                                        <span className="font-bold text-slate-900 text-xs truncate max-w-[105px]">{displayOwnerName}</span>
+                                        {hasTenant && (
+                                          <span className="text-[8px] font-bold text-slate-500 bg-slate-100 px-1 py-0.2 rounded">مالك</span>
+                                        )}
+                                      </div>
+                                      {hasTenant && (
+                                        <div className="flex items-center gap-1 text-amber-950 font-black text-[9.5px] pt-0.5 border-t border-slate-100">
+                                          <span className="text-[7.5px] font-extrabold bg-amber-100 text-amber-900 px-1 py-0.2 rounded border border-amber-200/80">مستأجر</span>
+                                          <span className="truncate max-w-[90px]">{displayTenantName}</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </td>
+
+                                  {/* 3. Compact Activity Type */}
+                                  <td className="w-14 sm:w-16 px-1 py-1.5 text-center whitespace-nowrap">
+                                    <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded text-[9.5px] font-bold border border-slate-200">
+                                      {res.activityType || 'سكني'}
+                                    </span>
+                                  </td>
+
+                                  {/* 4. Compact Default Fee */}
+                                  <td className="w-14 sm:w-16 px-1 py-1.5 text-center whitespace-nowrap font-mono font-bold text-xs text-slate-700">
+                                    <span>{activityDefault}</span>
+                                    <span className="text-[9px] text-slate-400 mr-0.5">ج.م</span>
+                                  </td>
+
+                                  {/* 5+. Custom Period Columns */}
+                                  {effectiveCustomFeePeriods.map((p) => {
+                                    const unitFeeVal = p.unitFees?.[String(res.flatNumber)];
+                                    return (
+                                      <td
+                                        key={p.id}
+                                        className="w-28 sm:w-32 min-w-[100px] max-w-[130px] px-1 py-1 text-center border-r border-slate-100 whitespace-nowrap"
+                                        onClick={(e) => e.stopPropagation()}
+                                      >
+                                        <div className="flex items-center justify-center gap-1">
+                                          <input
+                                            type="number"
+                                            min="0"
+                                            step="10"
+                                            defaultValue={unitFeeVal !== undefined ? unitFeeVal : ''}
+                                            placeholder={String(activityDefault)}
+                                            onBlur={(e) => {
+                                              const val = e.target.value === '' ? undefined : parseFloat(e.target.value);
+                                              handleUpdateUnitPeriodFee(p.id, res.flatNumber, val);
+                                            }}
+                                            className="w-14 sm:w-16 px-1 py-0.5 text-center bg-white border border-slate-300 rounded-lg font-black text-xs text-blue-900 focus:ring-1 focus:ring-blue-500 outline-none"
+                                            title={`قيمة اشتراك الوحدة ${res.flatNumber} في فترة ${p.title}`}
+                                          />
+                                          <span className="text-[9px] text-slate-400 font-bold">ج.م</span>
+                                        </div>
+                                      </td>
+                                    );
+                                  })}
+                                </tr>
+                              );
+                            })
+                          )}
+                        </React.Fragment>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Edit / Add Custom Period Modal */}
+          {showPeriodModal && (
+            <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
+              <div className="bg-white rounded-3xl shadow-2xl p-6 w-full max-w-md space-y-4 text-right" dir="rtl">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <h3 className="text-base font-extrabold text-blue-900">
+                    {editingPeriodId ? 'تعديل عمود فترة التسعير' : 'إضافة عمود فترة تسعير جديدة'}
+                  </h3>
+                  <button 
+                    onClick={() => setShowPeriodModal(false)}
+                    className="p-1.5 text-slate-400 hover:text-slate-700 rounded-xl cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                
+                <div className="space-y-3.5">
+                  <div>
+                    <label className="block text-xs font-black text-slate-700 mb-1">عنوان الفترة / اسم العمود</label>
+                    <input
+                      type="text"
+                      value={periodFormTitle}
+                      onChange={(e) => setPeriodFormTitle(e.target.value)}
+                      placeholder="مثال: الحالي أو فترة 2024-2025"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold focus:ring-2 focus:ring-blue-500/20 outline-none"
+                    />
+                  </div>
+
+                  {/* Is Current Period Checkbox */}
+                  <div 
+                    className="p-3 bg-blue-50/70 border border-blue-200/70 rounded-xl flex items-start gap-2.5 cursor-pointer" 
+                    onClick={() => setPeriodFormIsCurrent(!periodFormIsCurrent)}
+                  >
+                    <input
+                      type="checkbox"
+                      id="periodIsCurrentCheck"
+                      checked={periodFormIsCurrent}
+                      onChange={(e) => setPeriodFormIsCurrent(e.target.checked)}
+                      onClick={(e) => e.stopPropagation()}
+                      className="w-4 h-4 mt-0.5 text-blue-900 rounded cursor-pointer"
+                    />
+                    <div>
+                      <label htmlFor="periodIsCurrentCheck" className="text-xs font-black text-blue-950 cursor-pointer select-none block">
+                        فترة التسعير الحالية (حتى تاريخه)
+                      </label>
+                      <p className="text-[10px] text-blue-800 font-bold mt-0.5 leading-relaxed">
+                        عند تفعيل هذا الخيار، تصبح هذه الفترة هي السارية حالياً حتى تاريخه، وتنعكس أسعارها تلقائياً على عمود الرسوم في صفحة كشف الوحدات.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Start Date */}
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                    <label className="block text-xs font-black text-slate-800">تاريخ بداية سريان الفترة (من):</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <span className="text-[10px] text-slate-500 font-bold block mb-1">الشهر:</span>
+                        <select
+                          value={periodFormStartMonth}
+                          onChange={(e) => setPeriodFormStartMonth(parseInt(e.target.value, 10))}
+                          className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-bold bg-white outline-none cursor-pointer"
+                        >
+                          {monthNamesArabic.map((m, idx) => (
+                            <option key={idx + 1} value={idx + 1}>{idx + 1} - {m}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-500 font-bold block mb-1">السنة:</span>
+                        <input
+                          type="number"
+                          value={periodFormStartYear}
+                          onChange={(e) => setPeriodFormStartYear(parseInt(e.target.value, 10) || 2026)}
+                          className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-bold outline-none text-center font-mono"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* End Date - Only if not current */}
+                  {!periodFormIsCurrent ? (
+                    <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                      <label className="block text-xs font-black text-slate-800">تاريخ نهاية الفترة (إلى):</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <span className="text-[10px] text-slate-500 font-bold block mb-1">الشهر:</span>
+                          <select
+                            value={periodFormEndMonth}
+                            onChange={(e) => setPeriodFormEndMonth(parseInt(e.target.value, 10))}
+                            className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-bold bg-white outline-none cursor-pointer"
+                          >
+                            {monthNamesArabic.map((m, idx) => (
+                              <option key={idx + 1} value={idx + 1}>{idx + 1} - {m}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-500 font-bold block mb-1">السنة:</span>
+                          <input
+                            type="number"
+                            value={periodFormEndYear}
+                            onChange={(e) => setPeriodFormEndYear(parseInt(e.target.value, 10) || 2026)}
+                            className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-bold outline-none text-center font-mono"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-3 bg-emerald-50/80 border border-emerald-200 rounded-xl flex items-center gap-2 text-right">
+                      <span className="text-emerald-900 font-black text-xs">
+                        🗓️ نهاية الفترة: <span className="underline">حتى تاريخه (مستمرة تلقائياً)</span>
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setShowPeriodModal(false)}
+                    className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
+                  >
+                    إلغاء
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveCustomPeriod}
+                    className="px-5 py-2 bg-blue-900 hover:bg-blue-950 text-white rounded-xl font-black text-xs shadow-md cursor-pointer"
+                  >
+                    {editingPeriodId ? 'حفظ تعديل الفترة' : 'إضافة العمود'}
+                  </button>
+                </div>
+              </div>
             </div>
           )}
         </div>

@@ -1,4 +1,4 @@
-import { Resident, Payment, Expense, AppConfig, ActivityFeePeriod } from '../types';
+import { Resident, Payment, Expense, AppConfig, ActivityFeePeriod, CustomUnitFeePeriod } from '../types';
 import { 
   isSameFlatNumber, 
   parseFlatNumber,
@@ -24,9 +24,41 @@ export function getResidentMonthlyFee(
   activityDefaultFees?: Record<string, number>,
   targetDateOrPeriod?: string | number,
   payments?: Payment[] | PaymentLookupIndex,
-  activityFeePeriods?: ActivityFeePeriod[]
+  activityFeePeriods?: ActivityFeePeriod[],
+  customUnitFeePeriods?: CustomUnitFeePeriod[]
 ): number {
   if (!resident) return defaultMonthlyFee || 400;
+
+  const flatKey = String(resident.flatNumber);
+
+  // 0. Check custom unit fee periods
+  if (customUnitFeePeriods && customUnitFeePeriods.length > 0) {
+    if (targetDateOrPeriod) {
+      const periodStr = String(targetDateOrPeriod);
+      const parts = periodStr.split('-');
+      const tY = parts.length >= 1 ? parseInt(parts[0], 10) : 0;
+      const tM = parts.length >= 2 ? parseInt(parts[1], 10) : 0;
+      if (tY && tM) {
+        for (const p of customUnitFeePeriods) {
+          const isMatch = p.isCurrent
+            ? (tY > p.startYear || (tY === p.startYear && tM >= p.startMonth))
+            : (
+                (tY > p.startYear || (tY === p.startYear && tM >= p.startMonth)) &&
+                (tY < (p.endYear ?? 9999) || (tY === p.endYear && tM <= (p.endMonth ?? 12)))
+              );
+          if (isMatch && p.unitFees && p.unitFees[flatKey] !== undefined && !isNaN(p.unitFees[flatKey])) {
+            return p.unitFees[flatKey];
+          }
+        }
+      }
+    } else {
+      // Current fee resolution (عمود الفترة الحالي "حتى تاريخه")
+      const currentPeriod = customUnitFeePeriods.find(p => p.isCurrent || p.title === 'الحالي');
+      if (currentPeriod && currentPeriod.unitFees && currentPeriod.unitFees[flatKey] !== undefined && !isNaN(currentPeriod.unitFees[flatKey])) {
+        return currentPeriod.unitFees[flatKey];
+      }
+    }
+  }
 
   // 1. If activity history is present on resident, determine fee from possession/activity history for target date/period
   if (resident.activityHistory && resident.activityHistory.length > 0) {
@@ -93,10 +125,51 @@ export function getPrescribedFeeForMonth(
   allResidentPayments: Payment[] = [],
   defaultMonthlyFee: number = 400,
   activityDefaultFees?: Record<string, number>,
-  activityFeePeriods?: ActivityFeePeriod[]
+  activityFeePeriods?: ActivityFeePeriod[],
+  customUnitFeePeriods?: CustomUnitFeePeriod[]
 ): { monthlyFee: number; activityType: string } {
   if (!resident) {
     return { monthlyFee: defaultMonthlyFee || 400, activityType: 'سكني' };
+  }
+
+  const cleanAct = (resident.activityType || 'سكني').trim();
+  if (cleanAct === 'بدون تشطيب' || cleanAct === 'بدون تحصيل' || cleanAct.includes('بدون تشطيب') || cleanAct.includes('بدون تحصيل')) {
+    return { monthlyFee: 0, activityType: cleanAct };
+  }
+
+  // 0. وفي حالة تغيير قيمة المبلغ المستحق في دفعة التحصيل تكون هي المبلغ المستحق لهذه الدفعة
+  if (allResidentPayments && allResidentPayments.length > 0) {
+    const monthPayment = allResidentPayments.find(p => {
+      const pYear = Number(p.year) || (p.date ? new Date(p.date).getFullYear() : 0);
+      const pMonth = parseInt(String(p.month), 10);
+      return pYear === year && pMonth === month && isMonthlySubscriptionType(p.paymentType) &&
+        p.status !== 'cancelled' && p.status !== 'لاغي';
+    });
+    if (monthPayment && monthPayment.expectedAmount !== undefined && !isNaN(monthPayment.expectedAmount) && monthPayment.expectedAmount > 0) {
+      return {
+        monthlyFee: monthPayment.expectedAmount,
+        activityType: resident.activityType || 'سكني',
+      };
+    }
+  }
+
+  // 1. طبقاً لعمود فترة تسعير اشتراكات الوحدات (CustomUnitFeePeriod) المحدد لهذا الشهر والسنة (الوضع الافتراضي خلال الفترة المحاسبية)
+  if (customUnitFeePeriods && customUnitFeePeriods.length > 0) {
+    const flatKey = String(resident.flatNumber);
+    for (const p of customUnitFeePeriods) {
+      const isMatch = p.isCurrent
+        ? (year > p.startYear || (year === p.startYear && month >= p.startMonth))
+        : (
+            (year > p.startYear || (year === p.startYear && month >= p.startMonth)) &&
+            (year < (p.endYear ?? 9999) || (year === p.endYear && month <= (p.endMonth ?? 12)))
+          );
+      if (isMatch && p.unitFees && p.unitFees[flatKey] !== undefined && !isNaN(p.unitFees[flatKey])) {
+        return {
+          monthlyFee: p.unitFees[flatKey],
+          activityType: resident.activityType || 'سكني',
+        };
+      }
+    }
   }
 
   const mStr = String(month).padStart(2, '0');
@@ -121,11 +194,6 @@ export function getPrescribedFeeForMonth(
   }
 
   // 2. طبقاً لفترة تسعير النشاط (ActivityFeePeriod) المحددة لهذا الشهر
-  const cleanAct = (resident.activityType || 'سكني').trim();
-  if (cleanAct === 'بدون تشطيب' || cleanAct === 'بدون تحصيل' || cleanAct.includes('بدون تشطيب') || cleanAct.includes('بدون تحصيل')) {
-    return { monthlyFee: 0, activityType: cleanAct };
-  }
-
   if (activityFeePeriods && activityFeePeriods.length > 0) {
     const matched = findMatchingActivityFeePeriod(periodStr, activityFeePeriods);
     if (matched && matched.fees && matched.fees[cleanAct] !== undefined) {
@@ -518,8 +586,19 @@ export function getCarriedPreviousBalance(
   accountingStartDate: string = '2026-01-01',
   defaultMonthlyFee: number = 400,
   activityDefaultFees?: Record<string, number>,
-  activityFeePeriods?: ActivityFeePeriod[]
+  activityFeePeriods?: ActivityFeePeriod[],
+  customUnitFeePeriods?: CustomUnitFeePeriod[]
 ): number {
+  if (!resident) return 0;
+
+  // 1. Check if an explicit exported balance exists for this target year / period
+  if (resident.exportedYearBalances && (resident.exportedYearBalances[targetYear] !== undefined || resident.exportedYearBalances[String(targetYear)] !== undefined)) {
+    const val = resident.exportedYearBalances[targetYear] ?? resident.exportedYearBalances[String(targetYear)];
+    if (val !== undefined && !isNaN(val)) {
+      return val;
+    }
+  }
+
   const start = new Date(accountingStartDate || '2026-01-01');
   const startYear = isNaN(start.getFullYear()) ? 2026 : start.getFullYear();
   const startMonth = isNaN(start.getMonth()) ? 0 : start.getMonth(); // 0-indexed
@@ -528,7 +607,7 @@ export function getCarriedPreviousBalance(
     return resident.initialBalance || 0;
   }
 
-  const fee = getResidentMonthlyFee(resident, defaultMonthlyFee, activityDefaultFees, undefined, undefined, activityFeePeriods);
+  const fee = getResidentMonthlyFee(resident, defaultMonthlyFee, activityDefaultFees, undefined, undefined, activityFeePeriods, customUnitFeePeriods);
 
   // Calculate elapsed months from accountingStartDate up to the end of (targetYear - 1)
   // End date is December of targetYear - 1
@@ -536,11 +615,11 @@ export function getCarriedPreviousBalance(
   const elapsedMonthsPrior = (yearsDiff * 12) + (12 - startMonth);
   let duesPrior = 0;
 
-  if ((resident.activityHistory && resident.activityHistory.length > 0) || (activityFeePeriods && activityFeePeriods.length > 0)) {
+  if ((resident.activityHistory && resident.activityHistory.length > 0) || (activityFeePeriods && activityFeePeriods.length > 0) || (customUnitFeePeriods && customUnitFeePeriods.length > 0)) {
     for (let y = startYear; y < targetYear; y++) {
       const mStart = (y === startYear) ? startMonth + 1 : 1;
       for (let m = mStart; m <= 12; m++) {
-        const prescribed = getPrescribedFeeForMonth(resident, y, m, [], defaultMonthlyFee, activityDefaultFees, activityFeePeriods);
+        const prescribed = getPrescribedFeeForMonth(resident, y, m, [], defaultMonthlyFee, activityDefaultFees, activityFeePeriods, customUnitFeePeriods);
         duesPrior += prescribed.monthlyFee;
       }
     }
@@ -585,9 +664,10 @@ export function calculateResidentFinancials(
   activityDefaultFees?: Record<string, number>,
   targetYear?: number,
   accountingEndDate?: string,
-  activityFeePeriods?: ActivityFeePeriod[]
+  activityFeePeriods?: ActivityFeePeriod[],
+  customUnitFeePeriods?: CustomUnitFeePeriod[]
 ) {
-  const fee = getResidentMonthlyFee(resident, defaultMonthlyFee, activityDefaultFees, undefined, undefined, activityFeePeriods);
+  const fee = getResidentMonthlyFee(resident, defaultMonthlyFee, activityDefaultFees, undefined, undefined, activityFeePeriods, customUnitFeePeriods);
   const allResidentPayments = getPaymentsForResident(resident, paymentsOrIndex);
 
   const validPayments = allResidentPayments.filter(isValidPaidPayment);
@@ -602,7 +682,8 @@ export function calculateResidentFinancials(
       accountingStartDate,
       defaultMonthlyFee,
       activityDefaultFees,
-      activityFeePeriods
+      activityFeePeriods,
+      customUnitFeePeriods
     );
 
     const now = new Date();
@@ -700,7 +781,7 @@ export function calculateResidentFinancials(
       const monthPendingSubs = pendingPaymentsInYear.filter(p => isMonthlySubscriptionType(p.paymentType) && isPaymentForYearAndMonth(p, targetYear, m));
 
       // Prescribed monthly fee for this unit in this month using priority logic (period fee, history, or default)
-      const prescribed = getPrescribedFeeForMonth(resident, targetYear, m, allResidentPayments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods);
+      const prescribed = getPrescribedFeeForMonth(resident, targetYear, m, allResidentPayments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods, customUnitFeePeriods);
       let mFee = prescribed.monthlyFee;
 
       if (mFee <= 0) continue;
@@ -747,6 +828,20 @@ export function calculateResidentFinancials(
     const totalDueForPayment = Math.max(0, totalArrears + previousDebt - previousSurplus);
     const netBalance = (previousSurplus > totalArrears) ? (previousSurplus - totalArrears) : -totalDueForPayment;
 
+    // Breakdown of expected monthly subscription fees
+    const feeCountMap: Record<number, number> = {};
+    for (const bm of billableMonths) {
+      if (bm.fee > 0) {
+        feeCountMap[bm.fee] = (feeCountMap[bm.fee] || 0) + 1;
+      }
+    }
+    const breakdownParts = Object.entries(feeCountMap)
+      .sort((a, b) => Number(a[0]) - Number(b[0]))
+      .map(([fStr, cnt]) => `${cnt} شهر × ${Number(fStr).toLocaleString()} ج.م`);
+    const expectedDuesBreakdownText = breakdownParts.length > 0
+      ? breakdownParts.join(' + ')
+      : `${billableMonthsCount} شهر`;
+
     return {
       monthlyFee: fee,
       monthsElapsed: billableMonthsCount > 0 ? billableMonthsCount : monthsInYear,
@@ -755,6 +850,7 @@ export function calculateResidentFinancials(
       unpaidMonthsCount,
       unpaidMonthsDues,
       periodExpectedDues,
+      expectedDuesBreakdownText,
       oldDebtAmount,
       expectedDues,
       totalPaid,
@@ -821,7 +917,7 @@ export function calculateResidentFinancials(
       const monthPendingSubs = pendingPayments.filter(p => isMonthlySubscriptionType(p.paymentType) && isPaymentForYearAndMonth(p, y, m));
 
       const monthAllPayments = validPayments.concat(pendingPayments);
-      const prescribed = getPrescribedFeeForMonth(resident, y, m, monthAllPayments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods);
+      const prescribed = getPrescribedFeeForMonth(resident, y, m, monthAllPayments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods, customUnitFeePeriods);
       let mFee = prescribed.monthlyFee;
 
       if (mFee > 0) {
@@ -892,6 +988,20 @@ export function calculateResidentFinancials(
   const totalDueForPayment = Math.max(0, totalArrears + previousDebt - previousSurplus);
   const netBalance = (previousSurplus > totalArrears) ? (previousSurplus - totalArrears) : -totalDueForPayment;
 
+  // Breakdown of expected monthly subscription fees
+  const feeCountMap: Record<number, number> = {};
+  for (const bm of cumulativeBillableMonths) {
+    if (bm.fee > 0) {
+      feeCountMap[bm.fee] = (feeCountMap[bm.fee] || 0) + 1;
+    }
+  }
+  const breakdownParts = Object.entries(feeCountMap)
+    .sort((a, b) => Number(a[0]) - Number(b[0]))
+    .map(([fStr, cnt]) => `${cnt} شهر × ${Number(fStr).toLocaleString()} ج.م`);
+  const expectedDuesBreakdownText = breakdownParts.length > 0
+    ? breakdownParts.join(' + ')
+    : `${billableMonthsCount} شهر`;
+
   return {
     monthlyFee: fee,
     monthsElapsed: billableMonthsCount > 0 ? billableMonthsCount : totalCalendarMonthsElapsed,
@@ -900,6 +1010,7 @@ export function calculateResidentFinancials(
     unpaidMonthsCount,
     unpaidMonthsDues,
     periodExpectedDues,
+    expectedDuesBreakdownText,
     oldDebtAmount,
     expectedDues,
     totalPaid,
@@ -983,7 +1094,8 @@ export function calculateUnitClaimBreakdown(
   accountingStartDate: string = '2026-01-01',
   defaultMonthlyFee: number = 400,
   activityDefaultFees?: Record<string, number>,
-  activePaymentForClaim?: Payment | null
+  activePaymentForClaim?: Payment | null,
+  customUnitFeePeriods?: CustomUnitFeePeriod[]
 ): UnitClaimBreakdown {
   const yNum = Number(targetYear) || new Date().getFullYear();
   const mNum = parseInt(String(targetMonth), 10) || (new Date().getMonth() + 1);
@@ -1056,15 +1168,11 @@ export function calculateUnitClaimBreakdown(
     .reduce((sum, p) => sum + (p.amount || 0), 0);
 
   // Determine prescribed monthly fee for this unit in this month:
-  // 1. If exempt (بدون تشطيب / بدون تحصيل): 0
-  // 2. Else if resident has activityHistory for this month: use historical activity fee
-  // 3. Else if resident.monthlyFee is set in units table: that is the unit's monthly subscription
-  // 4. Else default for this activity from Settings tab
   let currentMonthFee = 0;
   if (isNoFee) {
     currentMonthFee = 0;
   } else {
-    const prescribed = getPrescribedFeeForMonth(resident, yNum, mNum, allResidentPayments, defaultMonthlyFee, activityDefaultFees);
+    const prescribed = getPrescribedFeeForMonth(resident, yNum, mNum, allResidentPayments, defaultMonthlyFee, activityDefaultFees, undefined, customUnitFeePeriods);
     currentMonthFee = prescribed.monthlyFee;
   }
 
@@ -1179,7 +1287,7 @@ export function calculateUnitClaimBreakdown(
       isValidPaidPayment(p) && (p.amount > 0 || p.isManuallyPaid)
     );
 
-    const prescribed = getPrescribedFeeForMonth(resident, yNum, m, allResidentPayments, defaultMonthlyFee, activityDefaultFees);
+    const prescribed = getPrescribedFeeForMonth(resident, yNum, m, allResidentPayments, defaultMonthlyFee, activityDefaultFees, undefined, customUnitFeePeriods);
     let feeForMonth = prescribed.monthlyFee;
 
     pastMonthsList.push({
@@ -1294,17 +1402,46 @@ export function exportCarriedBalancesForYear(
   config: AppConfig
 ): Resident[] {
   return residents.map(res => {
-    const carriedBalance = getCarriedPreviousBalance(
-      res,
-      newFiscalYear,
-      payments,
-      config.accountingStartDate,
-      config.defaultMonthlyFee,
-      config.activityDefaultFees
-    );
+    // Calculate net carried balance up to start of newFiscalYear
+    const allResidentPayments = getPaymentsForResident(res, payments);
+    const validPayments = allResidentPayments.filter(isValidPaidPayment);
+    const pendingPayments = allResidentPayments.filter(isPendingUnpaidPayment);
+
+    const start = new Date(config?.accountingStartDate || '2026-01-01');
+    const startYear = isNaN(start.getFullYear()) ? 2026 : start.getFullYear();
+    const startMonth = isNaN(start.getMonth()) ? 0 : start.getMonth();
+
+    let duesPrior = 0;
+    for (let y = startYear; y < newFiscalYear; y++) {
+      const mStart = (y === startYear) ? startMonth + 1 : 1;
+      for (let m = mStart; m <= 12; m++) {
+        const prescribed = getPrescribedFeeForMonth(res, y, m, allResidentPayments, config?.defaultMonthlyFee || 400, config?.activityDefaultFees, config?.activityFeePeriods, config?.customUnitFeePeriods);
+        duesPrior += prescribed.monthlyFee;
+      }
+    }
+
+    const subsPaidPrior = validPayments
+      .filter(p => isMonthlySubscriptionType(p.paymentType) && ((Number(p.year) || (p.date ? new Date(p.date).getFullYear() : startYear)) < newFiscalYear))
+      .reduce((s, p) => s + (p.amount || 0), 0);
+
+    const otherUnpaidPrior = pendingPayments
+      .filter(p => !isMonthlySubscriptionType(p.paymentType) && !p.isAggregatedCollection && !p.paymentType?.includes('مجمع') && ((Number(p.year) || (p.date ? new Date(p.date).getFullYear() : startYear)) < newFiscalYear))
+      .reduce((s, p) => s + (p.amount || 0), 0);
+
+    const initBal = res.initialBalance || 0;
+    // Net carried balance: positive = surplus (+), negative = debt (-)
+    const netCarried = Math.round((initBal + subsPaidPrior) - duesPrior - otherUnpaidPrior);
+
+    const existingExports = res.exportedYearBalances || {};
+
     return {
       ...res,
-      initialBalance: carriedBalance,
+      initialBalance: newFiscalYear <= startYear ? netCarried : res.initialBalance,
+      exportedYearBalances: {
+        ...existingExports,
+        [newFiscalYear]: netCarried,
+        [String(newFiscalYear)]: netCarried,
+      },
     };
   });
 }

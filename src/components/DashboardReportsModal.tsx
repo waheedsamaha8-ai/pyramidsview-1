@@ -83,6 +83,8 @@ export const DashboardReportsModal: React.FC<DashboardReportsModalProps> = ({
   const buildingName = config.buildingName || 'اتحاد ملاك عمارة بيراميدز فيو ١';
   const defaultMonthlyFee = config.defaultMonthlyFee || 400;
   const activityDefaultFees = config.activityDefaultFees;
+  const activityFeePeriods = config.activityFeePeriods;
+  const customUnitFeePeriods = config.customUnitFeePeriods;
 
   const todayFormatted = useMemo(() => {
     return new Date().toLocaleDateString('ar-EG', {
@@ -226,7 +228,9 @@ export const DashboardReportsModal: React.FC<DashboardReportsModalProps> = ({
           targetMonthNum,
           resPayments,
           defaultMonthlyFee,
-          activityDefaultFees
+          activityDefaultFees,
+          activityFeePeriods,
+          customUnitFeePeriods
         );
 
         const matching = resPayments.filter(p => isPaymentForYearAndMonth(p, currentYear, targetMonthNum));
@@ -318,7 +322,9 @@ export const DashboardReportsModal: React.FC<DashboardReportsModalProps> = ({
             m,
             resPayments,
             defaultMonthlyFee,
-            activityDefaultFees
+            activityDefaultFees,
+            activityFeePeriods,
+            customUnitFeePeriods
           );
 
           const matching = resPayments.filter(p => isPaymentForYearAndMonth(p, currentYear, m));

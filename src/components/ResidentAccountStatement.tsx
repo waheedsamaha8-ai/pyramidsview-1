@@ -279,9 +279,10 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
       activityDefaultFees,
       undefined,
       effectiveEndDate,
-      activityFeePeriods
+      activityFeePeriods,
+      config?.customUnitFeePeriods
     );
-  }, [activeResident, payments, effectiveStartDate, effectiveEndDate, defaultMonthlyFee, activityDefaultFees, activityFeePeriods]);
+  }, [activeResident, payments, effectiveStartDate, effectiveEndDate, defaultMonthlyFee, activityDefaultFees, activityFeePeriods, config?.customUnitFeePeriods]);
 
   // All payments belonging to this unit (excluding zero-value distribution payments, ordered Jan to Dec)
   const unitPayments = useMemo(() => {
@@ -361,7 +362,9 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
         grp.monthNum,
         unitPayments,
         defaultMonthlyFee,
-        activityDefaultFees
+        activityDefaultFees,
+        activityFeePeriods,
+        config?.customUnitFeePeriods
       );
 
       const subRowsCount = grp.monthlySubPayments.length;
@@ -447,7 +450,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
       const pendingSubsMatching = matchingSubPayments.filter(isPendingUnpaidPayment);
 
       const paidSubAmount = validPaidSubsMatching.reduce((sum, p) => sum + (p.amount || 0), 0);
-      const prescribed = getPrescribedFeeForMonth(activeResident, y, monthNum, unitPayments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods);
+      const prescribed = getPrescribedFeeForMonth(activeResident, y, monthNum, unitPayments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods, config?.customUnitFeePeriods);
       const effectiveFee = prescribed.monthlyFee;
       const effectiveActivityType = prescribed.activityType;
       const hasValidPaidPayment = validPaidSubsMatching.some(p => ((p.amount || 0) > 0 || p.isManuallyPaid));

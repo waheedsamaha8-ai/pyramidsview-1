@@ -323,7 +323,8 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
           [],
           defaultFee,
           actFees,
-          config?.activityFeePeriods
+          config?.activityFeePeriods,
+          config?.customUnitFeePeriods
         );
 
         toGenerate.push({
@@ -637,7 +638,11 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
           payments,
           accountingStartDate,
           defaultMonthlyFee,
-          activityDefaultFees
+          activityDefaultFees,
+          undefined,
+          undefined,
+          activityFeePeriods,
+          config?.customUnitFeePeriods
         )
       : null;
 
@@ -806,6 +811,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
   const defaultMonthlyFee = config?.defaultMonthlyFee || 400;
   const activityDefaultFees = config?.activityDefaultFees;
   const activityFeePeriods = config?.activityFeePeriods;
+  const customUnitFeePeriods = config?.customUnitFeePeriods;
 
   const allAvailableActivityTypes = useMemo(() => {
     const fromConfig = config?.activityTypes || [];
@@ -830,7 +836,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       setTargetActivityType(selectedRes.activityType || 'سكني');
       const targetYearNum = Number(currentYear) || new Date().getFullYear();
       const targetMonthNum = parseInt(month, 10) || 1;
-      const prescribed = getPrescribedFeeForMonth(selectedRes, targetYearNum, targetMonthNum, payments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods);
+      const prescribed = getPrescribedFeeForMonth(selectedRes, targetYearNum, targetMonthNum, payments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods, customUnitFeePeriods);
       const fee = prescribed.monthlyFee;
       const totalMonthsCount = (isAggregatedCollection && coveredMonths.length > 0) ? coveredMonths.length : 1;
       const calcDue = fee * totalMonthsCount;
@@ -874,7 +880,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
     if (selectedRes && (!paymentType || paymentType === 'اشتراك شهري' || paymentType.includes('اشتراك'))) {
       const targetYearNum = Number(currentYear) || new Date().getFullYear();
       const targetMonthNum = parseInt(month, 10) || 1;
-      const prescribed = getPrescribedFeeForMonth(selectedRes, targetYearNum, targetMonthNum, payments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods);
+      const prescribed = getPrescribedFeeForMonth(selectedRes, targetYearNum, targetMonthNum, payments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods, customUnitFeePeriods);
       const baseFee = targetActivityType !== selectedRes.activityType
         ? getActivityDefaultFee(targetActivityType)
         : prescribed.monthlyFee;
@@ -895,7 +901,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
     if (selectedRes && (!paymentType || paymentType === 'اشتراك شهري' || paymentType.includes('اشتراك'))) {
       const targetYearNum = Number(currentYear) || new Date().getFullYear();
       const targetMonthNum = parseInt(month, 10) || 1;
-      const prescribed = getPrescribedFeeForMonth(selectedRes, targetYearNum, targetMonthNum, payments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods);
+      const prescribed = getPrescribedFeeForMonth(selectedRes, targetYearNum, targetMonthNum, payments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods, customUnitFeePeriods);
       const baseFee = targetActivityType !== selectedRes.activityType
         ? getActivityDefaultFee(targetActivityType)
         : prescribed.monthlyFee;
@@ -956,7 +962,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
         if (newType === 'اشتراك شهري' || newType.includes('اشتراك') || newType.includes('شهري')) {
           const targetYearNum = Number(currentYear) || new Date().getFullYear();
           const targetMonthNum = parseInt(month, 10) || 1;
-          const prescribed = getPrescribedFeeForMonth(selectedRes, targetYearNum, targetMonthNum, payments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods);
+          const prescribed = getPrescribedFeeForMonth(selectedRes, targetYearNum, targetMonthNum, payments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods, customUnitFeePeriods);
           const fee = targetActivityType !== selectedRes.activityType
             ? getActivityDefaultFee(targetActivityType)
             : prescribed.monthlyFee;
@@ -986,11 +992,11 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
     const targetYearNum = Number(currentYear) || new Date().getFullYear();
     const targetMonthNum = parseInt(defaultTargetMonth, 10) || 1;
     const initialPrescribed = initialRes 
-      ? getPrescribedFeeForMonth(initialRes, targetYearNum, targetMonthNum, payments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods)
+      ? getPrescribedFeeForMonth(initialRes, targetYearNum, targetMonthNum, payments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods, customUnitFeePeriods)
       : null;
     const initialFee = initialPrescribed 
       ? initialPrescribed.monthlyFee 
-      : (initialRes ? getResidentMonthlyFee(initialRes, defaultMonthlyFee, activityDefaultFees, undefined, undefined, activityFeePeriods) : '');
+      : (initialRes ? getResidentMonthlyFee(initialRes, defaultMonthlyFee, activityDefaultFees, undefined, undefined, activityFeePeriods, customUnitFeePeriods) : '');
 
     setResidentId(initialResId);
     setMonth(defaultTargetMonth);
@@ -1141,7 +1147,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       const editYear = Number(payment.year) || currentYear;
       const editMonthNum = parseInt(String(payment.month || masterPayment.month), 10) || 1;
       const editPrescribed = foundRes
-        ? getPrescribedFeeForMonth(foundRes, editYear, editMonthNum, payments, defaultMonthlyFee, activityDefaultFees)
+        ? getPrescribedFeeForMonth(foundRes, editYear, editMonthNum, payments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods, customUnitFeePeriods)
         : null;
       const defaultCalculatedDue = editPrescribed ? editPrescribed.monthlyFee : '';
       const initialDueAmount = (payment.expectedAmount !== undefined && payment.expectedAmount !== null)
@@ -1764,6 +1770,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                     const isUncollected = p.status === 'pending' || p.status === 'لم يتم التحصيل' || p.status === 'uncollected';
                     const isCancelled = p.status === 'cancelled' || p.status === 'لاغي';
                     const isAttention = isUncollected || isCancelled;
+                    const isExempt = isUncollected && p.amount === 0;
 
                     return (
                       <tr 
@@ -1772,7 +1779,9 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                         className={`group transition cursor-pointer ${
                           isSelected 
                             ? 'bg-yellow-50/90 border-y border-yellow-400' 
-                            : isAttention
+                            : isExempt
+                              ? 'bg-slate-100/90 hover:bg-slate-200/70 border-y border-slate-200 text-slate-700'
+                              : isAttention
                               ? 'bg-rose-50/70 hover:bg-rose-100/60 border-y border-rose-200/80'
                               : 'hover:bg-slate-50/50'
                         }`}
@@ -1780,12 +1789,14 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                         <td className={`w-12 sm:w-14 px-1 py-1.5 sticky right-0 z-5 border-l border-slate-100 shadow-xs transition text-center ${
                           isSelected 
                             ? 'bg-yellow-50 text-amber-950' 
-                            : isAttention
+                            : isExempt
+                              ? 'bg-slate-100 text-slate-700 group-hover:bg-slate-200'
+                              : isAttention
                               ? 'bg-rose-50/90 text-rose-950 group-hover:bg-rose-100/80'
                               : 'bg-white group-hover:bg-slate-50'
                         }`}>
                           <span className={`px-1 py-0.5 rounded text-[9px] font-black ${
-                            isAttention ? 'bg-rose-100 text-rose-900 border border-rose-200' : 'bg-blue-50 text-blue-700'
+                            isExempt ? 'bg-slate-200 text-slate-700 border border-slate-300' : isAttention ? 'bg-rose-100 text-rose-900 border border-rose-200' : 'bg-blue-50 text-blue-700'
                           }`}>
                             وحدة {p.flatNumber}
                           </span>
@@ -1813,14 +1824,20 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                         <td className="w-16 sm:w-20 px-1 py-1.5 whitespace-nowrap text-center">
                           <div className="flex flex-col items-center">
                             <span className={`text-xs font-black ${
-                              isCancelled ? 'line-through text-rose-500' : isUncollected ? 'text-amber-600' : 'text-emerald-600'
+                              isCancelled ? 'line-through text-rose-500' : p.amount === 0 ? 'text-slate-600' : isUncollected ? 'text-amber-600' : 'text-emerald-600'
                             }`}>
                               {Math.round(p.amount)} ج.م
                             </span>
                             {isUncollected && (
-                              <span className="inline-flex items-center gap-0.5 px-1 py-0.2 bg-amber-50 text-amber-700 border border-amber-200 rounded text-[8px] font-black w-fit mt-0.5">
-                                ⏳ معلق
-                              </span>
+                              p.amount === 0 ? (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 bg-slate-200 text-slate-700 border border-slate-300 rounded text-[8px] font-black w-fit mt-0.5">
+                                  ⚪ معفي
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-0.5 px-1 py-0.2 bg-amber-50 text-amber-700 border border-amber-200 rounded text-[8px] font-black w-fit mt-0.5">
+                                  ⏳ معلق
+                                </span>
+                              )
                             )}
                             {isCancelled && (
                               <span className="inline-flex items-center gap-0.5 px-1 py-0.2 bg-rose-50 text-rose-700 border border-rose-200 rounded text-[8px] font-black w-fit mt-0.5">
@@ -1952,6 +1969,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                           p.status === 'ملغي' || 
                           p.status === 'مرفوض';
                         const isAttention = isUncollected || isCancelled;
+                        const isZeroAmount = p.amount === 0;
 
                         return (
                           <tr 
@@ -1960,20 +1978,28 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                             className={`group transition cursor-pointer ${
                               isSelected 
                                 ? 'bg-yellow-200 hover:bg-yellow-200/90 border-y-2 border-yellow-400 font-semibold text-slate-900' 
-                                : isAttention
-                                  ? 'bg-red-100 hover:bg-red-200/80 border-y border-red-300 text-slate-900'
-                                  : 'hover:bg-slate-50/50'
+                                : isZeroAmount
+                                  ? 'bg-slate-100/90 hover:bg-slate-200/70 border-y border-slate-200 text-slate-700'
+                                  : isAttention
+                                    ? 'bg-red-100 hover:bg-red-200/80 border-y border-red-300 text-slate-900'
+                                    : 'hover:bg-slate-50/50'
                             }`}
                           >
                             <td className={`w-12 sm:w-14 px-1 py-1.5 sticky right-0 z-5 border-l border-slate-100 shadow-xs transition text-center ${
                               isSelected 
                                 ? 'bg-yellow-200 text-amber-950 font-black' 
-                                : isAttention
-                                  ? 'bg-red-100 text-rose-950 group-hover:bg-red-200/80'
-                                  : 'bg-white group-hover:bg-slate-50'
+                                : isZeroAmount
+                                  ? 'bg-slate-100 text-slate-700 group-hover:bg-slate-200'
+                                  : isAttention
+                                    ? 'bg-red-100 text-rose-950 group-hover:bg-red-200/80'
+                                    : 'bg-white group-hover:bg-slate-50'
                             }`}>
                               <span className={`px-1 py-0.5 rounded text-[9px] font-black ${
-                                isAttention ? 'bg-red-200/90 text-red-950 border border-red-300' : 'bg-blue-50 text-blue-700'
+                                isZeroAmount
+                                  ? 'bg-slate-200 text-slate-700 border border-slate-300'
+                                  : isAttention 
+                                    ? 'bg-red-200/90 text-red-950 border border-red-300' 
+                                    : 'bg-blue-50 text-blue-700'
                               }`}>
                                 وحدة {p.flatNumber}
                               </span>
@@ -2001,14 +2027,20 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                             <td className="w-16 sm:w-20 px-1 py-1.5 whitespace-nowrap text-center">
                               <div className="flex flex-col items-center">
                                 <span className={`text-xs font-black ${
-                                  isCancelled ? 'line-through text-rose-500' : isUncollected ? 'text-amber-600' : 'text-emerald-600'
+                                  isCancelled ? 'line-through text-rose-500' : p.amount === 0 ? 'text-slate-600' : isUncollected ? 'text-amber-600' : 'text-emerald-600'
                                 }`}>
                                   {Math.round(p.amount)} ج.م
                                 </span>
                                 {isUncollected && (
-                                  <span className="inline-flex items-center gap-0.5 px-1 py-0.2 bg-amber-50 text-amber-700 border border-amber-200 rounded text-[8px] font-black w-fit mt-0.5">
-                                    ⏳ معلق
-                                  </span>
+                                  p.amount === 0 ? (
+                                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 bg-slate-200 text-slate-700 border border-slate-300 rounded text-[8px] font-black w-fit mt-0.5">
+                                      ⚪ معفي
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-0.5 px-1 py-0.2 bg-amber-50 text-amber-700 border border-amber-200 rounded text-[8px] font-black w-fit mt-0.5">
+                                      ⏳ معلق
+                                    </span>
+                                  )
                                 )}
                                 {isCancelled && (
                                   <span className="inline-flex items-center gap-0.5 px-1 py-0.2 bg-rose-50 text-rose-700 border border-rose-200 rounded text-[8px] font-black w-fit mt-0.5">
@@ -2176,6 +2208,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                       p.status === 'ملغي' || 
                       p.status === 'مرفوض';
                     const isAttention = isUncollected || isCancelled;
+                    const isZeroAmount = p.amount === 0;
 
                     return (
                       <div 
@@ -2184,15 +2217,21 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                         className={`rounded-2xl px-3.5 py-2.5 border shadow-sm flex flex-col justify-between transition duration-200 cursor-pointer ${
                           isSelected 
                             ? 'bg-yellow-200 border-2 border-yellow-400 shadow-md ring-2 ring-yellow-400 text-slate-900' 
-                            : isAttention
-                              ? 'bg-red-100 border-red-300 hover:border-red-400 hover:bg-red-200/70 shadow-xs'
-                              : 'bg-white border-slate-100 hover:border-blue-100'
+                            : isZeroAmount
+                              ? 'bg-slate-100 border-slate-300 hover:border-slate-400 hover:bg-slate-200/70 text-slate-700 shadow-xs'
+                              : isAttention
+                                ? 'bg-red-100 border-red-300 hover:border-red-400 hover:bg-red-200/70 shadow-xs'
+                                : 'bg-white border-slate-100 hover:border-blue-100'
                         }`}
                       >
                       <div>
                         <div className="flex items-center justify-between mb-2">
                           <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black ${
-                            isAttention ? 'bg-red-200/90 text-red-950 border border-red-300' : 'bg-blue-50 text-blue-700'
+                            isZeroAmount
+                              ? 'bg-slate-200 text-slate-700 border border-slate-300'
+                              : isAttention 
+                                ? 'bg-red-200/90 text-red-950 border border-red-300' 
+                                : 'bg-blue-50 text-blue-700'
                           }`}>
                             وحدة {p.flatNumber}
                           </span>
@@ -2445,8 +2484,8 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                         const selectedRes = residents.find(r => r.id === residentId);
                         if (selectedRes && (!paymentType || paymentType === 'اشتراك شهري' || paymentType.includes('اشتراك'))) {
                           const fee = targetActivityType !== selectedRes.activityType
-                            ? getActivityDefaultFee(targetActivityType)
-                            : getResidentMonthlyFee(selectedRes, defaultMonthlyFee, activityDefaultFees);
+                            ? getActivityDefaultFee(targetActivityType, `${currentYear}-${month}`)
+                            : getResidentMonthlyFee(selectedRes, defaultMonthlyFee, activityDefaultFees, `${currentYear}-${month}`, payments, activityFeePeriods);
                           setAmount(fee);
                         }
                       } else {
@@ -2457,8 +2496,8 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                         const selectedRes = residents.find(r => r.id === residentId);
                         if (selectedRes && (!paymentType || paymentType === 'اشتراك شهري' || paymentType.includes('اشتراك'))) {
                           const fee = targetActivityType !== selectedRes.activityType
-                            ? getActivityDefaultFee(targetActivityType)
-                            : getResidentMonthlyFee(selectedRes, defaultMonthlyFee, activityDefaultFees);
+                            ? getActivityDefaultFee(targetActivityType, `${currentYear}-${month}`)
+                            : getResidentMonthlyFee(selectedRes, defaultMonthlyFee, activityDefaultFees, `${currentYear}-${month}`, payments, activityFeePeriods);
                           const totalMonthsCount = coveredMonths.length > 0 ? coveredMonths.length : 1;
                           setAmount(fee * totalMonthsCount);
                         }
@@ -2505,9 +2544,9 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                       if (selectedRes && (!paymentType || paymentType === 'اشتراك شهري' || isMonthlySubscriptionType(paymentType))) {
                         const targetYearNum = Number(currentYear) || new Date().getFullYear();
                         const targetMonthNum = parseInt(newM, 10) || 1;
-                        const prescribed = getPrescribedFeeForMonth(selectedRes, targetYearNum, targetMonthNum, payments, defaultMonthlyFee, activityDefaultFees);
+                        const prescribed = getPrescribedFeeForMonth(selectedRes, targetYearNum, targetMonthNum, payments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods, customUnitFeePeriods);
                         const fee = targetActivityType !== selectedRes.activityType
-                          ? getActivityDefaultFee(targetActivityType)
+                          ? getActivityDefaultFee(targetActivityType, `${targetYearNum}-${String(targetMonthNum).padStart(2, '0')}`)
                           : prescribed.monthlyFee;
                         const totalMonthsCount = (isAggregatedCollection && coveredMonths.length > 0) ? coveredMonths.length : 1;
                         const calcDue = fee * totalMonthsCount;
@@ -3401,7 +3440,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                         p.status === 'مرفوض';
 
                       return (
-                        <tr key={p.id} className={`border-b border-slate-200 ${isCancelled ? 'bg-rose-50/50' : isUncollected ? 'bg-amber-50/50' : ''}`}>
+                        <tr key={p.id} className={`border-b border-slate-200 ${isCancelled ? 'bg-rose-50/50' : (isUncollected && p.amount === 0) ? 'bg-slate-100/80 text-slate-600' : isUncollected ? 'bg-amber-50/50' : ''}`}>
                           <td className="border border-slate-300 p-2 text-center font-bold text-slate-500">{rowCounter}</td>
                           <td className="border border-slate-300 p-2 text-center font-black text-blue-900">وحدة {p.flatNumber}</td>
                           <td className="border border-slate-300 p-2 font-bold text-slate-900">
@@ -3422,6 +3461,8 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                           <td className={`border border-slate-300 p-2 text-center font-black ${
                             isCancelled
                               ? 'text-rose-700 line-through opacity-80'
+                              : (isUncollected && p.amount === 0)
+                              ? 'text-slate-600'
                               : isUncollected
                               ? 'text-amber-800'
                               : 'text-emerald-700'
@@ -3432,7 +3473,11 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                             {isCancelled ? (
                               <span className="px-1.5 py-0.5 bg-rose-100 text-rose-800 rounded font-black border border-rose-200">🚫 لاغي</span>
                             ) : isUncollected ? (
-                              <span className="px-1.5 py-0.5 bg-amber-100 text-amber-900 rounded font-black border border-amber-200">⏳ معلق</span>
+                              p.amount === 0 ? (
+                                <span className="px-1.5 py-0.5 bg-slate-200 text-slate-700 rounded font-black border border-slate-300">⚪ معفي</span>
+                              ) : (
+                                <span className="px-1.5 py-0.5 bg-amber-100 text-amber-900 rounded font-black border border-amber-200">⏳ معلق</span>
+                              )
                             ) : p.receiptNumber ? (
                               `#${p.receiptNumber}`
                             ) : (

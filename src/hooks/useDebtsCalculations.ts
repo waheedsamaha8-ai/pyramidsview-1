@@ -3,6 +3,7 @@ import { Resident, Payment, AppConfig } from '../types';
 import { 
   calculateResidentFinancials, 
   buildPaymentLookupIndex,
+  getCarriedPreviousBalance,
   ResidentFinancials,
   PaymentLookupIndex 
 } from '../utils/financialCalculations';
@@ -96,13 +97,38 @@ export function useDebtsCalculations(
         activityDefaultFees,
         targetYear,
         effectiveEndDate,
-        activityFeePeriods
+        activityFeePeriods,
+        config?.customUnitFeePeriods
       );
 
-      // When scoped to a single active period, prior outside debt is not added to this period's debt
-      const carriedBal = targetYear !== undefined
-        ? fin.carriedPreviousBalance
-        : (activePeriod ? 0 : (res.initialBalance || 0));
+      // Determine carried balance from prior accounting periods or unit's initial starting balance
+      let carriedBal = 0;
+      if (targetYear !== undefined) {
+        carriedBal = fin.carriedPreviousBalance;
+      } else if (activePeriod) {
+        const sYear = parseYearMonth(activePeriod.startDate)?.year || new Date(effectiveStartDate).getFullYear();
+        carriedBal = getCarriedPreviousBalance(
+          res,
+          sYear,
+          paymentIndex,
+          config?.accountingStartDate,
+          defaultMonthlyFee,
+          activityDefaultFees,
+          activityFeePeriods,
+          config?.customUnitFeePeriods
+        );
+      } else {
+        carriedBal = res.initialBalance || 0;
+      }
+
+      // Net Debt formula:
+      // صافي الدين = (المستحق - المسدد) + تحصيلات أخرى غير مسددة + الرصيد السابق (سواء كان بالموجب أو بالسالب)
+      const periodNetDebt = (fin.periodExpectedDues || 0) - (fin.monthlyPaid || 0) + (fin.otherCollectionsDebt || 0);
+      const calculatedTotalNetDebt = periodNetDebt - carriedBal;
+      const debt = calculatedTotalNetDebt > 0 ? Math.round(calculatedTotalNetDebt) : 0;
+      const hasDebt = calculatedTotalNetDebt > 0 || fin.otherCollectionsDebt > 0 || carriedBal < 0;
+      const isSurplus = calculatedTotalNetDebt < 0 || (fin.monthlyPaid > fin.periodExpectedDues && fin.otherCollectionsDebt === 0 && carriedBal >= 0);
+      const isVisible = hasDebt || isSurplus || (fin.periodExpectedDues > 0 || fin.monthlyPaid > 0 || carriedBal !== 0);
 
       const item: ResidentDebtItem = {
         resident: res,
@@ -110,20 +136,19 @@ export function useDebtsCalculations(
         carriedBalance: carriedBal,
       };
 
-      const prevDebt = carriedBal < 0 ? Math.abs(carriedBal) : 0;
-      const rowDebt = Math.max(0, prevDebt + (fin.unpaidMonthsDues || 0) + (fin.otherCollectionsDebt || 0));
-      const hasDebt = fin.netBalance < 0 || fin.totalDueForPayment > 0 || fin.unpaidMonthsCount > 0 || fin.totalArrears > 0 || rowDebt > 0;
-
-      if (hasDebt) {
+      if (isVisible) {
         debtors.push(item);
-        const debt = rowDebt > 0 ? rowDebt : (fin.totalDueForPayment > 0 ? fin.totalDueForPayment : Math.abs(fin.netBalance));
-        debtSum += debt;
-        if (!maxDebt || debt > (maxDebt.financials.totalDueForPayment || Math.abs(maxDebt.financials.netBalance))) {
-          maxDebt = item;
+        if (debt > 0) {
+          debtSum += debt;
+          if (!maxDebt || debt > (maxDebt.financials.totalDueForPayment || Math.abs(maxDebt.financials.netBalance))) {
+            maxDebt = item;
+          }
         }
-      } else if (fin.netBalance > 0) {
+      }
+
+      if (calculatedTotalNetDebt < 0) {
         surplus.push(item);
-        surplusSum += fin.netBalance;
+        surplusSum += Math.abs(calculatedTotalNetDebt);
       }
     });
 

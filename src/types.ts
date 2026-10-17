@@ -68,6 +68,7 @@ export interface Resident {
   tenantPhone?: string;
   monthlyFee?: number;
   initialBalance?: number;
+  exportedYearBalances?: Record<string | number, number>;
   // Account Credentials & WhatsApp Invitations
   email?: string;
   password?: string;
@@ -196,6 +197,18 @@ export interface AppConfig {
   activityFeePeriods?: ActivityFeePeriod[]; // Managed pricing periods with fees per activity
   buildingLayout?: FloorConfig[];
   adminResidentProfile?: AdminResidentProfile;
+  customUnitFeePeriods?: CustomUnitFeePeriod[];
+}
+
+export interface CustomUnitFeePeriod {
+  id: string;
+  title: string;
+  startYear: number;
+  startMonth: number;
+  endYear?: number;
+  endMonth?: number;
+  isCurrent?: boolean; // عمود الفترة الحالي (حتى تاريخه)
+  unitFees: Record<string, number>;
 }
 
 export interface ActivityFeePeriod {

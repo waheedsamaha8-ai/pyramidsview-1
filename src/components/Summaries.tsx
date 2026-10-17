@@ -1087,7 +1087,7 @@ export const Summaries: React.FC<SummariesProps> = ({
                           const status = getSubscriptionStatus(res.id, m);
                           const isMulti = status.paymentsList.length > 1;
                           const isQuarterEnd = idx === 2 || idx === 5 || idx === 8;
-                          const histAct = getHistoricalActivityForDate(res, `${currentYear}-${m}`, defaultMonthlyFee, activityDefaultFees);
+                          const histAct = getHistoricalActivityForDate(res, `${currentYear}-${m}`, defaultMonthlyFee, activityDefaultFees, config?.activityFeePeriods);
                           const isNoFeeActivity = Boolean(
                             histAct.activityType === 'بدون تحصيل' ||
                             histAct.activityType === 'بدون تشطيب' ||
@@ -1097,12 +1097,12 @@ export const Summaries: React.FC<SummariesProps> = ({
                           );
 
                           let cellBgClass = 'bg-red-200 text-red-950 hover:bg-red-300 border-red-300 shadow-2xs font-black';
-                          if (status.paid) {
+                          if (isNoFeeActivity || histAct.monthlyFee === 0) {
+                            cellBgClass = 'bg-slate-300 text-slate-900 hover:bg-slate-400 border-slate-400 shadow-2xs font-black';
+                          } else if (status.paid) {
                             cellBgClass = 'bg-emerald-200 text-emerald-950 hover:bg-emerald-300 border-emerald-300 shadow-2xs font-black';
                           } else if (status.pending) {
                             cellBgClass = 'bg-amber-200 text-amber-950 hover:bg-amber-300 border-amber-400 shadow-2xs font-black';
-                          } else if (isNoFeeActivity) {
-                            cellBgClass = 'bg-slate-300 text-slate-900 hover:bg-slate-400 border-slate-400 shadow-2xs font-black';
                           }
 
                           return (
@@ -1248,7 +1248,7 @@ export const Summaries: React.FC<SummariesProps> = ({
               <div className="p-3 space-y-2 overflow-y-auto flex-1 min-h-0">
                 {/* Resident Summary Bar */}
                 {(() => {
-                  const cellHistAct = getHistoricalActivityForDate(selectedCell.resident, `${currentYear}-${selectedCell.month}`, defaultMonthlyFee, activityDefaultFees);
+                  const cellHistAct = getHistoricalActivityForDate(selectedCell.resident, `${currentYear}-${selectedCell.month}`, defaultMonthlyFee, activityDefaultFees, config?.activityFeePeriods);
                   return (
                     <div className="bg-blue-50/50 px-3 py-1.5 rounded-lg border border-blue-100/60 flex items-center justify-between gap-2 shrink-0 flex-wrap">
                       <div className="flex items-center gap-1.5">

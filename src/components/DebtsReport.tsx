@@ -39,7 +39,9 @@ import {
   Clock,
   Sparkles,
   Download,
-  Filter
+  Filter,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 
 interface DebtsReportProps {
@@ -93,6 +95,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
   const [selectedYearFilter, setSelectedYearFilter] = useState<'all' | number>('all');
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportSuccessMsg, setExportSuccessMsg] = useState<string | null>(null);
+  const [hideCarriedBalance, setHideCarriedBalance] = useState<boolean>(false);
 
   // Track sent WhatsApp reminders
   const [remindedTargets, setRemindedTargets] = useState<Record<string, boolean>>(() => {
@@ -182,11 +185,36 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
     }
   }, [availableYears, selectedYearFilter]);
 
-  const stats = useMemo(() => ({
-    totalDebt,
-    totalDebtorsCount,
-    maxDebtItem,
-  }), [totalDebt, totalDebtorsCount, maxDebtItem]);
+  const stats = useMemo(() => {
+    let debtSum = 0;
+    let debtorsCount = 0;
+    let maxItem: typeof allDebtorsList[0] | null = null;
+    let maxVal = -1;
+
+    allDebtorsList.forEach((item) => {
+      const cBal = hideCarriedBalance ? 0 : (item.carriedBalance || 0);
+      const netPeriodDebt = (item.financials.periodExpectedDues || 0) - (item.financials.monthlyPaid || 0) + (item.financials.otherCollectionsDebt || 0);
+      const calculatedNetDebt = netPeriodDebt - cBal;
+      const debt = calculatedNetDebt > 0 ? Math.round(calculatedNetDebt) : 0;
+
+      if (debt > 0) {
+        debtSum += debt;
+        debtorsCount += 1;
+        if (debt > maxVal) {
+          maxVal = debt;
+          maxItem = item;
+        }
+      }
+    });
+
+    return {
+      totalDebt: debtSum,
+      totalDebtorsCount: debtorsCount,
+      maxDebtItem: maxItem,
+    };
+  }, [allDebtorsList, hideCarriedBalance]);
+
+
 
   const recordedDebtMonthsCount = useMemo(() => {
     if (selectedYearFilter === 'all') {
@@ -254,13 +282,17 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
             ? a.resident.name.localeCompare(b.resident.name, 'ar')
             : b.resident.name.localeCompare(a.resident.name, 'ar');
         } else {
-          // Debt is netBalance (negative). Largest debt = smallest netBalance
+          const getNetDebt = (item: typeof a) => {
+            const cBal = hideCarriedBalance ? 0 : (item.carriedBalance || 0);
+            const netPeriodDebt = (item.financials.periodExpectedDues || 0) - (item.financials.monthlyPaid || 0) + (item.financials.otherCollectionsDebt || 0);
+            return netPeriodDebt - cBal;
+          };
           return sortOrder === 'asc'
-            ? b.financials.netBalance - a.financials.netBalance // smallest debt first
-            : a.financials.netBalance - b.financials.netBalance; // largest debt first
+            ? getNetDebt(a) - getNetDebt(b)
+            : getNetDebt(b) - getNetDebt(a);
         }
       });
-  }, [allDebtorsList, searchTerm, selectedActivity, sortBy, sortOrder]);
+  }, [allDebtorsList, searchTerm, selectedActivity, sortBy, sortOrder, hideCarriedBalance]);
 
   const effectiveFloorConfigs = useMemo(() => {
     let base: FloorConfig[] = [];
@@ -503,7 +535,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
       { label: 'إجمالي المبلغ المتأخر المطلوب', value: `${Math.round(debtAmount).toLocaleString()} ج.م`, isHighlight: true, color: '#b91c1c' }
     ];
 
-    const histAct = getHistoricalActivityForDate(resident, `${currentYearNum}-${currentMonthNum}`, config?.defaultMonthlyFee, config?.activityDefaultFees);
+    const histAct = getHistoricalActivityForDate(resident, `${currentYearNum}-${currentMonthNum}`, config?.defaultMonthlyFee, config?.activityDefaultFees, config?.activityFeePeriods);
     const historical = getHistoricalOccupantForDate(resident, `${currentYearNum}-${currentMonthNum}`);
 
     setClaimModalData({
@@ -667,21 +699,25 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
               <span className="text-xs sm:text-sm font-black truncate">ترحيل الأرصدة السابقة</span>
               <span className="bg-emerald-500 text-white text-[8px] sm:text-[9px] font-black px-1.5 py-0.2 rounded-md">آلي مفعل</span>
             </div>
-            <p className="text-[9px] sm:text-[11px] text-blue-200/90 font-medium truncate sm:whitespace-normal">
-              يتم ترحيل عجز وفائض الأرصدة بين السنوات المالية تلقائياً دون تدخل يدوي.
-            </p>
           </div>
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">
           <button
-            onClick={handleInstantRefresh}
-            disabled={isRefreshing}
-            className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white border border-emerald-500 rounded-xl text-[10px] sm:text-xs font-black transition flex items-center gap-1 cursor-pointer shrink-0 shadow-2xs whitespace-nowrap"
-            title="تحديث حالات السداد والمديونيات فورياً طبقاً لآخر التحصيلات المسجلة"
+            type="button"
+            onClick={() => setHideCarriedBalance(!hideCarriedBalance)}
+            className={`p-2 active:scale-95 rounded-xl transition flex items-center justify-center cursor-pointer shrink-0 shadow-2xs border ${
+              hideCarriedBalance 
+                ? 'bg-amber-500 hover:bg-amber-600 text-slate-950 border-amber-400' 
+                : 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-500'
+            }`}
+            title={hideCarriedBalance ? 'إظهار الرصيد السابق وحساب التراكمي' : 'إخفاء الرصيد السابق وحساب الفترة الحالية فقط'}
           >
-            <RefreshCw className={`w-3 h-3 text-white ${isRefreshing ? 'animate-spin' : ''}`} />
-            <span>{isRefreshing ? 'جاري التحديث...' : 'تحديث واحتساب فوري'}</span>
+            {hideCarriedBalance ? (
+              <Eye className="w-4 h-4 text-slate-950" />
+            ) : (
+              <EyeOff className="w-4 h-4 text-white" />
+            )}
           </button>
 
           {role === 'ADMIN' && onSetAllResidents && (
@@ -895,24 +931,29 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                   {/* Activity Type */}
                   <th className="w-14 sm:w-16 px-1 py-1.5 text-center whitespace-nowrap text-[10px]">النشاط</th>
 
-                  {/* Monthly Fee */}
-                  <th className="w-16 sm:w-18 px-1 py-1.5 text-center whitespace-nowrap text-[10px]">الاشتراك</th>
-
                   {/* Carried Previous Balance (Exported from previous years) */}
-                  <th className="w-16 sm:w-20 px-1 py-1.5 text-center whitespace-nowrap text-[10px]">
-                    {selectedYearFilter !== 'all' && selectedYearFilter > startYear 
-                      ? `رصيد (${selectedYearFilter - 1})` 
-                      : 'رصيد سابق'}
+                  {!hideCarriedBalance && (
+                    <th className="w-16 sm:w-20 px-1 py-1.5 text-center whitespace-nowrap text-[10px]">
+                      {selectedYearFilter !== 'all' && selectedYearFilter > startYear 
+                        ? `رصيد (${selectedYearFilter - 1})` 
+                        : 'رصيد سابق'}
+                    </th>
+                  )}
+
+                  {/* المستحقات - إجمالي الاشتراكات الشهرية المستحقة خلال الفترة */}
+                  <th className="min-w-[95px] max-w-[130px] px-1.5 py-1.5 text-center whitespace-nowrap text-[10px]">
+                    المستحقات
                   </th>
 
-                  {/* Months Elapsed & Late */}
-                  <th className="w-16 sm:w-20 px-1 py-1.5 text-center whitespace-nowrap text-[10px]">المتأخرات</th>
+                  {/* المسدد - مجموع الاشتراكات الشهرية المسددة */}
+                  <th className="w-16 sm:w-20 px-1 py-1.5 text-center whitespace-nowrap text-[10px]">
+                    المسدد
+                  </th>
 
-                  {/* Late Amount for Unpaid Months */}
-                  <th className="w-16 sm:w-20 px-1 py-1.5 text-center whitespace-nowrap text-[10px]">مبلغ متأخر</th>
-
-                  {/* Total Paid */}
-                  <th className="w-16 sm:w-20 px-1 py-1.5 text-center whitespace-nowrap text-[10px]">المسدد</th>
+                  {/* تحصيلات أخرى (مسدد وغير مسدد) */}
+                  <th className="min-w-[90px] max-w-[125px] px-1.5 py-1.5 text-center whitespace-nowrap text-[10px]">
+                    تحصيلات أخرى
+                  </th>
 
                   {/* Net Debt (Sorted) */}
                   <th 
@@ -938,7 +979,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
               <tbody className="divide-y divide-slate-100 text-xs font-bold text-slate-800">
                 {residentsWithDebt.length === 0 ? (
                   <tr>
-                    <td colSpan={role !== 'RESIDENT' ? 11 : 10} className="px-4 py-12 text-center text-slate-400 font-bold">
+                    <td colSpan={role !== 'RESIDENT' ? (hideCarriedBalance ? 9 : 10) : (hideCarriedBalance ? 8 : 9)} className="px-4 py-12 text-center text-slate-400 font-bold">
                       <div className="flex flex-col items-center justify-center gap-2">
                         <CheckCircle className="w-10 h-10 text-emerald-500" />
                         <p className="text-sm font-black text-slate-800">لا توجد أي مديونيات متأخرة على هذه الوحدات!</p>
@@ -951,7 +992,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                     <React.Fragment key={group.floor.id}>
                       {/* Floor Separator Row (Matching ResidentsList) */}
                       <tr className="bg-slate-200/90 dark:bg-[#16223b] border-y-2 border-slate-300 dark:border-slate-700">
-                        <td colSpan={role !== 'RESIDENT' ? 11 : 10} className="py-2.5 px-4 text-right border-r-4 border-r-blue-700 dark:border-r-blue-400 sticky right-0 z-5 bg-slate-200/95 dark:bg-[#16223b]/95">
+                        <td colSpan={role !== 'RESIDENT' ? (hideCarriedBalance ? 9 : 10) : (hideCarriedBalance ? 8 : 9)} className="py-2.5 px-4 text-right border-r-4 border-r-blue-700 dark:border-r-blue-400 sticky right-0 z-5 bg-slate-200/95 dark:bg-[#16223b]/95">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2.5">
                               <div className="w-6 h-6 rounded-lg bg-blue-900 dark:bg-blue-600 text-white flex items-center justify-center shadow-2xs">
@@ -973,12 +1014,16 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
 
                       {/* Floor Residents */}
                       {group.debtors.map(({ resident, financials, carriedBalance }) => {
-                        const prevDebt = carriedBalance < 0 ? Math.abs(carriedBalance) : (carriedBalance > 0 ? -carriedBalance : 0);
-                        const rowDebt = Math.max(0, prevDebt + (financials.unpaidMonthsDues || 0) + (financials.otherCollectionsDebt || 0));
-                        const debtAmount = Math.round(rowDebt || Math.abs(financials.netBalance));
+                        const cBal = hideCarriedBalance ? 0 : (carriedBalance || 0);
+                        const netPeriodDebt = (financials.periodExpectedDues || 0) - (financials.monthlyPaid || 0) + (financials.otherCollectionsDebt || 0);
+                        const calculatedNetDebt = netPeriodDebt - cBal;
+                        const isSurplus = calculatedNetDebt < 0 || (financials.monthlyPaid > financials.periodExpectedDues && financials.otherCollectionsDebt === 0 && cBal >= 0);
+                        const debtAmount = Math.max(0, Math.round(calculatedNetDebt));
+                        const surplusAmount = Math.max(0, Math.round(-calculatedNetDebt));
+
                         const displayNotes = (resident.notes || '').includes('توليد تلقائي') ? '' : (resident.notes || '');
                         const historical = getHistoricalOccupantForDate(resident, selectedYearFilter === 'all' ? currentYear : selectedYearFilter);
-                        const histAct = getHistoricalActivityForDate(resident, selectedYearFilter === 'all' ? currentYear : selectedYearFilter, config?.defaultMonthlyFee, config?.activityDefaultFees);
+                        const histAct = getHistoricalActivityForDate(resident, selectedYearFilter === 'all' ? currentYear : selectedYearFilter, config?.defaultMonthlyFee, config?.activityDefaultFees, config?.activityFeePeriods);
                         const ownerName = historical.ownerName || resident.name;
                         const tenantName = historical.tenantName !== undefined ? historical.tenantName : (resident.ownershipType === 'إيجار' ? resident.tenantName : '');
                         const hasTenant = Boolean(tenantName && tenantName.trim());
@@ -992,6 +1037,8 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                             className={`group transition cursor-pointer ${
                               isSelected 
                                 ? 'bg-yellow-200 hover:bg-yellow-200/90 border-y-2 border-yellow-400 font-semibold text-slate-900' 
+                                : isSurplus
+                                ? 'bg-emerald-50/80 hover:bg-emerald-100/90 border-y border-emerald-200/80 text-slate-900'
                                 : 'hover:bg-red-50/20'
                             }`}
                           >
@@ -999,6 +1046,8 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                             <td className={`w-12 sm:w-14 px-1 py-1.5 font-black whitespace-nowrap sticky right-0 z-5 border-l border-slate-100 shadow-xs text-center transition ${
                               isSelected 
                                 ? 'bg-yellow-200 text-amber-950 font-black' 
+                                : isSurplus
+                                ? 'bg-emerald-100/90 text-emerald-950 font-black'
                                 : 'bg-white group-hover:bg-slate-50 text-blue-900'
                             }`}>
                               <span className="text-[10px] sm:text-xs">وحدة {resident.flatNumber}</span>
@@ -1026,85 +1075,76 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                               </span>
                             </td>
 
-                            {/* Monthly Fee */}
-                            <td className="w-16 sm:w-18 px-1 py-1.5 text-center font-bold text-slate-700 whitespace-nowrap text-xs">
-                              {financials.monthlyFee} ج.م
-                            </td>
-
                             {/* Carried Previous Balance */}
-                            <td className="w-16 sm:w-20 px-1 py-1.5 text-center whitespace-nowrap">
-                              {carriedBalance < 0 ? (
-                                <span className="inline-flex items-center gap-0.5 px-1 py-0.2 bg-rose-50 text-rose-700 border border-rose-200 rounded font-black text-[10px]" dir="ltr">
-                                  <ArrowDownRight className="w-2.5 h-2.5" />
-                                  <span>-{Math.abs(carriedBalance).toLocaleString()} ج.م</span>
-                                </span>
-                              ) : carriedBalance > 0 ? (
-                                <span className="inline-flex items-center gap-0.5 px-1 py-0.2 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded font-black text-[10px]" dir="ltr">
-                                  <ArrowUpRight className="w-2.5 h-2.5" />
-                                  <span>+{carriedBalance.toLocaleString()} ج.م</span>
-                                </span>
-                              ) : (
-                                <span className="text-slate-300 font-normal text-xs">—</span>
-                              )}
-                            </td>
-
-                            {/* Late Months Due */}
-                            <td className="w-16 sm:w-20 px-1 py-1.5 text-center whitespace-nowrap text-[10.5px]">
-                              {financials.unpaidMonthsCount > 0 ? (
-                                <>
-                                  <span className="font-black text-rose-700">{financials.unpaidMonthsCount} شهر</span>
-                                  {financials.paidMonthsCount > 0 && (
-                                    <span className="block text-[8.5px] font-bold text-slate-400">
-                                      (مسدد {financials.paidMonthsCount} من {financials.billableMonthsCount || financials.monthsElapsed})
-                                    </span>
-                                  )}
-                                </>
-                              ) : (
-                                <div className="flex flex-col items-center">
-                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                    لا يوجد
+                            {!hideCarriedBalance && (
+                              <td className="w-16 sm:w-20 px-1 py-1.5 text-center whitespace-nowrap">
+                                {carriedBalance < 0 ? (
+                                  <span className="inline-flex items-center gap-0.5 px-1 py-0.2 bg-rose-50 text-rose-700 border border-rose-200 rounded font-black text-[10px]" dir="ltr">
+                                    <ArrowDownRight className="w-2.5 h-2.5" />
+                                    <span>-{Math.abs(carriedBalance).toLocaleString()} ج.م</span>
                                   </span>
-                                  <span className="text-[8px] font-bold text-slate-400 mt-0.5">
-                                    (مسدد بالكامل)
+                                ) : carriedBalance > 0 ? (
+                                  <span className="inline-flex items-center gap-0.5 px-1 py-0.2 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded font-black text-[10px]" dir="ltr">
+                                    <ArrowUpRight className="w-2.5 h-2.5" />
+                                    <span>+{carriedBalance.toLocaleString()} ج.م</span>
                                   </span>
-                                </div>
-                              )}
-                            </td>
+                                ) : (
+                                  <span className="text-slate-300 font-normal text-xs">—</span>
+                                )}
+                              </td>
+                            )}
 
-                            {/* Late Amount for Unpaid Months */}
-                            <td className="w-16 sm:w-20 px-1 py-1.5 text-center font-black whitespace-nowrap text-xs">
-                              {financials.unpaidMonthsDues > 0 ? (
-                                <span className="text-rose-700">{Math.round(financials.unpaidMonthsDues).toLocaleString()} ج.م</span>
-                              ) : (
-                                <span className="text-slate-300 font-normal">—</span>
-                              )}
-                            </td>
-
-                            {/* Total Paid */}
-                            <td className="w-16 sm:w-20 px-1 py-1.5 text-center whitespace-nowrap">
+                            {/* المستحقات - إجمالي الاشتراكات الشهرية المستحقة خلال الفترة مع التفصيل */}
+                            <td className="min-w-[95px] max-w-[130px] px-1.5 py-1.5 text-center whitespace-nowrap">
                               <div className="flex flex-col items-center">
-                                <span className="text-emerald-700 font-black text-xs">
-                                  {Math.round(financials.totalPaid).toLocaleString()} ج.م
+                                <span className="font-black text-slate-800 text-xs">
+                                  {Math.round(financials.periodExpectedDues || 0).toLocaleString()} ج.م
                                 </span>
-                                {financials.otherCollectionsPaid > 0 && (
-                                  <span className="text-[8.5px] text-blue-700 font-bold">
-                                    (منها {Math.round(financials.otherCollectionsPaid)} أخرى)
+                                <span className="text-[8.5px] font-semibold text-slate-500 whitespace-nowrap" dir="rtl">
+                                  {financials.expectedDuesBreakdownText}
+                                </span>
+                              </div>
+                            </td>
+
+                            {/* المسدد - مجموع الاشتراكات الشهرية المسددة */}
+                            <td className="w-16 sm:w-20 px-1 py-1.5 text-center whitespace-nowrap">
+                              <span className="text-emerald-700 font-black text-xs">
+                                {Math.round(financials.monthlyPaid || 0).toLocaleString()} ج.م
+                              </span>
+                            </td>
+
+                            {/* تحصيلات أخرى (المسدد وتحته باللون الأحمر غير المسدد) */}
+                            <td className="min-w-[90px] max-w-[125px] px-1.5 py-1.5 text-center whitespace-nowrap">
+                              <div className="flex flex-col items-center">
+                                <span className="text-blue-900 dark:text-blue-400 font-black text-xs">
+                                  {financials.otherCollectionsPaid > 0
+                                    ? `${Math.round(financials.otherCollectionsPaid).toLocaleString()} ج.م`
+                                    : '0 ج.م'}
+                                </span>
+                                {financials.otherCollectionsDebt > 0 ? (
+                                  <span className="text-[8.5px] font-bold text-rose-600 whitespace-nowrap">
+                                    {Math.round(financials.otherCollectionsDebt).toLocaleString()} ج.م غير مسدد
+                                  </span>
+                                ) : (
+                                  <span className="text-[8px] font-medium text-slate-400">
+                                    لا يوجد غير مسدد
                                   </span>
                                 )}
                               </div>
                             </td>
 
-                            {/* Net Remaining Debt in Red */}
+                            {/* صافي الدين */}
                             <td className={`w-20 sm:w-22 px-1 py-1.5 text-center font-black transition-all text-xs whitespace-nowrap border-x ${
                               isSelected 
-                                ? 'bg-yellow-300/60 border-yellow-400 text-rose-950' 
+                                ? 'bg-yellow-300/60 border-yellow-400 text-slate-950' 
+                                : isSurplus
+                                ? 'text-emerald-700 bg-emerald-100/90 group-hover:bg-emerald-200/90 border-emerald-200'
                                 : 'text-rose-700 bg-rose-50/70 group-hover:bg-rose-100/80 border-rose-100'
                             }`}>
-                              <span dir="ltr">-{debtAmount.toLocaleString()} ج.م</span>
-                              {financials.otherCollectionsDebt > 0 && (
-                                <span className="block text-[8.5px] text-rose-800 font-bold">
-                                  (منها {Math.round(financials.otherCollectionsDebt)} أخرى)
-                                </span>
+                              {isSurplus ? (
+                                <span dir="ltr">+{surplusAmount.toLocaleString()} ج.م</span>
+                              ) : (
+                                <span dir="ltr">-{debtAmount.toLocaleString()} ج.م</span>
                               )}
                             </td>
 
@@ -1213,28 +1253,43 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                       ({residentsWithDebt.length} وحدة متأخرة)
                     </td>
                     <td className="px-3 py-3.5 text-center text-slate-400 font-bold whitespace-nowrap">—</td>
-                    <td className="px-3 py-3.5 text-center text-slate-700 font-black whitespace-nowrap">
-                      {Math.round(residentsWithDebt.reduce((s, r) => s + (r.financials.monthlyFee || 0), 0)).toLocaleString()} ج.م
+                    {/* رصيد سابق مرحل */}
+                    {!hideCarriedBalance && (
+                      <td className="px-3 py-3.5 text-center font-black whitespace-nowrap">
+                        {(() => {
+                          const totalCarried = residentsWithDebt.reduce((s, r) => s + (r.carriedBalance || 0), 0);
+                          if (totalCarried < 0) return <span className="text-rose-700" dir="ltr">-{Math.abs(Math.round(totalCarried)).toLocaleString()} ج.م</span>;
+                          if (totalCarried > 0) return <span className="text-emerald-700" dir="ltr">+{Math.round(totalCarried).toLocaleString()} ج.م</span>;
+                          return <span className="text-slate-300">—</span>;
+                        })()}
+                      </td>
+                    )}
+                    {/* المستحقات */}
+                    <td className="px-3 py-3.5 text-center text-slate-800 font-black whitespace-nowrap">
+                      {Math.round(residentsWithDebt.reduce((s, r) => s + (r.financials.periodExpectedDues || 0), 0)).toLocaleString()} ج.م
                     </td>
-                    <td className="px-3 py-3.5 text-center font-black whitespace-nowrap">
-                      {(() => {
-                        const totalCarried = residentsWithDebt.reduce((s, r) => s + (r.carriedBalance || 0), 0);
-                        if (totalCarried < 0) return <span className="text-rose-700" dir="ltr">-{Math.abs(Math.round(totalCarried)).toLocaleString()} ج.م</span>;
-                        if (totalCarried > 0) return <span className="text-emerald-700" dir="ltr">+{Math.round(totalCarried).toLocaleString()} ج.م</span>;
-                        return <span className="text-slate-300">—</span>;
-                      })()}
-                    </td>
-                    <td className="px-3 py-3.5 text-center text-rose-800 font-black whitespace-nowrap">
-                      {residentsWithDebt.reduce((s, r) => s + (r.financials.unpaidMonthsCount || 0), 0)} شهر
-                    </td>
-                    <td className="px-3 py-3.5 text-center text-slate-900 font-black whitespace-nowrap">
-                      {Math.round(residentsWithDebt.reduce((s, r) => s + (r.financials.unpaidMonthsDues || 0), 0)).toLocaleString()} ج.م
-                    </td>
+                    {/* المسدد */}
                     <td className="px-3 py-3.5 text-center text-emerald-700 font-black whitespace-nowrap">
-                      {Math.round(residentsWithDebt.reduce((s, r) => s + (r.financials.totalPaid || 0), 0)).toLocaleString()} ج.م
+                      {Math.round(residentsWithDebt.reduce((s, r) => s + (r.financials.monthlyPaid || 0), 0)).toLocaleString()} ج.م
                     </td>
+                    {/* تحصيلات أخرى */}
+                    <td className="px-3 py-3.5 text-center whitespace-nowrap">
+                      <div className="flex flex-col items-center">
+                        <span className="text-blue-900 font-black text-xs">
+                          {Math.round(residentsWithDebt.reduce((s, r) => s + (r.financials.otherCollectionsPaid || 0), 0)).toLocaleString()} ج.م
+                        </span>
+                        <span className="text-[9px] font-bold text-rose-600">
+                          {Math.round(residentsWithDebt.reduce((s, r) => s + (r.financials.otherCollectionsDebt || 0), 0)).toLocaleString()} غير مسدد
+                        </span>
+                      </div>
+                    </td>
+                    {/* صافي الدين */}
                     <td className="px-3 py-3.5 text-center text-rose-700 font-black text-xs sm:text-sm whitespace-nowrap bg-rose-100/90 shadow-2xs border-x border-rose-200" dir="ltr">
-                      -{Math.round(residentsWithDebt.reduce((sum, item) => sum + Math.abs(item.financials.netBalance), 0)).toLocaleString()} ج.م
+                      -{Math.round(residentsWithDebt.reduce((sum, item) => {
+                        const cB = hideCarriedBalance ? 0 : (item.carriedBalance || 0);
+                        const nP = (item.financials.periodExpectedDues || 0) - (item.financials.monthlyPaid || 0) + (item.financials.otherCollectionsDebt || 0);
+                        return sum + Math.max(0, nP - cB);
+                      }, 0)).toLocaleString()} ج.م
                     </td>
                     <td className="px-3 py-3.5 text-center text-slate-400 whitespace-nowrap">—</td>
                     {role !== 'RESIDENT' && (
@@ -1280,9 +1335,15 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                 {/* Cards Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
                   {group.debtors.map(({ resident, financials, carriedBalance }) => {
-                    const debtAmount = Math.round(Math.abs(financials.netBalance));
+                    const cBal = hideCarriedBalance ? 0 : (carriedBalance || 0);
+                    const netPeriodDebt = (financials.periodExpectedDues || 0) - (financials.monthlyPaid || 0) + (financials.otherCollectionsDebt || 0);
+                    const calculatedNetDebt = netPeriodDebt - cBal;
+                    const isSurplus = calculatedNetDebt < 0 || (financials.monthlyPaid > financials.periodExpectedDues && financials.otherCollectionsDebt === 0 && cBal >= 0);
+                    const debtAmount = Math.max(0, Math.round(calculatedNetDebt));
+                    const surplusAmount = Math.max(0, Math.round(-calculatedNetDebt));
+
                     const displayNotes = (resident.notes || '').includes('توليد تلقائي') ? '' : (resident.notes || '');
-                    const histAct = getHistoricalActivityForDate(resident, selectedYearFilter === 'all' ? currentYear : selectedYearFilter, config?.defaultMonthlyFee, config?.activityDefaultFees);
+                    const histAct = getHistoricalActivityForDate(resident, selectedYearFilter === 'all' ? currentYear : selectedYearFilter, config?.defaultMonthlyFee, config?.activityDefaultFees, config?.activityFeePeriods);
                     const isSelected = selectedItemId === resident.id;
 
                     return (
@@ -1292,6 +1353,8 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                         className={`rounded-2xl p-4 shadow-xs space-y-3 transition flex flex-col justify-between cursor-pointer ${
                           isSelected 
                             ? 'bg-yellow-200 border-2 border-yellow-400 shadow-md ring-2 ring-yellow-400 text-slate-900' 
+                            : isSurplus
+                            ? 'bg-white border-2 border-emerald-200 hover:border-emerald-300'
                             : 'bg-white border-2 border-red-100 hover:border-red-200'
                         }`}
                       >
@@ -1326,56 +1389,66 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
 
                           {/* Financial Breakdown Box */}
                           <div className="p-2.5 bg-slate-50/90 rounded-xl border border-slate-100 space-y-1.5 text-[11px]">
+                            {/* المستحقات */}
                             <div className="flex items-center justify-between">
-                              <span className="text-slate-500 font-bold">اشتراك شهري:</span>
-                              <span className="font-black text-slate-800">{financials.monthlyFee} ج.م</span>
+                              <span className="text-slate-500 font-bold">المستحقات (اشتراكات):</span>
+                              <div className="text-left">
+                                <span className="font-black text-slate-800">{Math.round(financials.periodExpectedDues || 0).toLocaleString()} ج.م</span>
+                                <span className="block text-[8.5px] text-slate-500 font-medium" dir="rtl">{financials.expectedDuesBreakdownText}</span>
+                              </div>
                             </div>
 
+                            {/* المسدد */}
                             <div className="flex items-center justify-between">
-                              <span className="text-slate-500 font-bold">رصيد سابق مرحل:</span>
-                              {carriedBalance < 0 ? (
-                                <span className="text-rose-600 font-black" dir="ltr">-{Math.abs(carriedBalance).toLocaleString()} ج.م (مديونية)</span>
-                              ) : carriedBalance > 0 ? (
-                                <span className="text-emerald-700 font-black" dir="ltr">+{carriedBalance.toLocaleString()} ج.م (فائض)</span>
-                              ) : (
-                                <span className="text-slate-400">0 ج.م</span>
-                              )}
-                            </div>
-
-                            <div className="flex items-center justify-between">
-                              <span className="text-slate-500 font-bold">الشهور المتأخرة / المطلوب:</span>
-                              <span className="font-black">
-                                {financials.unpaidMonthsCount > 0 ? (
-                                  <span className="text-rose-700 font-black">
-                                    {financials.unpaidMonthsCount} شهر ({Math.round(financials.unpaidMonthsDues).toLocaleString()} ج.م)
-                                  </span>
-                                ) : (
-                                  <span className="text-emerald-700 font-bold">لا يوجد متأخرات (مسدد بالكامل)</span>
-                                )}
-                              </span>
-                            </div>
-
-                            <div className="flex items-center justify-between">
-                              <span className="text-slate-500 font-bold">المبلغ المسدد:</span>
+                              <span className="text-slate-500 font-bold">المسدد (اشتراكات):</span>
                               <span className="font-bold text-emerald-700" dir="ltr">
-                                {Math.round(financials.totalPaid).toLocaleString()} ج.م {financials.paidMonthsCount > 0 ? `(${financials.paidMonthsCount} شهر)` : ''}
+                                {Math.round(financials.monthlyPaid || 0).toLocaleString()} ج.م {financials.paidMonthsCount > 0 ? `(${financials.paidMonthsCount} شهر)` : ''}
                               </span>
                             </div>
 
-                            {financials.otherCollectionsDebt > 0 && (
-                              <div className="flex items-center justify-between text-amber-900 bg-amber-50/80 px-2 py-1 rounded-lg border border-amber-200/70">
-                                <span className="font-bold">مديونية تحصيلات أخرى:</span>
-                                <span className="font-black">{Math.round(financials.otherCollectionsDebt).toLocaleString()} ج.م</span>
+                            {/* رصيد سابق مرحل */}
+                            {!hideCarriedBalance && (
+                              <div className="flex items-center justify-between">
+                                <span className="text-slate-500 font-bold">رصيد سابق مرحل:</span>
+                                {carriedBalance < 0 ? (
+                                  <span className="text-rose-600 font-black" dir="ltr">-{Math.abs(carriedBalance).toLocaleString()} ج.م (مديونية)</span>
+                                ) : carriedBalance > 0 ? (
+                                  <span className="text-emerald-700 font-black" dir="ltr">+{carriedBalance.toLocaleString()} ج.م (فائض)</span>
+                                ) : (
+                                  <span className="text-slate-400">0 ج.م</span>
+                                )}
                               </div>
                             )}
 
+                            {/* تحصيلات أخرى */}
+                            <div className="flex items-center justify-between text-blue-950 bg-blue-50/80 px-2 py-1 rounded-lg border border-blue-200/70">
+                              <span className="font-bold">تحصيلات أخرى:</span>
+                              <div className="text-left">
+                                <span className="font-black text-blue-900">{Math.round(financials.otherCollectionsPaid || 0).toLocaleString()} ج.م مسدد</span>
+                                {financials.otherCollectionsDebt > 0 && (
+                                  <span className="block text-[9.5px] font-bold text-rose-600">
+                                    {Math.round(financials.otherCollectionsDebt).toLocaleString()} ج.م غير مسدد
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
                             {/* Net Debt Highlight */}
                             <div className="flex items-center justify-between pt-1.5 border-t border-slate-200/80">
-                              <span className="text-rose-950 font-black text-xs">صافي المديونية:</span>
-                              <span className="inline-flex items-center gap-0.5 px-2.5 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 rounded-md font-black text-xs" dir="ltr">
-                                <ArrowDownRight className="w-3.5 h-3.5" />
-                                <span>-{debtAmount.toLocaleString()} ج.م</span>
+                              <span className={isSurplus ? "text-emerald-950 font-black text-xs" : "text-rose-950 font-black text-xs"}>
+                                {isSurplus ? 'صافي الرصيد (فائض):' : 'صافي المديونية:'}
                               </span>
+                              {isSurplus ? (
+                                <span className="inline-flex items-center gap-0.5 px-2.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md font-black text-xs" dir="ltr">
+                                  <ArrowUpRight className="w-3.5 h-3.5" />
+                                  <span>+{surplusAmount.toLocaleString()} ج.م</span>
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-0.5 px-2.5 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 rounded-md font-black text-xs" dir="ltr">
+                                  <ArrowDownRight className="w-3.5 h-3.5" />
+                                  <span>-{debtAmount.toLocaleString()} ج.م</span>
+                                </span>
+                              )}
                             </div>
                           </div>
 
@@ -1472,17 +1545,23 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
           <p className="font-black text-slate-900 text-xs sm:text-sm">
             📌 توضيح أنواع التحصيل وقواعد احتساب المديونيات والأرصدة:
           </p>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
             <div className="bg-white p-3 rounded-xl border border-blue-100 space-y-1">
-              <span className="text-blue-950 font-black block text-xs">١. اشتراك شهري (دوري مستمر):</span>
+              <span className="text-blue-950 font-black block text-xs">١. المستحقات والمسدد (اشتراكات):</span>
               <p className="text-slate-600 leading-normal">
-                هو الاشتراك الذي يُسدد بصورة شهرية منتظمة؛ وبناءً عليه يتم احتساب <span className="text-blue-900 font-black">الشهور المتأخرة</span> و<span className="text-blue-900 font-black">المبلغ المتأخر</span> طبقاً للشهور المنقضية من تاريخ بدء المحاسبة ({accountingStartDate}).
+                عمود <span className="text-blue-900 font-black">المستحقات</span> هو إجمالي الاشتراكات الشهرية المستحقة للفترة مع تفصيل الشهور والتسعير، وعمود <span className="text-emerald-700 font-black">المسدد</span> هو مجموع الاشتراكات الشهرية المسددة فعلياً.
               </p>
             </div>
             <div className="bg-white p-3 rounded-xl border border-amber-100 space-y-1">
-              <span className="text-amber-950 font-black block text-xs">٢. تحصيلات أخرى (بنود مستقلة حسب الحاجة):</span>
+              <span className="text-amber-950 font-black block text-xs">٢. تحصيلات أخرى (مسدد / غير مسدد):</span>
               <p className="text-slate-600 leading-normal">
-                تشمل صيانة المصعد، طوارئ، تجديدات، إلخ؛ <span className="text-amber-900 font-black">تحسب كبند منفصل تماماً</span>، وإذا سُددت لا تخصم من قيمة تأخيرات اشتراك شهري، وإذا كانت غير مسددة تُحسب كمديونية تحصيلات أخرى مستقلة.
+                تشمل المصعد والصيانة والطوارئ؛ يظهر <span className="text-blue-900 font-black">المسدد</span> منها بالأعلى، وتحته باللون الأحمر <span className="text-rose-700 font-black">غير المسدد</span> كمديونية إضافية مستقلة.
+              </p>
+            </div>
+            <div className="bg-white p-3 rounded-xl border border-rose-100 space-y-1">
+              <span className="text-rose-950 font-black block text-xs">٣. معادلة صافي الدين:</span>
+              <p className="text-slate-600 leading-normal">
+                صافي الدين = (<span className="text-blue-900 font-black">المستحق</span> - <span className="text-emerald-700 font-black">المسدد</span>) + <span className="text-rose-700 font-black">تحصيلات أخرى غير مسددة</span> (+ رصيد سابق مرحل إن وُجد).
               </p>
             </div>
           </div>
@@ -1573,8 +1652,16 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
         {/* Aggregate Stats Bar */}
         {(() => {
           const printSourceDebtors = (selectedActivity !== 'all' || searchTerm.trim()) ? residentsWithDebt : allDebtorsList;
-          const printReportDebtTotal = printSourceDebtors.reduce((sum, item) => sum + Math.abs(item.financials.netBalance), 0);
-          const printReportDebtorsCount = printSourceDebtors.length;
+          const printReportDebtTotal = printSourceDebtors.reduce((sum, item) => {
+            const cB = hideCarriedBalance ? 0 : (item.carriedBalance || 0);
+            const nP = (item.financials.periodExpectedDues || 0) - (item.financials.monthlyPaid || 0) + (item.financials.otherCollectionsDebt || 0);
+            return sum + Math.max(0, nP - cB);
+          }, 0);
+          const printReportDebtorsCount = printSourceDebtors.filter(item => {
+            const cB = hideCarriedBalance ? 0 : (item.carriedBalance || 0);
+            const nP = (item.financials.periodExpectedDues || 0) - (item.financials.monthlyPaid || 0) + (item.financials.otherCollectionsDebt || 0);
+            return (nP - cB) > 0;
+          }).length;
 
           return (
             <div className="grid grid-cols-3 gap-4 border border-slate-300 rounded-xl p-4 bg-slate-50/50 mb-6 text-xs">
@@ -1603,18 +1690,19 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
               <th className="border border-slate-400 p-2 text-center">الوحدة</th>
               <th className="border border-slate-400 p-2">المالك / المستأجر</th>
               <th className="border border-slate-400 p-2 text-center">النشاط</th>
-              <th className="border border-slate-400 p-2 text-center">الاشتراك</th>
-              <th className="border border-slate-400 p-2 text-center">رصيد سابق مرحل</th>
-              <th className="border border-slate-400 p-2 text-center">الشهور المتأخرة</th>
-              <th className="border border-slate-400 p-2 text-center">المبلغ المتأخر</th>
-              <th className="border border-slate-400 p-2 text-center">المبلغ المسدد</th>
+              {!hideCarriedBalance && (
+                <th className="border border-slate-400 p-2 text-center">رصيد سابق مرحل</th>
+              )}
+              <th className="border border-slate-400 p-2 text-center">المستحقات</th>
+              <th className="border border-slate-400 p-2 text-center">المسدد</th>
+              <th className="border border-slate-400 p-2 text-center">تحصيلات أخرى</th>
               <th className="border border-slate-400 p-2 text-center bg-red-50 text-red-900 font-extrabold">صافي المديونية</th>
             </tr>
           </thead>
           <tbody>
             {allPrintFloorDebtorGroups.length === 0 ? (
               <tr>
-                <td colSpan={9} className="border border-slate-400 p-6 text-center text-slate-400 font-bold">
+                <td colSpan={hideCarriedBalance ? 7 : 8} className="border border-slate-400 p-6 text-center text-slate-400 font-bold">
                   لا توجد أي مديونيات متأخرة على الوحدات.
                 </td>
               </tr>
@@ -1622,19 +1710,25 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
               allPrintFloorDebtorGroups.map((group) => (
                 <React.Fragment key={group.floor.id}>
                   <tr className="bg-slate-200 border-y border-slate-400">
-                    <td colSpan={9} className="p-2 border border-slate-400 bg-slate-100 font-extrabold text-slate-900">
+                    <td colSpan={hideCarriedBalance ? 7 : 8} className="p-2 border border-slate-400 bg-slate-100 font-extrabold text-slate-900">
                       🏢 {group.floor.floorLabel} ({group.debtors.length} {group.debtors.length === 1 ? 'وحدة متأخرة' : 'وحدات متأخرة'})
                     </td>
                   </tr>
                   {group.debtors.map(({ resident, financials, carriedBalance }) => {
-                    const debtAmount = Math.round(Math.abs(financials.netBalance));
                     const historical = getHistoricalOccupantForDate(resident, selectedYearFilter === 'all' ? currentYear : selectedYearFilter);
-                    const histAct = getHistoricalActivityForDate(resident, selectedYearFilter === 'all' ? currentYear : selectedYearFilter, config?.defaultMonthlyFee, config?.activityDefaultFees);
+                    const histAct = getHistoricalActivityForDate(resident, selectedYearFilter === 'all' ? currentYear : selectedYearFilter, config?.defaultMonthlyFee, config?.activityDefaultFees, config?.activityFeePeriods);
                     const activeOwner = historical.ownerName || resident.name;
                     const activeTenant = historical.tenantName !== undefined ? historical.tenantName : resident.tenantName;
                     const hasTenant = Boolean(activeTenant && activeTenant.trim());
+                    const cBal = hideCarriedBalance ? 0 : (carriedBalance || 0);
+                    const netPeriodDebt = (financials.periodExpectedDues || 0) - (financials.monthlyPaid || 0) + (financials.otherCollectionsDebt || 0);
+                    const calculatedNetDebt = netPeriodDebt - cBal;
+                    const isSurplus = calculatedNetDebt < 0 || (financials.monthlyPaid > financials.periodExpectedDues && financials.otherCollectionsDebt === 0 && cBal >= 0);
+                    const debtAmount = Math.max(0, Math.round(calculatedNetDebt));
+                    const surplusAmount = Math.max(0, Math.round(-calculatedNetDebt));
+
                     return (
-                      <tr key={resident.id} className="border-b border-slate-300">
+                      <tr key={resident.id} className={`border-b border-slate-300 ${isSurplus ? 'bg-emerald-50/50' : ''}`}>
                         <td className="border border-slate-300 p-2 text-center font-bold text-blue-900">وحدة {resident.flatNumber}</td>
                         <td className="border border-slate-300 p-2 font-bold text-slate-800">
                           <div>
@@ -1647,26 +1741,33 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                           </div>
                         </td>
                         <td className="border border-slate-300 p-2 text-center">{histAct.activityType || resident.activityType}</td>
-                        <td className="border border-slate-300 p-2 text-center font-semibold">{financials.monthlyFee} ج.م</td>
+                        {!hideCarriedBalance && (
+                          <td className="border border-slate-300 p-2 text-center font-semibold">
+                            {carriedBalance < 0 
+                              ? `-${Math.abs(carriedBalance).toLocaleString()} ج.م` 
+                              : carriedBalance > 0 
+                              ? `+${carriedBalance.toLocaleString()} ج.م` 
+                              : '—'}
+                          </td>
+                        )}
                         <td className="border border-slate-300 p-2 text-center font-semibold">
-                          {carriedBalance < 0 
-                            ? `-${Math.abs(carriedBalance).toLocaleString()} ج.م` 
-                            : carriedBalance > 0 
-                            ? `+${carriedBalance.toLocaleString()} ج.م` 
-                            : '—'}
+                          <div>{Math.round(financials.periodExpectedDues || 0).toLocaleString()} ج.م</div>
+                          <div className="text-[9px] text-slate-500 font-normal" dir="rtl">{financials.expectedDuesBreakdownText}</div>
                         </td>
-                        <td className="border border-slate-300 p-2 text-center font-bold">
-                          {financials.unpaidMonthsCount > 0 ? (
-                            <span className="text-rose-700">{financials.unpaidMonthsCount} شهر</span>
-                          ) : (
-                            <span className="text-emerald-700">لا يوجد (مسدد)</span>
+                        <td className="border border-slate-300 p-2 text-center text-emerald-700 font-semibold">
+                          {Math.round(financials.monthlyPaid || 0).toLocaleString()} ج.م
+                        </td>
+                        <td className="border border-slate-300 p-2 text-center font-semibold">
+                          <div>{financials.otherCollectionsPaid > 0 ? `${Math.round(financials.otherCollectionsPaid).toLocaleString()} ج.م` : '0 ج.م'}</div>
+                          {financials.otherCollectionsDebt > 0 && (
+                            <div className="text-[9px] text-red-600 font-bold">
+                              {Math.round(financials.otherCollectionsDebt).toLocaleString()} ج.م غير مسدد
+                            </div>
                           )}
                         </td>
-                        <td className="border border-slate-300 p-2 text-center font-semibold">
-                          {financials.unpaidMonthsDues > 0 ? `${Math.round(financials.unpaidMonthsDues).toLocaleString()} ج.م` : '—'}
+                        <td className={`border border-slate-300 p-2 text-center font-black ${isSurplus ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
+                          {isSurplus ? `+${surplusAmount.toLocaleString()} ج.م` : `-${debtAmount.toLocaleString()} ج.م`}
                         </td>
-                        <td className="border border-slate-300 p-2 text-center text-emerald-700 font-semibold">{Math.round(financials.totalPaid).toLocaleString()} ج.م</td>
-                        <td className="border border-slate-300 p-2 text-center bg-red-50 text-red-700 font-black">-{debtAmount.toLocaleString()} ج.م</td>
                       </tr>
                     );
                   })}
@@ -1675,9 +1776,13 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
             )}
             <tr className="bg-slate-100 font-black border-t-2 border-slate-500">
               <td colSpan={2} className="border border-slate-400 p-3 text-right text-slate-900">إجمالي المديونيات المتأخرة:</td>
-              <td colSpan={6} className="border border-slate-400 p-3"></td>
+              <td colSpan={hideCarriedBalance ? 4 : 5} className="border border-slate-400 p-3"></td>
               <td className="border border-slate-400 p-3 text-center text-red-700 text-sm font-black bg-red-100" dir="ltr">
-                -{Math.round(((selectedActivity !== 'all' || searchTerm.trim()) ? residentsWithDebt : allDebtorsList).reduce((sum, item) => sum + Math.abs(item.financials.netBalance), 0)).toLocaleString()} ج.م
+                -{Math.round(((selectedActivity !== 'all' || searchTerm.trim()) ? residentsWithDebt : allDebtorsList).reduce((sum, item) => {
+                  const cB = hideCarriedBalance ? 0 : (item.carriedBalance || 0);
+                  const nP = (item.financials.periodExpectedDues || 0) - (item.financials.monthlyPaid || 0) + (item.financials.otherCollectionsDebt || 0);
+                  return sum + Math.max(0, nP - cB);
+                }, 0)).toLocaleString()} ج.م
               </td>
             </tr>
           </tbody>

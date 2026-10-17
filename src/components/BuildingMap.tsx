@@ -86,6 +86,7 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
   const accountingStartDate = config?.accountingStartDate || '2026-01-01';
   const defaultMonthlyFee = config?.defaultMonthlyFee || 400;
   const activityDefaultFees = config?.activityDefaultFees;
+  const activityFeePeriods = config?.activityFeePeriods;
 
   // Available Payment Types list - ONLY from config.paymentTypes (إدارة أنواع التحصيل) without duplicates or arbitrary additions
   const availablePaymentTypes = useMemo(() => {
@@ -182,7 +183,10 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
       accountingStartDate,
       defaultMonthlyFee,
       activityDefaultFees,
-      currentYear
+      currentYear,
+      undefined,
+      activityFeePeriods,
+      config?.customUnitFeePeriods
     );
 
     const carriedBal = getCarriedPreviousBalance(
@@ -191,11 +195,13 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
       payments,
       accountingStartDate,
       defaultMonthlyFee,
-      activityDefaultFees
+      activityDefaultFees,
+      activityFeePeriods,
+      config?.customUnitFeePeriods
     );
 
-    const histAct = getHistoricalActivityForDate(resident, `${currentYear}-${selectedMonth}`, defaultMonthlyFee, activityDefaultFees);
-    const monthlyFee = getResidentMonthlyFee(resident, defaultMonthlyFee, activityDefaultFees, `${currentYear}-${selectedMonth}`, payments);
+    const histAct = getHistoricalActivityForDate(resident, `${currentYear}-${selectedMonth}`, defaultMonthlyFee, activityDefaultFees, activityFeePeriods);
+    const monthlyFee = getResidentMonthlyFee(resident, defaultMonthlyFee, activityDefaultFees, `${currentYear}-${selectedMonth}`, payments, activityFeePeriods, config?.customUnitFeePeriods);
     const isPaid = Boolean(currentMonthPayment && (currentMonthPayment.amount > 0 || currentMonthPayment.isManuallyPaid));
 
     // Calculate old debt strictly from carried previous balance (initialBalance or accumulated from prior years)
@@ -262,7 +268,7 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
         if (!res || st === 'empty') {
           emptyCount++;
         } else {
-          const histAct = getHistoricalActivityForDate(res, `${currentYear}-${selectedMonth}`, defaultMonthlyFee, activityDefaultFees);
+          const histAct = getHistoricalActivityForDate(res, `${currentYear}-${selectedMonth}`, defaultMonthlyFee, activityDefaultFees, activityFeePeriods);
           const isRaw = Boolean(
             histAct.activityType === 'بدون تحصيل' ||
             histAct.activityType === 'بدون تشطيب' ||
@@ -688,7 +694,7 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
     const activeTenantName = historical.tenantName !== undefined ? historical.tenantName : financials.resident.tenantName;
     const activeTenantPhone = historical.tenantPhone || (activeTenantName ? financials.resident.tenantPhone : undefined);
 
-    const histAct = getHistoricalActivityForDate(financials.resident, `${currentYear}-${selectedMonth}`, defaultMonthlyFee, activityDefaultFees);
+    const histAct = getHistoricalActivityForDate(financials.resident, `${currentYear}-${selectedMonth}`, defaultMonthlyFee, activityDefaultFees, activityFeePeriods);
     const printData: ReceiptClaimData = {
       type: isPaid ? 'receipt' : 'claim',
       unitNumber: financials.resident.flatNumber,
@@ -823,7 +829,7 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
                 {units.map(unitNum => {
                   const status = getPaymentStatus(unitNum);
                   const resident = residents.find(r => isSameFlatNumber(r.flatNumber, unitNum));
-                  const histAct = resident ? getHistoricalActivityForDate(resident, `${currentYear}-${selectedMonth}`, defaultMonthlyFee, activityDefaultFees) : null;
+                  const histAct = resident ? getHistoricalActivityForDate(resident, `${currentYear}-${selectedMonth}`, defaultMonthlyFee, activityDefaultFees, activityFeePeriods) : null;
                   const isRaw = Boolean(
                     histAct && (
                       histAct.activityType === 'بدون تحصيل' ||

@@ -64,9 +64,14 @@ export const SettingsGeneralSection: React.FC<SettingsGeneralSectionProps> = ({
   residents = [],
   onSaveConfig,
 }) => {
-  // Accounting Periods State
+  // Accounting Periods State (sorted chronologically from oldest to newest)
   const periods = useMemo(() => {
-    return Array.isArray(config.accountingPeriods) ? config.accountingPeriods : [];
+    const raw = Array.isArray(config.accountingPeriods) ? config.accountingPeriods : [];
+    return [...raw].sort((a, b) => {
+      const startCmp = (a.startDate || '').localeCompare(b.startDate || '');
+      if (startCmp !== 0) return startCmp;
+      return (a.endDate || '').localeCompare(b.endDate || '');
+    });
   }, [config.accountingPeriods]);
 
   const activePeriodId = config.activePeriodId || 'ALL';
@@ -90,171 +95,7 @@ export const SettingsGeneralSection: React.FC<SettingsGeneralSectionProps> = ({
     setTimeout(() => setPeriodActionToast(null), 4500);
   };
 
-  // Activity Fee Periods State & Handlers
-  const feePeriods = useMemo(() => {
-    return Array.isArray(config.activityFeePeriods) ? config.activityFeePeriods : [];
-  }, [config.activityFeePeriods]);
-
-  const [showFeePeriodModal, setShowFeePeriodModal] = useState(false);
-  const [editingFeePeriod, setEditingFeePeriod] = useState<any | null>(null);
-
-  const [feeFormName, setFeeFormName] = useState('');
-  const [feeFormStartYear, setFeeFormStartYear] = useState('2024');
-  const [feeFormStartMonth, setFeeFormStartMonth] = useState('01');
-  const [feeFormEndYear, setFeeFormEndYear] = useState('2026');
-  const [feeFormEndMonth, setFeeFormEndMonth] = useState('12');
-  const [feeFormNotes, setFeeFormNotes] = useState('');
-  const [feeFormValues, setFeeFormValues] = useState<Record<string, number>>({});
-
-  const handleOpenAddFeePeriod = () => {
-    setEditingFeePeriod(null);
-    setFeeFormName('فترة تسعير جديدة');
-    setFeeFormStartYear('2024');
-    setFeeFormStartMonth('01');
-    setFeeFormEndYear('2026');
-    setFeeFormEndMonth('12');
-    setFeeFormNotes('');
-    const initialFees: Record<string, number> = {};
-    config.activityTypes.forEach(act => {
-      initialFees[act] = activityFees[act] !== undefined ? activityFees[act] : (defaultFeesMap[act] || 400);
-    });
-    setFeeFormValues(initialFees);
-    setShowFeePeriodModal(true);
-  };
-
-  const handleOpenEditFeePeriod = (fp: any) => {
-    setEditingFeePeriod(fp);
-    setFeeFormName(fp.name);
-    const start = parseYearMonth(fp.startDate) || { year: 2022, month: 1 };
-    const end = parseYearMonth(fp.endDate) || { year: 2023, month: 12 };
-    setFeeFormStartYear(String(start.year));
-    setFeeFormStartMonth(String(start.month).padStart(2, '0'));
-    setFeeFormEndYear(String(end.year));
-    setFeeFormEndMonth(String(end.month).padStart(2, '0'));
-    setFeeFormNotes(fp.notes || '');
-
-    const mergedFees: Record<string, number> = {};
-    config.activityTypes.forEach(act => {
-      mergedFees[act] = fp.fees?.[act] !== undefined ? fp.fees[act] : (activityFees[act] !== undefined ? activityFees[act] : (defaultFeesMap[act] || 400));
-    });
-    setFeeFormValues(mergedFees);
-    setShowFeePeriodModal(true);
-  };
-
-  const handleSaveFeePeriodSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!isAdmin || !onSaveConfig) return;
-
-    const startM = feeFormStartMonth.padStart(2, '0');
-    const endM = feeFormEndMonth.padStart(2, '0');
-    const startY = feeFormStartYear.trim();
-    const endY = feeFormEndYear.trim();
-
-    const startDate = `${startY}-${startM}-01`;
-    const lastDay = getLastDayOfMonth(endY, feeFormEndMonth);
-    const endDate = `${endY}-${endM}-${String(lastDay).padStart(2, '0')}`;
-
-    const startMonthIdx = Math.max(0, Math.min(11, parseInt(feeFormStartMonth, 10) - 1));
-    const endMonthIdx = Math.max(0, Math.min(11, parseInt(feeFormEndMonth, 10) - 1));
-    const autoName = `فترة تسعير ${arabicMonthNames[startMonthIdx]} ${startY} - ${arabicMonthNames[endMonthIdx]} ${endY}`;
-    const periodName = feeFormName.trim() || autoName;
-
-    const targetId = editingFeePeriod?.id || `fee_period_${Date.now()}_${Math.random().toString(36).substring(2, 5)}`;
-
-    let updatedPeriods = [...feePeriods];
-    if (editingFeePeriod) {
-      updatedPeriods = updatedPeriods.map(p => {
-        if (p.id === editingFeePeriod.id) {
-          return {
-            ...p,
-            name: periodName,
-            startDate,
-            endDate,
-            fees: feeFormValues,
-            notes: feeFormNotes.trim(),
-          };
-        }
-        return p;
-      });
-    } else {
-      updatedPeriods.push({
-        id: targetId,
-        name: periodName,
-        startDate,
-        endDate,
-        fees: feeFormValues,
-        notes: feeFormNotes.trim(),
-      });
-    }
-
-    const updatedConfig: AppConfig = {
-      ...config,
-      activityFeePeriods: updatedPeriods,
-    };
-    onSaveConfig(updatedConfig);
-    setShowFeePeriodModal(false);
-    showToast(`تم حفظ فترة التسعير "${periodName}" بنجاح!`);
-  };
-
-  const handleDeleteFeePeriod = (id: string) => {
-    if (!isAdmin || !onSaveConfig) return;
-    const target = feePeriods.find((p: any) => p.id === id);
-    if (!target) return;
-    if (!window.confirm(`هل أنت متأكد من حذف فترة التسعير "${target.name}"؟`)) return;
-
-    const updatedPeriods = feePeriods.filter((p: any) => p.id !== id);
-    const updatedConfig: AppConfig = {
-      ...config,
-      activityFeePeriods: updatedPeriods,
-    };
-    onSaveConfig(updatedConfig);
-    showToast(`تم حذف فترة التسعير "${target.name}".`);
-  };
-
-  const handleAddDefaultFeePeriodsTemplate = () => {
-    if (!isAdmin || !onSaveConfig) return;
-
-    const fp1 = {
-      id: `fee_period_2022_2023`,
-      name: 'فترة تسعير 2022 - 2023',
-      startDate: '2022-01-01',
-      endDate: '2023-12-31',
-      fees: {
-        'سكني': 400,
-        'سكني مغلق': 200,
-        'تحت التشطيب': 200,
-        'بدون تشطيب': 0,
-        'مفروش': 600,
-        'إداري': 800,
-        'تجاري': 500,
-      },
-      notes: 'أسعار الاشتراكات الافتراضية للفترة 2022 - 2023',
-    };
-
-    const fp2 = {
-      id: `fee_period_2024_2026`,
-      name: 'فترة تسعير 2024 - 2026',
-      startDate: '2024-01-01',
-      endDate: '2026-12-31',
-      fees: {
-        'سكني': 450,
-        'سكني مغلق': 220,
-        'تحت التشطيب': 220,
-        'بدون تشطيب': 0,
-        'مفروش': 650,
-        'إداري': 850,
-        'تجاري': 550,
-      },
-      notes: 'أسعار الاشتراكات الافتراضية للفترة الحالية 2024 - 2026',
-    };
-
-    const updatedConfig: AppConfig = {
-      ...config,
-      activityFeePeriods: [fp1, fp2],
-    };
-    onSaveConfig(updatedConfig);
-    showToast('تمت إضافة فترات التسعير المقترحة (2022-2023) و (2024-2026) بنجاح!');
-  };
+  // Activity Fee Periods removed per user request: only default activity fees are kept
 
   const handleOpenAddPeriod = () => {
     setEditingPeriod(null);
@@ -503,10 +344,10 @@ export const SettingsGeneralSection: React.FC<SettingsGeneralSectionProps> = ({
               <span className="w-8 h-8 rounded-xl bg-blue-50 text-blue-900 flex items-center justify-center shadow-3xs">
                 <Calendar className="w-4 h-4" />
               </span>
-              <span>نظام الفترات المحاسبية واحتساب المديونيات والختامي</span>
+              <span>نظام الفترات المحاسبية واحتساب المديونيات</span>
             </h3>
             <p className="text-xs text-slate-500 font-bold mt-1 leading-relaxed">
-              يمكنك إنشاء فترات محاسبية محددة من تاريخ إلى تاريخ (مثال: من 2022/1 إلى 2023/12 مع احتساب الختامي، وفترة أخرى من 2024/1 إلى 2026/12). عند تفعيل أي فترة، يقوم التطبيق تلقائياً بعرض بيانات وتحصيلات ومصروفات تلك الفترة فقط وإخفاء الفترات الأخرى.
+              يمكنك إنشاء فترات محاسبية محددة من تاريخ إلى تاريخ (مثال: من 2022/1 إلى 2023/12، وفترة أخرى من 2024/1 إلى 2026/12). عند تفعيل أي فترة، يقوم التطبيق تلقائياً بعرض بيانات وتحصيلات ومصروفات تلك الفترة فقط وإخفاء الفترات الأخرى.
             </p>
           </div>
 
@@ -674,17 +515,6 @@ export const SettingsGeneralSection: React.FC<SettingsGeneralSectionProps> = ({
 
                         <button
                           type="button"
-                          onClick={() => setExpandedClosingId(isClosingExpanded ? null : p.id)}
-                          className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1 border border-slate-200"
-                          title="عرض الحساب الختامي والأرقام المالية للفترة"
-                        >
-                          <Wallet className="w-3.5 h-3.5 text-blue-900" />
-                          <span>الختامي</span>
-                          {isClosingExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                        </button>
-
-                        <button
-                          type="button"
                           onClick={() => handleOpenEditPeriod(p)}
                           className="p-1.5 text-slate-600 hover:text-blue-900 hover:bg-slate-100 rounded-lg transition cursor-pointer"
                           title="تعديل الفترة"
@@ -703,92 +533,6 @@ export const SettingsGeneralSection: React.FC<SettingsGeneralSectionProps> = ({
                       </div>
                     )}
                   </div>
-
-                  {/* Financial Closing Box (الختامي) */}
-                  {isClosingExpanded && (
-                    <div className="p-3.5 bg-gradient-to-b from-slate-50 to-white rounded-xl border border-slate-200 space-y-3 animate-fade-in text-right">
-                      <div className="flex items-center justify-between border-b pb-2">
-                        <h5 className="text-xs font-black text-slate-900 flex items-center gap-1.5">
-                          <Calculator className="w-4 h-4 text-blue-900" />
-                          <span>الحساب الختامي المالي لـ ({p.name})</span>
-                        </h5>
-                        <div className="flex items-center gap-2">
-                          {p.isClosed && (
-                            <span className="text-[10px] text-slate-500 font-bold">
-                              تم الإقفال بتاريخ: {p.closingDate || 'معتمد'}
-                            </span>
-                          )}
-                          {isAdmin && (
-                            <button
-                              type="button"
-                              onClick={() => handleToggleClosePeriod(p)}
-                              className={`px-2.5 py-1 rounded-lg text-xs font-black transition cursor-pointer flex items-center gap-1 shadow-3xs ${
-                                p.isClosed 
-                                  ? 'bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300' 
-                                  : 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                              }`}
-                            >
-                              {p.isClosed ? (
-                                <>
-                                  <Unlock className="w-3 h-3" />
-                                  <span>إلغاء إقفال الفترة</span>
-                                </>
-                              ) : (
-                                <>
-                                  <Lock className="w-3 h-3" />
-                                  <span>اعتماد الإقفال الختامي 🔒</span>
-                                </>
-                              )}
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Financial KPI Numbers Grid */}
-                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 pt-1">
-                        <div className="p-2.5 bg-emerald-50/80 border border-emerald-200 rounded-xl text-right">
-                          <span className="text-[10px] font-bold text-emerald-800 block">إجمالي التحصيلات الفعلية</span>
-                          <span className="text-sm font-black text-emerald-700">
-                            {summary.totalCollections.toLocaleString()} ج.م
-                          </span>
-                        </div>
-
-                        <div className="p-2.5 bg-rose-50/80 border border-rose-200 rounded-xl text-right">
-                          <span className="text-[10px] font-bold text-rose-800 block">إجمالي المصروفات المنصرفة</span>
-                          <span className="text-sm font-black text-rose-700">
-                            {summary.totalExpenses.toLocaleString()} ج.م
-                          </span>
-                        </div>
-
-                        <div className="p-2.5 bg-blue-50/80 border border-blue-200 rounded-xl text-right">
-                          <span className="text-[10px] font-bold text-blue-800 block">صافي الرصيد الختامي</span>
-                          <span className={`text-sm font-black ${
-                            summary.netBalance >= 0 ? 'text-emerald-700' : 'text-rose-600'
-                          }`}>
-                            {summary.netBalance.toLocaleString()} ج.م
-                          </span>
-                        </div>
-
-                        <div className="p-2.5 bg-indigo-50/80 border border-indigo-200 rounded-xl text-right">
-                          <span className="text-[10px] font-bold text-indigo-800 block">إجمالي المستحق المطلوب</span>
-                          <span className="text-sm font-black text-indigo-900">
-                            {summary.totalExpectedDues.toLocaleString()} ج.م
-                          </span>
-                        </div>
-
-                        <div className="p-2.5 bg-amber-50/80 border border-amber-200 rounded-xl text-right">
-                          <span className="text-[10px] font-bold text-amber-800 block">إجمالي متبقي المديونيات</span>
-                          <span className="text-sm font-black text-amber-700">
-                            {summary.totalDebt.toLocaleString()} ج.م
-                          </span>
-                        </div>
-                      </div>
-
-                      <p className="text-[10px] text-slate-500 font-bold leading-relaxed pt-1">
-                        💡 الحساب الختامي يُحتسب بدقة لكافة التحصيلات والمصروفات المسجلة الواقعة ضمن تاريخي البداية والنهاية لهذه الفترة المحددة ({summary.monthsCount} شهر).
-                      </p>
-                    </div>
-                  )}
                 </div>
               );
             })}
@@ -956,7 +700,7 @@ export const SettingsGeneralSection: React.FC<SettingsGeneralSectionProps> = ({
         </div>
       )}
 
-            {/* Card 2: Activity Fee Periods Management */}
+            {/* Card 2: Default Subscription Fees by Activity Type */}
       <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-100 shadow-xs space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/70 pb-3">
           <div>
@@ -964,329 +708,75 @@ export const SettingsGeneralSection: React.FC<SettingsGeneralSectionProps> = ({
               <span className="w-7 h-7 rounded-xl bg-blue-50 text-blue-900 flex items-center justify-center">
                 <DollarSign className="w-4 h-4" />
               </span>
-              <span>إدارة فترات قيمة الاشتراك الافتراضي حسب النشاط (تغير من عام إلى عام)</span>
+              <span>القيم الافتراضية لأسعار الاشتراكات الشهرية حسب النشاط (التسعير الافتراضي)</span>
             </h4>
             <p className="text-[11px] text-slate-500 font-bold mt-1 leading-relaxed">
-              يمكنك إضافة فترات زمنية (من تاريخ إلى تاريخ) وتحديد قيمة الاشتراك الافتراضي لكل نشاط في كل فترة. يتم تطبيق هذه القيم تلقائياً على كل شهر يقع ضمن الفترة الزمنية المحددة في جميع أنحاء التطبيق.
+              تحدد هذه القيم التسعير الافتراضي للاشتراك الشهري لكل نوع نشاط، وتستخدم كقيمة أساسية لجميع الوحدات عند عدم وجود اشتراك مخصص.
             </p>
           </div>
           {isAdmin && (
-            <div className="flex items-center gap-2 flex-wrap">
-              {(!config.activityFeePeriods || config.activityFeePeriods.length === 0) && (
-                <button
-                  type="button"
-                  onClick={handleAddDefaultFeePeriodsTemplate}
-                  className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold transition cursor-pointer shadow-3xs flex items-center gap-1.5"
-                >
-                  <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>إضافة فترات مقترحة (2022-2026)</span>
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={handleOpenAddFeePeriod}
-                className="px-4 py-2 bg-blue-900 hover:bg-blue-950 active:scale-95 text-white rounded-xl text-xs font-black transition cursor-pointer shadow-xs flex items-center gap-1.5"
-              >
-                <Plus className="w-4 h-4" />
-                <span>إضافة فترة اشتراك جديدة</span>
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={handleResetDefaultActivityFees}
+              className="px-3 py-1.5 bg-white hover:bg-slate-100 text-blue-900 border border-slate-200 rounded-xl text-xs font-bold transition cursor-pointer shadow-3xs"
+            >
+              استعادة الافتراضي
+            </button>
           )}
         </div>
 
-        {/* List of Configured Activity Fee Periods */}
-        <div className="space-y-3 pt-1">
-          {(!config.activityFeePeriods || config.activityFeePeriods.length === 0) ? (
-            <div className="p-6 bg-slate-50 rounded-2xl border border-dashed border-slate-300 text-center space-y-2">
-              <Clock className="w-8 h-8 text-slate-400 mx-auto" />
-              <p className="text-xs font-black text-slate-700">لا توجد فترات تسعير مخصصة حالياً</p>
-              <p className="text-[11px] text-slate-500 font-bold">
-                سيتم اعتماد القيم الافتراضية العامة أو يمكنك إضافة فترات زمنية تتغير فيها الاشتراكات حسب النشاط من عام إلى عام.
-              </p>
-              {isAdmin && (
-                <button
-                  type="button"
-                  onClick={handleAddDefaultFeePeriodsTemplate}
-                  className="mt-2 px-4 py-2 bg-blue-900 text-white rounded-xl text-xs font-black hover:bg-blue-950 transition cursor-pointer inline-flex items-center gap-1.5"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>إضافة فترات التسعير الافتراضية الآن</span>
-                </button>
-              )}
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {config.activityFeePeriods.map((fp) => {
-                return (
-                  <div 
-                    key={fp.id}
-                    className="bg-slate-50/70 p-4 rounded-2xl border border-slate-200/80 space-y-3 shadow-2xs hover:border-blue-300 transition"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <h5 className="text-xs sm:text-sm font-black text-slate-900 flex items-center gap-2">
-                          <span className="w-2.5 h-2.5 rounded-full bg-blue-900"></span>
-                          <span>{fp.name}</span>
-                        </h5>
-                        <div className="text-[11px] font-bold text-blue-900 bg-blue-50/80 px-2.5 py-1 rounded-lg mt-1 inline-block border border-blue-100">
-                          📅 {formatPeriodDateRange(fp.startDate, fp.endDate)}
-                        </div>
-                      </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+          {config.activityTypes.map((act) => {
+            const currentVal = activityFees[act] !== undefined 
+              ? activityFees[act] 
+              : (defaultFeesMap[act] || 0);
 
-                      {isAdmin && (
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => handleOpenEditFeePeriod(fp)}
-                            className="p-1.5 bg-white hover:bg-slate-100 text-slate-700 rounded-lg border border-slate-200 text-xs font-bold transition cursor-pointer"
-                            title="تعديل الفترة"
-                          >
-                            <Edit className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteFeePeriod(fp.id)}
-                            className="p-1.5 bg-white hover:bg-red-50 text-red-600 rounded-lg border border-slate-200 text-xs font-bold transition cursor-pointer"
-                            title="حذف الفترة"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      )}
-                    </div>
-
-                    {fp.notes && (
-                      <p className="text-[11px] text-slate-600 font-bold bg-white p-2 rounded-xl border border-slate-100">
-                        💬 {fp.notes}
-                      </p>
-                    )}
-
-                    {/* Fees Breakdown Grid */}
-                    <div className="space-y-1.5">
-                      <span className="text-[10px] font-black text-slate-500 block">قيم الاشتراكات الشهرية خلال هذه الفترة:</span>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 pt-0.5">
-                        {config.activityTypes.map((act) => {
-                          const fee = fp.fees?.[act] !== undefined ? fp.fees[act] : (activityFees[act] || 0);
-                          return (
-                            <div key={act} className="bg-white p-2 rounded-xl border border-slate-200/60 flex items-center justify-between text-[11px]">
-                              <span className="font-bold text-slate-700 truncate">{act}</span>
-                              <span className="font-black text-blue-900 shrink-0">{fee} ج.م</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* Global Default Fallback Fees (Legacy / Fallback) */}
-        <div className="pt-3 border-t border-slate-200/70 space-y-2">
-          <div className="flex items-center justify-between">
-            <div>
-              <h5 className="text-xs font-black text-slate-800">القيم الافتراضية العامة (عند عدم تطابق أي فترة)</h5>
-              <p className="text-[10px] text-slate-500 font-bold">تستخدم كقيمة أساسية للاشتراكات في حال عدم وجود فترة زمنية مطابقة للشهر</p>
-            </div>
-            {isAdmin && (
-              <button
-                type="button"
-                onClick={handleResetDefaultActivityFees}
-                className="px-2.5 py-1 bg-white hover:bg-slate-100 text-blue-900 border border-slate-200 rounded-lg text-[10px] font-bold transition cursor-pointer"
-              >
-                استعادة الافتراضي
-              </button>
-            )}
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
-            {config.activityTypes.map((act) => {
-              const currentVal = activityFees[act] !== undefined 
-                ? activityFees[act] 
-                : (defaultFeesMap[act] || 0);
-
-              return (
-                <div key={act} className="bg-slate-50 p-2 rounded-xl border border-slate-200 space-y-1">
-                  <span className="text-[11px] font-black text-slate-700 block truncate">{act}</span>
-                  <div className="flex items-center gap-1">
-                    <input
-                      type="number"
-                      min="0"
-                      step="10"
-                      value={currentVal}
-                      onChange={(e) => {
-                        const val = parseFloat(e.target.value) || 0;
-                        setActivityFees(prev => ({ ...prev, [act]: val }));
-                      }}
-                      disabled={!isAdmin}
-                      className="w-full px-2 py-1 bg-white border border-slate-200 focus:border-blue-500 rounded-lg text-xs font-black text-slate-900 outline-none text-right disabled:bg-slate-100"
-                    />
-                    <span className="text-[10px] font-bold text-slate-500 shrink-0">ج.م</span>
-                  </div>
+            return (
+              <div key={act} className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 space-y-1.5 shadow-3xs">
+                <span className="text-[11px] font-black text-slate-700 block truncate">{act}</span>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    min="0"
+                    step="10"
+                    value={currentVal}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value) || 0;
+                      setActivityFees(prev => ({ ...prev, [act]: val }));
+                    }}
+                    disabled={!isAdmin}
+                    className="w-full px-2 py-1 bg-white border border-slate-200 focus:border-blue-500 rounded-lg text-xs font-black text-slate-900 outline-none text-right disabled:bg-slate-100"
+                  />
+                  <span className="text-[10px] font-bold text-slate-500 shrink-0">ج.م</span>
                 </div>
-              );
-            })}
-          </div>
-
-          {isAdmin && (
-            <div className="flex items-center justify-end pt-2">
-              <button
-                type="button"
-                onClick={() => handleSaveAccountingSettings()}
-                className="px-4 py-1.5 bg-blue-900 hover:bg-blue-950 active:scale-95 text-white text-xs font-black rounded-xl transition shadow-xs cursor-pointer flex items-center gap-1.5"
-              >
-                <Check className="w-3.5 h-3.5" />
-                <span>حفظ القيم الافتراضية العامة</span>
-              </button>
-            </div>
-          )}
+              </div>
+            );
+          })}
         </div>
+
+        {isAdmin && (
+          <div className="flex items-center justify-end pt-2">
+            <button
+              type="button"
+              onClick={() => {
+                if (onSaveConfig) {
+                  const cleanedConfig = {
+                    ...config,
+                    activityDefaultFees: activityFees,
+                    activityFeePeriods: [],
+                  };
+                  onSaveConfig(cleanedConfig);
+                }
+                handleSaveAccountingSettings();
+              }}
+              className="px-5 py-2 bg-blue-900 hover:bg-blue-950 active:scale-95 text-white text-xs font-black rounded-xl transition shadow-xs cursor-pointer flex items-center gap-1.5"
+            >
+              <Check className="w-4 h-4" />
+              <span>حفظ القيم الافتراضية العامة</span>
+            </button>
+          </div>
+        )}
       </div>
-
-      {/* Add / Edit Activity Fee Period Modal */}
-      {showFeePeriodModal && (
-        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-fade-in">
-          <div className="bg-white rounded-3xl max-w-xl w-full p-5 sm:p-6 shadow-2xl border border-slate-100 space-y-4 text-right max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b pb-3">
-              <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
-                <span className="w-8 h-8 rounded-xl bg-blue-50 text-blue-900 flex items-center justify-center">
-                  <Calendar className="w-4 h-4" />
-                </span>
-                <span>{editingFeePeriod ? 'تعديل فترة تسعير الاشتراكات' : 'إضافة فترة تسعير اشتراكات جديدة'}</span>
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowFeePeriodModal(false)}
-                className="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center transition cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveFeePeriodSubmit} className="space-y-4">
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">اسم الفترة (اختياري)</label>
-                <input
-                  type="text"
-                  value={feeFormName}
-                  onChange={(e) => setFeeFormName(e.target.value)}
-                  placeholder="مثال: فترة 2024 - 2026"
-                  className="w-full px-3.5 py-2.5 bg-slate-50 focus:bg-white border border-slate-200 focus:border-blue-500 rounded-xl text-xs font-bold outline-none text-right transition"
-                />
-              </div>
-
-              {/* Start & End Dates */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {/* Start Date */}
-                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200/70 space-y-2">
-                  <label className="text-xs font-black text-slate-800 block">بداية الفترة (من شهر وسنة)</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <select
-                      value={feeFormStartMonth}
-                      onChange={(e) => setFeeFormStartMonth(e.target.value)}
-                      className="px-2.5 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none text-right"
-                    >
-                      {arabicMonthNames.map((name, idx) => {
-                        const mStr = String(idx + 1).padStart(2, '0');
-                        return <option key={mStr} value={mStr}>{name} ({mStr})</option>;
-                      })}
-                    </select>
-                    <input
-                      type="number"
-                      value={feeFormStartYear}
-                      onChange={(e) => setFeeFormStartYear(e.target.value)}
-                      placeholder="2024"
-                      className="px-2.5 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black outline-none text-right"
-                    />
-                  </div>
-                </div>
-
-                {/* End Date */}
-                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200/70 space-y-2">
-                  <label className="text-xs font-black text-slate-800 block">نهاية الفترة (إلى شهر وسنة)</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <select
-                      value={feeFormEndMonth}
-                      onChange={(e) => setFeeFormEndMonth(e.target.value)}
-                      className="px-2.5 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none text-right"
-                    >
-                      {arabicMonthNames.map((name, idx) => {
-                        const mStr = String(idx + 1).padStart(2, '0');
-                        return <option key={mStr} value={mStr}>{name} ({mStr})</option>;
-                      })}
-                    </select>
-                    <input
-                      type="number"
-                      value={feeFormEndYear}
-                      onChange={(e) => setFeeFormEndYear(e.target.value)}
-                      placeholder="2026"
-                      className="px-2.5 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black outline-none text-right"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Fee Values Per Activity Type Grid */}
-              <div className="space-y-2">
-                <label className="text-xs font-black text-slate-900 block">قيم الاشتراكات الافتراضية لكل نشاط خلال هذه الفترة:</label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  {config.activityTypes.map((act) => {
-                    const val = feeFormValues[act] !== undefined ? feeFormValues[act] : 400;
-                    return (
-                      <div key={act} className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 flex items-center justify-between gap-2">
-                        <span className="text-xs font-black text-slate-800">{act}</span>
-                        <div className="flex items-center gap-1.5 w-32">
-                          <input
-                            type="number"
-                            min="0"
-                            step="10"
-                            value={val}
-                            onChange={(e) => {
-                              const num = parseFloat(e.target.value) || 0;
-                              setFeeFormValues(prev => ({ ...prev, [act]: num }));
-                            }}
-                            className="w-full px-2.5 py-1 bg-white border border-slate-200 focus:border-blue-500 rounded-lg text-xs font-black text-slate-900 outline-none text-right"
-                          />
-                          <span className="text-[10px] font-bold text-slate-500 shrink-0">ج.م</span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">ملاحظات توضيحية (اختياري)</label>
-                <textarea
-                  rows={2}
-                  value={feeFormNotes}
-                  onChange={(e) => setFeeFormNotes(e.target.value)}
-                  placeholder="سبب تعديل أسعار الاشتراكات في هذه الفترة..."
-                  className="w-full px-3 py-2 bg-slate-50 focus:bg-white border border-slate-200 focus:border-blue-500 rounded-xl text-xs font-medium outline-none text-right transition"
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setShowFeePeriodModal(false)}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer"
-                >
-                  إلغاء
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 bg-blue-900 hover:bg-blue-950 active:scale-95 text-white rounded-xl text-xs font-black transition cursor-pointer shadow-xs"
-                >
-                  {editingFeePeriod ? 'حفظ تعديلات فترة التسعير' : 'حفظ وإنشاء الفترة'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {/* Educational Calculation Box */}
       <div className="bg-slate-50 p-3.5 sm:p-4 rounded-2xl border border-slate-200/70 space-y-2 text-right">
