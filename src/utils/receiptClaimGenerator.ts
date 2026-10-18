@@ -635,11 +635,20 @@ export function getReceiptClaimPrintHtml(data: ReceiptClaimData, residents: Resi
     ? (data.currentMonthStatus.includes('مسدد') && !data.currentMonthStatus.includes('غير'))
     : isReceipt;
 
-  const headerBg = isReceipt ? '#047857' : '#1d4ed8';
-  const alertBg = isReceipt || isCurrentMonthPaid ? '#ecfdf5' : '#fffbeb';
-  const alertBorder = isReceipt || isCurrentMonthPaid ? '#a7f3d0' : '#fde68a';
-  const alertColor = isReceipt || isCurrentMonthPaid ? '#047857' : '#92400e';
-  const badgeBg = isReceipt || isCurrentMonthPaid ? '#d1fae5' : '#fef3c7';
+  const netVal = data.netDebt !== undefined ? data.netDebt : (data.amount || 0);
+  const isDebt = netVal > 0;
+  const isZeroDebt = netVal === 0;
+  const isSurplus = netVal < 0;
+
+  const headerBg = isReceipt ? '#047857' : (isDebt ? '#b91c1c' : (isZeroDebt ? '#1d4ed8' : '#047857'));
+  const alertBg = isReceipt ? '#ecfdf5' : (isDebt ? '#fef2f2' : (isZeroDebt ? '#eff6ff' : '#f0fdf4'));
+  const alertBorder = isReceipt ? '#a7f3d0' : (isDebt ? '#fecaca' : (isZeroDebt ? '#bfdbfe' : '#bbf7d0'));
+  const alertColor = isReceipt ? '#047857' : (isDebt ? '#991b1b' : (isZeroDebt ? '#1e40af' : '#166534'));
+  const badgeBg = isReceipt ? '#d1fae5' : (isDebt ? '#fee2e2' : (isZeroDebt ? '#dbeafe' : '#d1fae5'));
+
+  const periodName = data.periodName || 'الفترة المحاسبية النشطة';
+  const hideCarried = Boolean(data.hideCarriedBalance);
+  const cBal = hideCarried ? 0 : (data.carriedBalance || 0);
 
   return `
 <!DOCTYPE html>
@@ -760,30 +769,30 @@ export function getReceiptClaimPrintHtml(data: ReceiptClaimData, residents: Resi
       color: #1e3a8a;
     }
     .debt-box {
-      background: #fef2f2;
-      border: 1px solid #fecaca;
+      background: ${isDebt ? '#fef2f2' : (isZeroDebt ? '#eff6ff' : '#f0fdf4')};
+      border: 1.5px solid ${isDebt ? '#fecaca' : (isZeroDebt ? '#bfdbfe' : '#bbf7d0')};
       border-radius: 12px;
       padding: 12px 16px;
-      color: #991b1b;
+      color: ${isDebt ? '#991b1b' : (isZeroDebt ? '#1e40af' : '#166534')};
       font-size: 12px;
       margin-bottom: 14px;
       font-weight: 800;
       line-height: 1.6;
     }
     .note-box {
-      background: ${isReceipt ? '#f0fdf4' : '#eff6ff'};
-      border: 1px solid ${isReceipt ? '#bbf7d0' : '#bfdbfe'};
+      background: ${isReceipt ? '#f0fdf4' : (isDebt ? '#fef2f2' : (isZeroDebt ? '#eff6ff' : '#f0fdf4'))};
+      border: 1px solid ${isReceipt ? '#bbf7d0' : (isDebt ? '#fecaca' : (isZeroDebt ? '#bfdbfe' : '#bbf7d0'))};
       border-radius: 12px;
       padding: 11px 14px;
-      color: ${isReceipt ? '#166534' : '#1e40af'};
+      color: ${isReceipt ? '#166534' : (isDebt ? '#991b1b' : (isZeroDebt ? '#1e40af' : '#166534'))};
       font-size: 11.5px;
       font-weight: 800;
       line-height: 1.6;
       margin-bottom: 14px;
     }
     .total-banner {
-      background: ${isReceipt ? '#ecfdf5' : '#ffffff'};
-      border: 2px solid ${isReceipt ? '#059669' : '#e11d48'};
+      background: ${isReceipt ? '#ecfdf5' : (isDebt ? '#fef2f2' : (isZeroDebt ? '#eff6ff' : '#f0fdf4'))};
+      border: 2px solid ${isReceipt ? '#059669' : (isDebt ? '#b91c1c' : (isZeroDebt ? '#1d4ed8' : '#047857'))};
       border-radius: 14px;
       padding: 14px 18px;
       display: flex;
@@ -799,7 +808,7 @@ export function getReceiptClaimPrintHtml(data: ReceiptClaimData, residents: Resi
     .total-val {
       font-size: 22px;
       font-weight: 900;
-      color: ${isReceipt ? '#047857' : '#be123c'};
+      color: ${isReceipt ? '#047857' : (isDebt ? '#b91c1c' : (isZeroDebt ? '#1d4ed8' : '#047857'))};
     }
     .footer {
       border-top: 1px dashed #cbd5e1;
@@ -824,7 +833,7 @@ export function getReceiptClaimPrintHtml(data: ReceiptClaimData, residents: Resi
   <div class="print-card">
     <div class="header-banner">
       <div>
-        <div class="header-title">${isReceipt ? `💐 إيصال سداد: ${meta.paymentDescription}` : `🏛️ إشعار مطالبة وبيان مستحقات (${meta.paymentCategory})`}</div>
+        <div class="header-title">${isReceipt ? `💐 إيصال سداد: ${meta.paymentDescription}` : `🏛️ إشعار مطالبة وبيان مستحقات (${periodName})`}</div>
         <div class="header-sub">اتحاد ملاك عمارة بيراميدز فيو ١</div>
       </div>
       <div class="header-meta">
@@ -836,11 +845,13 @@ export function getReceiptClaimPrintHtml(data: ReceiptClaimData, residents: Resi
     <div class="status-bar">
       <div>${isReceipt 
         ? `✓ تم استلام ${meta.paymentDescription} بنجاح وتوثيقه في السجل المالي` 
-        : isCurrentMonthPaid
-        ? `✓ حالة سداد الشهر الحالي: اشتراك شهر ${monthName} ${data.year} (${Math.round(displayMonthlyFee).toLocaleString()} ج.م) مسدد بالكامل`
-        : `⚠️ تنويه هام: اشتراك شهر ${monthName} ${data.year} (${Math.round(displayMonthlyFee).toLocaleString()} ج.م) غير مسدد حتى تاريخه`
+        : isDebt
+        ? `⚠️ تنويه هام: توجد مديونية مستحقة على الوحدة بقيمة (${Math.round(netVal).toLocaleString()} ج.م) عن ${periodName}`
+        : isZeroDebt
+        ? `✨ الحساب خالص بالكامل: لا توجد أي مديونيات أو متأخرات على الوحدة عن ${periodName}`
+        : `🎉 يوجد رصيد دائن لصالح الوحدة بقيمة (${Math.round(Math.abs(netVal)).toLocaleString()} ج.م) عن ${periodName}`
       }</div>
-      <div class="status-badge">${isReceipt || isCurrentMonthPaid ? 'مسدد بالكامل ✓' : '⏳ غير مسدد'}</div>
+      <div class="status-badge">${isReceipt ? 'مسدد بالكامل ✓' : (isDebt ? '⏳ عليه مديونية' : (isZeroDebt ? '✓ الحساب خالص' : '🎉 رصيد دائن'))}</div>
     </div>
 
     <div class="info-table">
@@ -893,12 +904,14 @@ export function getReceiptClaimPrintHtml(data: ReceiptClaimData, residents: Resi
       ` : `
       <div class="info-row">
         <div class="info-col">
-          <span class="label">عن شهر:</span>
-          <span class="value">اشتراك ${monthName} ${data.year} (${Math.round(displayMonthlyFee).toLocaleString()} ج.م)</span>
+          <span class="label">الفترة المحاسبية:</span>
+          <span class="value">${periodName}</span>
         </div>
         <div class="info-col">
-          <span class="label">حالة الشهر الحالي:</span>
-          <span class="value" style="color: ${isCurrentMonthPaid ? '#047857' : '#be123c'};">${isCurrentMonthPaid ? 'مسدد بالكامل ✓' : 'غير مسدد ⚠️'}</span>
+          <span class="label">حالة الحساب:</span>
+          <span class="value" style="color: ${isDebt ? '#b91c1c' : (isZeroDebt ? '#1d4ed8' : '#047857')};">
+            ${isDebt ? 'عليه مديونية ⚠️' : (isZeroDebt ? 'الحساب خالص ✓' : 'رصيد دائن 🎉')}
+          </span>
         </div>
       </div>
       `}
@@ -917,26 +930,56 @@ export function getReceiptClaimPrintHtml(data: ReceiptClaimData, residents: Resi
       </div>
       `
     ) : `
-      <div class="debt-box" style="background: #fef2f2; border: 1.5px solid #fecaca; border-radius: 12px; padding: 12px 14px; margin-bottom: 14px;">
-        <div style="font-weight: 900; margin-bottom: 6px; font-size: 13px; color: #991b1b;">⚠️ بيان وتفصيل المبالغ المستحقة على الوحدة:</div>
-        <div style="font-size: 11.5px; line-height: 1.6; color: #7f1d1d;">
-          <div style="font-weight: 900; color: #0f172a;">حالة الشهر الحالي:</div>
-          <div>• ${meta.claimBreakdown.subsLineText}</div>
-          <div>• ${meta.claimBreakdown.otherLineText}</div>
-          <div>• ${meta.claimBreakdown.monthlyArrearsLineText}</div>
-          <div>• ${meta.claimBreakdown.otherArrearsLineText}</div>
-          <div>• ${meta.claimBreakdown.previousDebtLineText}</div>
-          <div style="font-weight: 900; margin-top: 5px; padding-top: 5px; border-top: 1px dashed #fca5a5; color: #7f1d1d;">• ${meta.claimBreakdown.totalDueLineText}</div>
+      <div class="debt-box">
+        <div style="font-weight: 900; margin-bottom: 6px; font-size: 13px;">📊 بيان وتفاصيل الحساب المالي للوحدة عن ${periodName}:</div>
+        <div style="font-size: 11.5px; line-height: 1.8;">
+          <div style="display: flex; flex-direction: column; border-bottom: 1px dashed ${isDebt ? '#fca5a5' : (isZeroDebt ? '#bfdbfe' : '#bbf7d0')}; padding: 4px 0;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span>• قيمة المستحقات (الاشتراكات الشهرية):</span>
+              <span style="font-weight: 900;">${Math.round(data.periodExpectedDues || 0).toLocaleString()} ج.م</span>
+            </div>
+            <div style="font-size: 9.5px; color: #64748b; font-weight: 700; margin-top: 1px; padding-right: 12px;">
+              ${data.claimBreakdown?.subsLineText || `اشتراك شهري قدره ${Math.round(meta.displayMonthlyFee).toLocaleString()} ج.م × الشهور المستحقة للفترة`}
+            </div>
+          </div>
+
+          <div style="display: flex; flex-direction: column; border-bottom: 1px dashed ${isDebt ? '#fca5a5' : (isZeroDebt ? '#bfdbfe' : '#bbf7d0')}; padding: 4px 0;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span>• قيمة المسدد (الاشتراكات الشهرية):</span>
+              <span style="font-weight: 900; color: #047857;">${Math.round(data.monthlyPaid || 0).toLocaleString()} ج.م</span>
+            </div>
+            <div style="font-size: 9.5px; color: #047857; font-weight: 700; margin-top: 1px; padding-right: 12px;">
+              ${(data.monthlyPaid || 0) > 0 ? `إجمالي مبالغ اشتراكات الملوك المسددة عن الفترة (${Math.round(data.monthlyPaid || 0).toLocaleString()} ج.م)` : 'لم يتم سداد مبالغ اشتراكات شهرية خلال هذه الفترة'}
+            </div>
+          </div>
+
+          <div style="display: flex; flex-direction: column; border-bottom: 1px dashed ${isDebt ? '#fca5a5' : (isZeroDebt ? '#bfdbfe' : '#bbf7d0')}; padding: 4px 0;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span>• التحصيلات الأخرى:</span>
+              <span style="font-weight: 900;">${Math.round(data.otherCollectionsPaid || 0).toLocaleString()} ج.م مسدد ${(data.otherCollectionsDebt || 0) > 0 ? `(${Math.round(data.otherCollectionsDebt || 0).toLocaleString()} ج.م غير مسدد)` : ''}</span>
+            </div>
+            <div style="font-size: 9.5px; color: #64748b; font-weight: 700; margin-top: 1px; padding-right: 12px;">
+              ${(data.otherCollectionsDebt || 0) > 0 || (data.otherCollectionsPaid || 0) > 0
+                ? `تفاصيل التحصيلات الخاصة (صيانة، مصعد، حراسة، أو خدمات مشتركة)`
+                : 'لا توجد تحصيلات أخرى مسجلة لهذا الحساب'}
+            </div>
+          </div>
+          ${!hideCarried ? `
+          <div style="display: flex; justify-content: space-between; border-bottom: 1px dashed ${isDebt ? '#fca5a5' : (isZeroDebt ? '#bfdbfe' : '#bbf7d0')}; padding: 3px 0;">
+            <span>• الرصيد السابق المرحل:</span>
+            <span style="font-weight: 900;">
+              ${cBal < 0 ? `مديونية سابق مرحلة: -${Math.abs(Math.round(cBal)).toLocaleString()} ج.م` : cBal > 0 ? `رصيد دائن سابق: +${Math.round(cBal).toLocaleString()} ج.م` : '0 ج.م'}
+            </span>
+          </div>
+          ` : ''}
         </div>
 
-        <div style="margin-top: 8px; background: #ffffff; border: 2px solid #f87171; border-radius: 8px; padding: 8px 12px; font-size: 11.5px; font-weight: 900;">
-          <div style="display: flex; justify-content: space-between; align-items: center; color: #0f172a;">
-            <span>اجمالي المبالغ المستحقة عن هذا الشهر :</span>
-            <span style="color: #1e3a8a; font-weight: 900;">${meta.claimBreakdown.currentMonthTotalDue.toLocaleString()} ج.م</span>
-          </div>
-          <div style="display: flex; justify-content: space-between; align-items: center; color: #0f172a; margin-top: 4px; padding-top: 4px; border-top: 1px dashed #fecaca;">
-            <span>احمالي المتأخرات و المديونيات :</span>
-            <span style="color: #b91c1c; font-weight: 900;">${meta.claimBreakdown.totalArrearsAndDebts.toLocaleString()} ج.م</span>
+        <div style="margin-top: 8px; background: #ffffff; border: 2px solid ${isDebt ? '#f87171' : (isZeroDebt ? '#60a5fa' : '#34d399')}; border-radius: 8px; padding: 8px 12px; font-size: 12px; font-weight: 900;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span>صافي الدين النهائي:</span>
+            <span style="color: ${isDebt ? '#b91c1c' : (isZeroDebt ? '#1d4ed8' : '#047857')}; font-size: 15px;">
+              ${isDebt ? `${Math.round(netVal).toLocaleString()} ج.م (عليها مديونية)` : isZeroDebt ? '0 ج.م (الحساب خالص)' : `+${Math.round(Math.abs(netVal)).toLocaleString()} ج.م (رصيد دائن)`}
+            </span>
           </div>
         </div>
       </div>
@@ -945,13 +988,26 @@ export function getReceiptClaimPrintHtml(data: ReceiptClaimData, residents: Resi
     <div class="note-box">
       ${isReceipt 
         ? '🌺 نشكركم على حسن تعاونكم والتزامكم بالسداد لدعم نظافة وصيانة وخدمات العمارة، ونرجو التكرم بسرعة سداد وتصفية أي مبالغ متبقية للحفاظ على استمرار تقديم الخدمات المشتركة بأفضل صورة لراحة الجميع.'
-        : '🤝 نأمل من سيادتكم التكرم بالمبادرة بسرعة سداد المستحقات لتغطية مصروفات الصيانة الدورية والنظافة والأمن وتشغيل المصاعد بكفاءة لراحة وسلامة جميع سكان ورواد العمارة.'
+        : isDebt
+        ? '🤝 نأمل من سيادتكم التكرم بالمبادرة بسرعة سداد المستحقات لتغطية مصروفات الصيانة الدورية والنظافة والأمن وتشغيل المصاعد بكفاءة لراحة وسلامة جميع سكان ورواد العمارة.'
+        : isZeroDebt
+        ? '✨ نشكر سيادتكم على الانتظام بالسداد والحفاظ على تصفية المستحقات أولاً بأول. يسعدنا خلو حسابكم من أي مديونيات متأخرة.'
+        : '🎉 نشكر سيادتكم على السداد المبكر والتفوق المالي. تم قيد الرصيد الدائن المتبقي لصالح حسابكم للفترات القادمة.'
       }
     </div>
 
     <div class="total-banner">
-      <span class="total-label">${isReceipt ? 'إجمالي المبلغ المسدد معتمداً:' : 'إجمالي المبلغ المستحق للسداد:'}</span>
-      <span class="total-val">${Math.round(isReceipt ? data.amount : meta.claimBreakdown.totalDueForPayment).toLocaleString()} ج.م</span>
+      <span class="total-label">${isReceipt ? 'إجمالي المبلغ المسدد معتمداً:' : 'صافي الدين / الحساب النهائي:'}</span>
+      <span class="total-val">
+        ${isReceipt 
+          ? `${Math.round(data.amount).toLocaleString()} ج.م`
+          : isDebt
+          ? `${Math.round(netVal).toLocaleString()} ج.م`
+          : isZeroDebt
+          ? '0 ج.م (خالص)'
+          : `+${Math.round(Math.abs(netVal)).toLocaleString()} ج.م (دائن)`
+        }
+      </span>
     </div>
 
     <div class="footer">

@@ -136,13 +136,13 @@ export function useDebtsCalculations(
         carriedBalance: carriedBal,
       };
 
-      if (isVisible) {
-        debtors.push(item);
-        if (debt > 0) {
-          debtSum += debt;
-          if (!maxDebt || debt > (maxDebt.financials.totalDueForPayment || Math.abs(maxDebt.financials.netBalance))) {
-            maxDebt = item;
-          }
+      // Push all building units unconditionally so all units appear on the report
+      debtors.push(item);
+
+      if (debt > 0) {
+        debtSum += debt;
+        if (!maxDebt || debt > (maxDebt.financials.totalDueForPayment || Math.abs(maxDebt.financials.netBalance))) {
+          maxDebt = item;
         }
       }
 

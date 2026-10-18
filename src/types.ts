@@ -68,6 +68,7 @@ export interface Resident {
   tenantPhone?: string;
   monthlyFee?: number;
   initialBalance?: number;
+  isExempt?: boolean;
   exportedYearBalances?: Record<string | number, number>;
   // Account Credentials & WhatsApp Invitations
   email?: string;

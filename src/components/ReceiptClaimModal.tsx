@@ -49,7 +49,15 @@ export interface ReceiptClaimData {
   paymentType?: string;
   notes?: string;
   carriedBalance?: number;
+  hideCarriedBalance?: boolean;
   monthlyFee?: number;
+  periodExpectedDues?: number;
+  monthlyPaid?: number;
+  otherCollectionsPaid?: number;
+  otherCollectionsDebt?: number;
+  netDebt?: number;
+  isPeriodClaim?: boolean;
+  periodName?: string;
   totalDues?: number;
   totalPaid?: number;
   remainingBalance?: number;
@@ -96,6 +104,15 @@ const ReceiptClaimModalContent: React.FC<{
   const isReceipt = data.type === 'receipt';
   const monthIndex = typeof data.month === 'number' ? data.month - 1 : parseInt(data.month, 10) - 1;
   const monthName = monthNamesArabic[monthIndex] || String(data.month);
+
+  const netDebtVal = useMemo(() => {
+    if (data.netDebt !== undefined) return data.netDebt;
+    return data.amount || 0;
+  }, [data.netDebt, data.amount]);
+
+  const isDebt = netDebtVal > 0;
+  const isZeroDebt = netDebtVal === 0;
+  const isSurplus = netDebtVal < 0;
   
   const docNumber = useMemo(() => {
     if (isReceipt && data.receiptNumber) return data.receiptNumber;
@@ -356,41 +373,55 @@ const ReceiptClaimModalContent: React.FC<{
       t += `إدارة اتحاد ملاك بيراميدز فيو ١`;
       return t;
     } else {
+      const netVal = data.netDebt !== undefined ? data.netDebt : (data.amount || 0);
+      const isDebt = netVal > 0;
+      const isZero = netVal === 0;
+
       let t = `🏢 *اتحاد ملاك عمارة بيراميدز فيو ١*\n`;
-      t += `🏛️ *إشعار مطالبة وبيان مستحقات (${paymentCategory})*\n`;
+      t += `🏛️ *إشعار مطالبة وبيان مستحقات للفترة المحاسبية*\n`;
       t += `-----------------------------------\n`;
-      t += `تحية طيبة،\n`;
-      t += `نحيط سيادتكم علماً ببيان مستحقات ( *الوحدة ${data.unitNumber} - ${activityType}* ):\n`;
+      t += `🚪 *الوحدة:* ( الوحدة ${data.unitNumber} - ${activityType} )\n`;
+      t += `📍 *النطاق المحاسبي:* ${data.periodName || 'الفترة المحاسبية النشطة'}\n`;
       t += `👤 *بيانات الشاغل:*\n`;
       if (occupantInfo.hasTenant) {
         t += `• ${occupantInfo.ownerLine}\n• ${occupantInfo.tenantLine}\n\n`;
       } else {
         t += `• ${occupantInfo.singleLine}\n\n`;
       }
-      t += `📋 *بيان وتفصيل المبالغ المستحقة على الوحدة:*\n`;
-      t += `*حالة الشهر الحالي:*\n`;
-      t += `• ${effectiveClaimBreakdown.subsLineText}\n`;
-      t += `• ${effectiveClaimBreakdown.otherLineText}\n`;
-      t += `• ${effectiveClaimBreakdown.monthlyArrearsLineText}\n`;
-      t += `• ${effectiveClaimBreakdown.otherArrearsLineText}\n`;
-      t += `• ${effectiveClaimBreakdown.previousDebtLineText}\n`;
-      t += `• ${effectiveClaimBreakdown.totalDueLineText}\n\n`;
-      t += `📦 *ملخص المستحقات:*\n`;
-      t += `▫️ اجمالي المبالغ المستحقة عن هذا الشهر : ${effectiveClaimBreakdown.currentMonthTotalDue.toLocaleString()} ج.م\n`;
-      t += `▫️ اجمالي المتأخرات و المديونيات : ${effectiveClaimBreakdown.totalArrearsAndDebts.toLocaleString()} ج.م\n\n`;
-      t += `💰 *إجمالي المبلغ المطلوب سداده:* *${Math.round(effectiveClaimBreakdown.totalDueForPayment).toLocaleString()} جنيه مصري*\n`;
-      t += `🔢 *رقم المطالبة:* ${docNumber}\n`;
-      t += `📅 *تاريخ الإصدار:* ${data.date || new Date().toISOString().split('T')[0]}\n`;
-      t += `\n🤝 *نأمل من سيادتكم التكرم بالمبادرة بسرعة سداد المستحقات لتغطية مصروفات الصيانة الدورية والنظافة والأمن وتشغيل المصاعد بكفاءة لراحة وسلامة جميع سكان ورواد العمارة.*\n`;
+      t += `📋 *بيان وتفاصيل المستحقات والسداد للوحدة للفترة المحاسبية:*\n`;
+      t += `• إجمالي المستحقات (اشتراكات): ${Math.round(data.periodExpectedDues || data.totalDues || 0).toLocaleString()} ج.م\n`;
+      t += `• إجمالي المسدد (اشتراكات): ${Math.round(data.monthlyPaid || data.totalPaid || 0).toLocaleString()} ج.م\n`;
+      t += `• التحصيلات الأخرى: ${Math.round(data.otherCollectionsPaid || 0).toLocaleString()} ج.م مسدد${(data.otherCollectionsDebt || 0) > 0 ? ` (${Math.round(data.otherCollectionsDebt || 0).toLocaleString()} ج.م غير مسدد)` : ''}\n`;
+
+      if (!data.hideCarriedBalance && data.carriedBalance !== undefined && data.carriedBalance !== 0) {
+        t += `• الرصيد السابق المرحل: ${data.carriedBalance < 0 ? `-${Math.abs(data.carriedBalance).toLocaleString()} ج.م (مديونية سابقة)` : `+${data.carriedBalance.toLocaleString()} ج.م (فائض سابق)`}\n`;
+      }
+
+      t += `\n-----------------------------------\n`;
+
+      if (isDebt) {
+        t += `🔴 *صافي الدين المستحق للسداد:* *-${Math.abs(Math.round(netVal)).toLocaleString()} جنيه مصري*\n`;
+        t += `⚠️ *موقف الحساب:* توجد مديونية مستحقة على الوحدة للفترة المحاسبية.\n`;
+        t += `🤝 *نأمل من سيادتكم التكرم بالمبادرة بسرعة سداد المستحقات لتغطية مصروفات الصيانة الدورية والنظافة والأمن وتشغيل المصاعد بكفاءة لراحة وسلامة جميع سكان ورواد العمارة.*\n`;
+      } else if (isZero) {
+        t += `🔵 *صافي الدين:* *0 جنيه مصري (خالص بالكامل)*\n`;
+        t += `✓ *موقف الحساب:* جميع المستحقات مسددة بالكامل ولا توجد أي مديونيات متأخرة 👍\n`;
+        t += `🌺 *نشكركم جزيل الشكر والتقدير على التزامكم بالسداد ودعم خدمات العمارة.*\n`;
+      } else {
+        t += `🟢 *صافي الرصيد الدائن (فائض):* *+${Math.abs(Math.round(netVal)).toLocaleString()} جنيه مصري*\n`;
+        t += `✨ *موقف الحساب:* يتوفر رصيد دائن (فائض مسدد بالزيادة) لصالح الوحدة.\n`;
+        t += `🌺 *نشكركم جزيل الشكر والتقدير على تعاونكم وتواصلكم الدائم.*\n`;
+      }
+
       if (data.notes) {
-        t += `📝 *ملاحظات:* ${data.notes}\n`;
+        t += `\n📝 *ملاحظات:* ${data.notes}\n`;
       }
       t += `-----------------------------------\n`;
       t += `شاكرين ومقدرين حسن تعاونكم الدائم.\n`;
       t += `إدارة اتحاد ملاك بيراميدز فيو ١`;
       return t;
     }
-  }, [data, isReceipt, effectiveClaimBreakdown, monthName, docNumber, hasTenant, occupantInfo, carriedDebt, activityType, displayMonthlyFee, unpaidMonthsCount, unpaidMonthsDues, paymentCategory, paymentDescription, totalUnitDebt, oldCarriedDebts]);
+  }, [data, isReceipt, monthName, docNumber, hasTenant, occupantInfo, carriedDebt, activityType, displayMonthlyFee, unpaidMonthsCount, unpaidMonthsDues, paymentCategory, paymentDescription, totalUnitDebt, oldCarriedDebts]);
 
   const handleDownloadImage = () => {
     if (!imageBlob && !imageDataUrl) return;
@@ -471,7 +502,11 @@ const ReceiptClaimModalContent: React.FC<{
         <div className={`px-5 py-3.5 flex items-center justify-between border-b shrink-0 ${
           isReceipt 
             ? 'bg-gradient-to-r from-emerald-800 to-teal-900 text-white border-emerald-700' 
-            : 'bg-gradient-to-r from-blue-900 to-slate-900 text-white border-blue-800'
+            : isDebt
+            ? 'bg-gradient-to-r from-rose-900 via-red-900 to-rose-950 text-white border-rose-800'
+            : isZeroDebt
+            ? 'bg-gradient-to-r from-blue-900 via-indigo-900 to-blue-950 text-white border-blue-800'
+            : 'bg-gradient-to-r from-emerald-900 via-teal-900 to-emerald-950 text-white border-emerald-800'
         }`}>
           <button
             type="button"
@@ -484,15 +519,15 @@ const ReceiptClaimModalContent: React.FC<{
           <div className="flex items-center gap-2.5">
             <div className="text-right">
               <h3 className="text-sm sm:text-base font-black flex items-center gap-1.5 justify-end">
-                <span>{isReceipt ? `إيصال سداد شهر ${monthName} ${data.year} - ${data.paymentType || 'اشتراك شهري'}` : 'إشعار مطالبة وبيان مستحقات شهرية'}</span>
+                <span>{isReceipt ? `إيصال سداد - ${data.paymentType || 'اشتراك شهري'}` : 'إشعار مطالبة وبيان مستحقات الفترة المحاسبية'}</span>
                 <span className="text-xs bg-white/20 px-2 py-0.5 rounded-lg">( الوحدة {data.unitNumber} - {activityType} )</span>
               </h3>
               <p className="text-[11px] text-white/80 font-bold">
-                {isReceipt ? 'مستند تحصيل واستلام مالي معتمد' : 'بيان مستحقات ومطالبة رسمية'} • {monthName} {data.year}
+                {isReceipt ? 'مستند تحصيل واستلام مالي معتمد' : 'بيان مستحقات ومطالبة رسمية بالفترة المحاسبية'} • {data.periodName || `${monthName} ${data.year}`}
               </p>
             </div>
             <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shadow-xs ${
-              isReceipt ? 'bg-emerald-500 text-white' : 'bg-amber-500 text-white'
+              isReceipt ? 'bg-emerald-500 text-white' : isDebt ? 'bg-rose-600 text-white' : isZeroDebt ? 'bg-blue-600 text-white' : 'bg-emerald-600 text-white'
             }`}>
               {isReceipt ? <Receipt className="w-5 h-5" /> : <FileText className="w-5 h-5" />}
             </div>
@@ -686,13 +721,19 @@ const ReceiptClaimModalContent: React.FC<{
               >
                 {/* Header Banner */}
                 <div className={`p-4 rounded-xl text-white flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4 ${
-                  isReceipt ? 'bg-emerald-700' : 'bg-blue-700'
+                  isReceipt 
+                    ? 'bg-emerald-700' 
+                    : isDebt 
+                    ? 'bg-rose-700' 
+                    : isZeroDebt 
+                    ? 'bg-blue-700' 
+                    : 'bg-emerald-700'
                 }`}>
                   <div>
                     <h4 className="text-sm sm:text-base font-extrabold flex items-center gap-1.5">
-                      <span>{isReceipt ? `💐 إيصال سداد: ${paymentDescription}` : `🏛️ إشعار مطالبة وبيان مستحقات (${paymentCategory})`}</span>
+                      <span>{isReceipt ? `💐 إيصال سداد: ${paymentDescription}` : `🏛️ إشعار مطالبة وبيان مستحقات للفترة المحاسبية`}</span>
                     </h4>
-                    <p className="text-[11px] text-white/90 font-bold mt-1">اتحاد ملاك عمارة بيراميدز فيو ١</p>
+                    <p className="text-[11px] text-white/90 font-bold mt-1">اتحاد ملاك عمارة بيراميدز فيو ١ • {data.periodName || 'الفترة المحاسبية النشطة'}</p>
                   </div>
                   <div className="text-[11px] font-bold opacity-90 sm:text-left space-y-0.5" dir="rtl">
                     <div>التاريخ: {displayFormattedDate}</div>
@@ -704,28 +745,44 @@ const ReceiptClaimModalContent: React.FC<{
                 <div className={`p-2.5 rounded-lg border flex items-center justify-between text-[11px] font-extrabold mb-4 gap-2 ${
                   isReceipt 
                     ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
-                    : isCurrentMonthPaid
-                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                    : 'bg-amber-50 border-amber-200 text-amber-800'
+                    : isDebt
+                    ? 'bg-rose-50 border-rose-200 text-rose-900'
+                    : isZeroDebt
+                    ? 'bg-blue-50 border-blue-200 text-blue-900'
+                    : 'bg-emerald-50 border-emerald-200 text-emerald-900'
                 }`}>
                   <span>
                     {isReceipt 
                       ? `✓ تم استلام ${paymentDescription} بنجاح وتوثيقه في السجل المالي` 
-                      : isCurrentMonthPaid
-                      ? `✓ حالة سداد الشهر الحالي: اشتراك شهر ${monthName} ${data.year} (${Math.round(displayMonthlyFee).toLocaleString()} ج.م) مسدد بالكامل`
-                      : `⚠️ تنويه هام: اشتراك شهر ${monthName} ${data.year} (${Math.round(displayMonthlyFee).toLocaleString()} ج.م) غير مسدد حتى تاريخه`}
+                      : isDebt
+                      ? `⚠️ تنويه: توجد مديونية مستحقة على الوحدة للفترة المحاسبية وقدرها (${Math.abs(Math.round(netDebtVal)).toLocaleString()} ج.م)`
+                      : isZeroDebt
+                      ? `✓ حالة الرصيد للفترة المحاسبية: جميع المستحقات مسددة بالكامل ولا توجد مديونيات (0 ج.م)`
+                      : `✨ حالة الرصيد للفترة المحاسبية: يوجد رصيد دائن (فائض) لصالح الوحدة وقدره (+${Math.abs(Math.round(netDebtVal)).toLocaleString()} ج.م)`}
                   </span>
                   <span className={`px-2 py-0.5 rounded-full text-[10px] shrink-0 ${
-                    isReceipt || isCurrentMonthPaid ? 'bg-emerald-200 text-emerald-950' : 'bg-amber-200 text-amber-950'
+                    isReceipt 
+                      ? 'bg-emerald-200 text-emerald-950' 
+                      : isDebt
+                      ? 'bg-rose-200 text-rose-950'
+                      : isZeroDebt
+                      ? 'bg-blue-200 text-blue-950'
+                      : 'bg-emerald-200 text-emerald-950'
                   }`}>
-                    {isReceipt || isCurrentMonthPaid ? 'مسدد بالكامل ✓' : '⏳ غير مسدد'}
+                    {isReceipt 
+                      ? 'مسدد بالكامل ✓' 
+                      : isDebt
+                      ? '⏳ مديونية مستحقة'
+                      : isZeroDebt
+                      ? '✓ خالص بالكامل'
+                      : '✨ رصيد دائن'}
                   </span>
                 </div>
 
-                {/* Data Fields */}
+                {/* Data Fields Table */}
                 <div className="bg-slate-50 border border-slate-200 rounded-xl overflow-hidden text-xs mb-4 divide-y divide-slate-200">
                   <div className="flex justify-between items-start p-2.5 font-bold">
-                    <span className="text-slate-500 shrink-0 ml-2 mt-0.5">اسم الشاغل:</span>
+                    <span className="text-slate-500 shrink-0 ml-2 mt-0.5">اسم الشاغل / المالك:</span>
                     <div className="flex flex-col gap-0.5 text-left sm:text-right font-black leading-relaxed">
                       {occupantInfo.hasTenant ? (
                         <>
@@ -737,42 +794,103 @@ const ReceiptClaimModalContent: React.FC<{
                       )}
                     </div>
                   </div>
+
                   <div className="flex justify-between items-center p-2.5 font-bold">
-                    <span className="text-slate-500">رقم الوحدة:</span>
+                    <span className="text-slate-500">رقم الوحدة والنشاط:</span>
                     <span className="text-blue-900 font-black">( الوحدة {data.unitNumber} - {activityType} )</span>
                   </div>
-                  {isReceipt ? (
+
+                  {!isReceipt && (
                     <div className="flex justify-between items-center p-2.5 font-bold">
-                      <span className="text-slate-500">بيان الإيصال:</span>
-                      <span className="text-slate-900 font-black text-emerald-800">{paymentDescription}</span>
+                      <span className="text-slate-500">النطاق المحاسبي:</span>
+                      <span className="text-slate-900 font-black">{data.periodName || 'الفترة المحاسبية النشطة'}</span>
                     </div>
-                  ) : (
+                  )}
+
+                   {!isReceipt ? (
                     <>
                       <div className="flex justify-between items-center p-2.5 font-bold">
-                        <span className="text-slate-500">عن شهر:</span>
-                        <span className="text-slate-900">اشتراك {monthName} {data.year} ({Math.round(displayMonthlyFee).toLocaleString()} ج.م)</span>
+                        <span className="text-slate-500">قيمة المستحقات (اشتراكات الفترة):</span>
+                        <div className="text-left font-black">
+                          <span className="text-slate-900 font-black text-xs block">
+                            {Math.round(data.periodExpectedDues || data.totalDues || 0).toLocaleString()} ج.م
+                          </span>
+                          <span className="text-[10px] font-semibold text-slate-500 block mt-0.5">
+                            {data.claimBreakdown?.subsLineText || `اشتراك شهري قدره ${Math.round(displayMonthlyFee).toLocaleString()} ج.م × الشهور المستحقة للفترة`}
+                          </span>
+                        </div>
                       </div>
+
                       <div className="flex justify-between items-center p-2.5 font-bold">
-                        <span className="text-slate-500">حالة الشهر الحالي:</span>
-                        <span className={`font-black ${isCurrentMonthPaid ? 'text-emerald-700' : 'text-rose-700'}`}>
-                          {isCurrentMonthPaid ? 'مسدد بالكامل ✓' : 'غير مسدد ⚠️'}
+                        <span className="text-slate-500">قيمة المسدد (اشتراكات الفترة):</span>
+                        <div className="text-left font-black">
+                          <span className="text-emerald-700 font-black text-xs block">
+                            {Math.round(data.monthlyPaid || data.totalPaid || 0).toLocaleString()} ج.م
+                          </span>
+                          <span className="text-[10px] font-semibold text-emerald-600 block mt-0.5">
+                            {(data.monthlyPaid || 0) > 0 
+                              ? `إجمالي مبالغ اشتراكات الملوك المسددة عن الفترة (${Math.round(data.monthlyPaid || 0).toLocaleString()} ج.م)` 
+                              : 'لم يتم سداد مبالغ اشتراكات شهرية خلال هذه الفترة'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex justify-between items-center p-2.5 font-bold">
+                        <span className="text-slate-500">التحصيلات الأخرى:</span>
+                        <div className="text-left font-black">
+                          <span className="text-blue-900 text-xs block font-black">
+                            {Math.round(data.otherCollectionsPaid || 0).toLocaleString()} ج.م مسدد
+                            {(data.otherCollectionsDebt || 0) > 0 && (
+                              <span className="inline-block text-[11px] text-rose-700 mr-1">
+                                ({Math.round(data.otherCollectionsDebt || 0).toLocaleString()} ج.م غير مسدد)
+                              </span>
+                            )}
+                          </span>
+                          <span className="text-[10px] font-semibold text-slate-500 block mt-0.5">
+                            {(data.otherCollectionsDebt || 0) > 0 || (data.otherCollectionsPaid || 0) > 0
+                              ? `تفاصيل التحصيلات الخاصة (صيانة، مصعد، حراسة، أو خدمات مشتركة)`
+                              : 'لا توجد تحصيلات أخرى مسجلة لهذه الوحدة للفترة'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {!data.hideCarriedBalance && (data.carriedBalance !== undefined && data.carriedBalance !== 0) && (
+                        <div className="flex justify-between items-center p-2.5 font-bold bg-amber-50/50">
+                          <span className="text-slate-600">الرصيد السابق المرحل:</span>
+                          <span className={`font-black ${data.carriedBalance < 0 ? 'text-rose-700' : 'text-emerald-700'}`} dir="ltr">
+                            {data.carriedBalance < 0 
+                              ? `-${Math.abs(data.carriedBalance).toLocaleString()} ج.م (مديونية سابقة)` 
+                              : `+${data.carriedBalance.toLocaleString()} ج.م (فائض سابق)`}
+                          </span>
+                        </div>
+                      )}
+
+                      <div className={`flex justify-between items-center p-2.5 font-black text-xs ${
+                        isDebt ? 'bg-rose-100/80 text-rose-950' : isZeroDebt ? 'bg-blue-100/80 text-blue-950' : 'bg-emerald-100/80 text-emerald-950'
+                      }`}>
+                        <span>{isDebt ? 'صافي الدين المستحق للسداد:' : isZeroDebt ? 'صافي الدين (حالة الرصيد):' : 'صافي الرصيد الدائن (فائض):'}</span>
+                        <span className="text-sm font-black" dir="ltr">
+                          {isDebt 
+                            ? `-${Math.abs(Math.round(netDebtVal)).toLocaleString()} ج.م` 
+                            : isZeroDebt 
+                            ? '0 ج.م (خالص بالكامل)' 
+                            : `+${Math.abs(Math.round(netDebtVal)).toLocaleString()} ج.m`}
                         </span>
                       </div>
                     </>
-                  )}
-                  <div className="flex justify-between items-center p-2.5 font-bold">
-                    <span className="text-slate-500">نوع الإشغال:</span>
-                    <span className="text-slate-900">{occupancyType}</span>
-                  </div>
-                  {isReceipt && (
+                  ) : (
                     <>
+                      <div className="flex justify-between items-center p-2.5 font-bold">
+                        <span className="text-slate-500">بيان الإيصال:</span>
+                        <span className="text-slate-900 font-black text-emerald-800">{paymentDescription}</span>
+                      </div>
+                      <div className="flex justify-between items-center p-2.5 font-bold">
+                        <span className="text-slate-500">نوع الإشغال:</span>
+                        <span className="text-slate-900">{occupancyType}</span>
+                      </div>
                       <div className="flex justify-between items-center p-2.5 font-bold">
                         <span className="text-slate-500">تاريخ السداد:</span>
                         <span className="text-slate-900">{data.date || `${data.year}-${String(data.month).padStart(2, '0')}`}</span>
-                      </div>
-                      <div className="flex justify-between items-center p-2.5 font-bold">
-                        <span className="text-slate-500">نوع التحصيل:</span>
-                        <span className="text-emerald-800">{paymentCategory}</span>
                       </div>
                       <div className="flex justify-between items-center p-2.5 font-bold">
                         <span className="text-slate-500">طريقة السداد:</span>
@@ -782,86 +900,64 @@ const ReceiptClaimModalContent: React.FC<{
                   )}
                 </div>
 
-                {/* Debt Notification Section */}
-                {isReceipt ? (
-                  totalUnitDebt > 0 ? (
-                    <div className="p-3 bg-amber-50 border border-amber-300 rounded-xl text-amber-950 text-xs font-bold mb-4">
-                      <div className="flex items-center gap-1.5 text-amber-900 font-black mb-1">
-                        <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
-                        <span>⚠️ بيان تفصيلي بالمديونيات والمتأخرات المتبقية على الوحدة:</span>
-                      </div>
-                      <div className="text-[11.5px] leading-relaxed space-y-0.5">
-                        <div>• متأخرات {paymentCategory}: {unpaidMonthsCount === 1 ? 'تأخير شهر واحد' : unpaidMonthsCount === 2 ? 'تأخير شهرين' : unpaidMonthsCount <= 10 ? `تأخير ${unpaidMonthsCount} أشهر` : `تأخير ${unpaidMonthsCount} شهراً`} ({Math.round(unpaidMonthsDues).toLocaleString()} ج.م){oldCarriedDebts > 0 ? ` + مديونية قديمة مرحلة (${Math.round(oldCarriedDebts).toLocaleString()} ج.م)` : ''}</div>
-                        <div className="font-black text-rose-800">• إجمالي المديونية المتبقية على الوحدة: <span className="underline">{Math.round(totalUnitDebt).toLocaleString()} ج.م</span> (المتأخرات الحالية + المديونيات القديمة)</div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-emerald-950 text-xs font-bold mb-4">
-                      <div className="flex items-center gap-1.5 text-emerald-900 font-black mb-1">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                        <span>✨ موقف المديونيات:</span>
-                      </div>
-                      <div className="text-[11.5px] leading-relaxed">
-                        لا توجد أي مديونيات قديمة أو متأخرات على الوحدة، والحساب مسدد بالكامل حتى تاريخه 👍
-                      </div>
-                    </div>
-                  )
-                ) : (
-                  <div className="p-3 bg-rose-50 border border-rose-300 rounded-xl text-rose-950 text-xs font-bold mb-4">
-                    <div className="flex items-center gap-1.5 text-rose-900 font-black mb-1.5">
-                      <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-                      <span>⚠️ بيان وتفصيل المبالغ المستحقة على الوحدة:</span>
-                    </div>
-                    <div className="text-[11.5px] leading-relaxed space-y-1">
-                      <div className="font-black text-slate-900 pb-0.5">حالة الشهر الحالي:</div>
-                      <div>• {effectiveClaimBreakdown.subsLineText}</div>
-                      <div>• {effectiveClaimBreakdown.otherLineText}</div>
-                      <div>• {effectiveClaimBreakdown.monthlyArrearsLineText}</div>
-                      <div>• {effectiveClaimBreakdown.otherArrearsLineText}</div>
-                      <div>• {effectiveClaimBreakdown.previousDebtLineText}</div>
-                      <div className="font-black text-rose-950 pt-1 border-t border-rose-200">
-                        • {effectiveClaimBreakdown.totalDueLineText}
-                      </div>
-                    </div>
-
-                    {/* المستطيل المطلوب: اجمالي المبالغ المستحقة عن هذا الشهر واجمالي المتأخرات والمديونيات */}
-                    <div className="mt-3 p-2.5 bg-white rounded-lg border-2 border-rose-400 shadow-2xs space-y-1.5 text-[11.5px]">
-                      <div className="flex justify-between items-center text-slate-900 font-black">
-                        <span>اجمالي المبالغ المستحقة عن هذا الشهر :</span>
-                        <span className="text-blue-900 font-black text-xs">{effectiveClaimBreakdown.currentMonthTotalDue.toLocaleString()} ج.م</span>
-                      </div>
-                      <div className="flex justify-between items-center text-slate-900 font-black pt-1 border-t border-dashed border-rose-200">
-                        <span>احمالي المتأخرات و المديونيات :</span>
-                        <span className="text-rose-900 font-black text-xs">{effectiveClaimBreakdown.totalArrearsAndDebts.toLocaleString()} ج.م</span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
                 {/* Encouraging Note Box */}
                 <div className={`p-3 rounded-xl border text-[11px] font-bold leading-relaxed mb-4 text-center ${
-                  isReceipt ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-blue-50 border-blue-100 text-blue-800'
+                  isReceipt 
+                    ? 'bg-emerald-50 border-emerald-100 text-emerald-800' 
+                    : isDebt
+                    ? 'bg-rose-50 border-rose-100 text-rose-800'
+                    : isZeroDebt
+                    ? 'bg-blue-50 border-blue-100 text-blue-800'
+                    : 'bg-emerald-50 border-emerald-100 text-emerald-800'
                 }`}>
                   {isReceipt ? (
                     <span>
-                      🌺 نشكركم على حسن تعاونكم والتزامكم بالسداد لدعم نظافة وصيانة وخدمات العمارة، ونرجو التكرم بسرعة سداد وتصفية المبالغ المتبقية للحفاظ على استمرار تقديم الخدمات المشتركة بأفضل صورة لراحة الجميع.
+                      🌺 نشكركم على حسن تعاونكم والتزامكم بالسداد لدعم نظافة وصيانة وخدمات العمارة.
+                    </span>
+                  ) : isDebt ? (
+                    <span>
+                      🤝 نأمل من سيادتكم التكرم بالمبادرة بسرعة سداد المستحقات لتغطية مصروفات الصيانة الدورية والنظافة والأمن وتشغيل المصاعد بكفاءة.
+                    </span>
+                  ) : isZeroDebt ? (
+                    <span>
+                      🌺 نشكركم جزيل الشكر والتقدير على التزامكم الدائم بالسداد في المواعيد المحددة ودعم استقرار خدمات العمارة.
                     </span>
                   ) : (
                     <span>
-                      🤝 نأمل من سيادتكم التكرم بالمبادرة بسرعة سداد المستحقات لتغطية مصروفات الصيانة الدورية والنظافة والأمن وتشغيل المصاعد بكفاءة لراحة وسلامة جميع سكان ورواد العمارة.
+                      🌺 نشكركم جزيل الشكر والتقدير، يتوفر رصيد فائض لصالح الوحدة يرحل تلقائياً للمستحقات القادمة.
                     </span>
                   )}
                 </div>
 
                 {/* Big Total Banner */}
                 <div className={`p-3.5 rounded-xl border-2 flex items-center justify-between font-black ${
-                  isReceipt ? 'bg-emerald-50/50 border-emerald-600' : 'bg-white border-rose-600'
+                  isReceipt 
+                    ? 'bg-emerald-50/50 border-emerald-600 text-emerald-900' 
+                    : isDebt
+                    ? 'bg-rose-50/50 border-rose-600 text-rose-900'
+                    : isZeroDebt
+                    ? 'bg-blue-50/50 border-blue-600 text-blue-900'
+                    : 'bg-emerald-50/50 border-emerald-600 text-emerald-900'
                 }`}>
-                  <span className="text-xs text-slate-850">
-                    {isReceipt ? 'إجمالي المبلغ المسدد معتمداً:' : 'إجمالي المبلغ المستحق للسداد:'}
+                  <span className="text-xs">
+                    {isReceipt 
+                      ? 'إجمالي المبلغ المسدد معتمداً:' 
+                      : isDebt 
+                      ? 'إجمالي المبلغ المستحق للسداد للفترة:' 
+                      : isZeroDebt 
+                      ? 'إجمالي المستحق للسداد للفترة:' 
+                      : 'إجمالي صافي الرصيد الفائض:'}
                   </span>
-                  <span className={`text-lg sm:text-xl ${isReceipt ? 'text-emerald-700' : 'text-rose-700'}`}>
-                    {Math.round(isReceipt ? data.amount : effectiveClaimBreakdown.totalDueForPayment).toLocaleString()} ج.م
+                  <span className={`text-lg sm:text-xl font-black ${
+                    isReceipt ? 'text-emerald-700' : isDebt ? 'text-rose-700' : isZeroDebt ? 'text-blue-800' : 'text-emerald-700'
+                  }`} dir="ltr">
+                    {isReceipt 
+                      ? `${Math.round(data.amount).toLocaleString()} ج.م` 
+                      : isDebt 
+                      ? `-${Math.abs(Math.round(netDebtVal)).toLocaleString()} ج.م` 
+                      : isZeroDebt 
+                      ? '0 ج.م' 
+                      : `+${Math.abs(Math.round(netDebtVal)).toLocaleString()} ج.م`}
                   </span>
                 </div>
 
@@ -960,7 +1056,7 @@ const ReceiptClaimModalContent: React.FC<{
         {/* Card Header Banner */}
         <div
           style={{
-            backgroundColor: isReceipt ? '#047857' : '#1d4ed8',
+            backgroundColor: isReceipt ? '#047857' : (isDebt ? '#b91c1c' : (isZeroDebt ? '#1d4ed8' : '#047857')),
             color: '#ffffff',
             borderRadius: '16px',
             padding: '18px 22px',
@@ -971,11 +1067,11 @@ const ReceiptClaimModalContent: React.FC<{
           }}
         >
           <div>
-            <div style={{ fontSize: '19px', fontWeight: '900', letterSpacing: 'normal', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span>{isReceipt ? `💐 إيصال سداد شهر ${monthName} ${data.year} - ${data.paymentType || 'اشتراك شهري'}` : '🏛️ إشعار مطالبة وبيان مستحقات شهرية'}</span>
+            <div style={{ fontSize: '18px', fontWeight: '900', letterSpacing: 'normal', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span>{isReceipt ? `💐 إيصال سداد: ${data.paymentType || 'اشتراك شهري'}` : '🏛️ إشعار مطالبة وبيان مستحقات للفترة المحاسبية'}</span>
             </div>
-            <div style={{ fontSize: '13.5px', fontWeight: '700', color: '#ffffff', marginTop: '4px', opacity: 0.95 }}>
-              اتحاد ملاك عمارة بيراميدز فيو ١
+            <div style={{ fontSize: '13px', fontWeight: '700', color: '#ffffff', marginTop: '4px', opacity: 0.95 }}>
+              اتحاد ملاك عمارة بيراميدز فيو ١ • {data.periodName || 'الفترة المحاسبية النشطة'}
             </div>
           </div>
           <div
@@ -998,8 +1094,8 @@ const ReceiptClaimModalContent: React.FC<{
         {/* Status Alert Bar */}
         <div
           style={{
-            backgroundColor: isReceipt ? '#ecfdf5' : '#fffbeb',
-            border: isReceipt ? '1px solid #a7f3d0' : '1px solid #fde68a',
+            backgroundColor: isReceipt ? '#ecfdf5' : (isDebt ? '#fef2f2' : (isZeroDebt ? '#eff6ff' : '#ecfdf5')),
+            border: isReceipt ? '1px solid #a7f3d0' : (isDebt ? '1px solid #fecaca' : (isZeroDebt ? '1px solid #bfdbfe' : '1px solid #a7f3d0')),
             borderRadius: '14px',
             padding: '10px 16px',
             display: 'flex',
@@ -1008,17 +1104,21 @@ const ReceiptClaimModalContent: React.FC<{
             marginBottom: '16px',
           }}
         >
-          <div style={{ fontSize: '12.5px', fontWeight: '800', color: isReceipt ? '#047857' : '#92400e', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <div style={{ fontSize: '12.5px', fontWeight: '800', color: isReceipt ? '#047857' : (isDebt ? '#991b1b' : (isZeroDebt ? '#1e40af' : '#047857')), display: 'flex', alignItems: 'center', gap: '6px' }}>
             <span>
               {isReceipt 
                 ? '✓ تم استلام مبلغ الاشتراك بنجاح وتوثيقه في السجل المالي المعتمد' 
-                : `⚠️ تنويه هام: اشتراك شهر ${monthName} ${data.year} غير مسدد حتى تاريخه`}
+                : isDebt
+                ? `⚠️ تنويه: توجد مديونية مستحقة على الوحدة للفترة المحاسبية وقدرها (${Math.abs(Math.round(netDebtVal)).toLocaleString()} ج.م)`
+                : isZeroDebt
+                ? `✓ حالة الرصيد للفترة المحاسبية: جميع المستحقات مسددة بالكامل ولا توجد مديونيات (0 ج.م)`
+                : `✨ حالة الرصيد للفترة المحاسبية: يوجد رصيد دائن (فائض) لصالح الوحدة وقدره (+${Math.abs(Math.round(netDebtVal)).toLocaleString()} ج.م)`}
             </span>
           </div>
           <div
             style={{
-              backgroundColor: isReceipt ? '#d1fae5' : '#fef3c7',
-              color: isReceipt ? '#047857' : '#92400e',
+              backgroundColor: isReceipt ? '#d1fae5' : (isDebt ? '#fecdd3' : (isZeroDebt ? '#dbeafe' : '#d1fae5')),
+              color: isReceipt ? '#047857' : (isDebt ? '#881337' : (isZeroDebt ? '#1e3a8a' : '#047857')),
               padding: '4px 12px',
               borderRadius: '20px',
               fontSize: '11.5px',
@@ -1028,7 +1128,15 @@ const ReceiptClaimModalContent: React.FC<{
               gap: '4px',
             }}
           >
-            <span>{isReceipt ? 'تم السداد ✓' : '⏳ غير مسدد'}</span>
+            <span>
+              {isReceipt 
+                ? 'تم السداد ✓' 
+                : isDebt
+                ? '⏳ مديونية مستحقة'
+                : isZeroDebt
+                ? '✓ خالص بالكامل'
+                : '✨ رصيد دائن'}
+            </span>
           </div>
         </div>
 
@@ -1187,38 +1295,82 @@ const ReceiptClaimModalContent: React.FC<{
         ) : (
           <div
             style={{
-              backgroundColor: '#fef2f2',
-              border: '1.5px solid #fecaca',
+              backgroundColor: isDebt ? '#fef2f2' : (isZeroDebt ? '#eff6ff' : '#f0fdf4'),
+              border: `1.5px solid ${isDebt ? '#fecaca' : (isZeroDebt ? '#bfdbfe' : '#bbf7d0')}`,
               borderRadius: '14px',
-              padding: '12px 16px',
+              padding: '14px 18px',
               marginBottom: '16px',
-              color: '#991b1b',
+              color: isDebt ? '#991b1b' : (isZeroDebt ? '#1e40af' : '#166534'),
             }}
           >
-            <div style={{ fontSize: '13px', fontWeight: '900', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span>⚠️ بيان وتفصيل المبالغ المستحقة على الوحدة:</span>
+            <div style={{ fontSize: '13px', fontWeight: '900', marginBottom: '8px' }}>
+              📊 بيان وتفاصيل المستحقات والسداد للوحدة للفترة المحاسبية:
             </div>
-            <div style={{ fontSize: '11.5px', fontWeight: '800', lineHeight: '1.6', color: '#7f1d1d' }}>
-              <div style={{ fontWeight: '900', color: '#0f172a' }}>حالة الشهر الحالي:</div>
-              <div>• {effectiveClaimBreakdown.subsLineText}</div>
-              <div>• {effectiveClaimBreakdown.otherLineText}</div>
-              <div>• {effectiveClaimBreakdown.monthlyArrearsLineText}</div>
-              <div>• {effectiveClaimBreakdown.otherArrearsLineText}</div>
-              <div>• {effectiveClaimBreakdown.previousDebtLineText}</div>
-              <div style={{ fontWeight: '900', marginTop: '4px', paddingTop: '4px', borderTop: '1px dashed #fca5a5', color: '#7f1d1d' }}>
-                • {effectiveClaimBreakdown.totalDueLineText}
+            <div style={{ fontSize: '12px', lineHeight: '1.8' }}>
+              {/* قيمة المستحقات */}
+              <div style={{ borderBottom: `1px dashed ${isDebt ? '#fca5a5' : (isZeroDebt ? '#bfdbfe' : '#bbf7d0')}`, padding: '4px 0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontWeight: '800' }}>• قيمة المستحقات (الاشتراكات الشهرية):</span>
+                  <span style={{ fontWeight: '900', color: '#0f172a' }}>{Math.round(data.periodExpectedDues || data.totalDues || 0).toLocaleString()} ج.م</span>
+                </div>
+                <div style={{ fontSize: '9.5px', color: '#64748b', fontWeight: '700', marginTop: '1px', paddingRight: '12px' }}>
+                  {data.claimBreakdown?.subsLineText || `اشتراك شهري قدره ${Math.round(displayMonthlyFee).toLocaleString()} ج.م × الشهور المستحقة للفترة`}
+                </div>
               </div>
+
+              {/* قيمة المسدد */}
+              <div style={{ borderBottom: `1px dashed ${isDebt ? '#fca5a5' : (isZeroDebt ? '#bfdbfe' : '#bbf7d0')}`, padding: '4px 0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontWeight: '800' }}>• قيمة المسدد (الاشتراكات الشهرية):</span>
+                  <span style={{ fontWeight: '900', color: '#047857' }}>{Math.round(data.monthlyPaid || data.totalPaid || 0).toLocaleString()} ج.م</span>
+                </div>
+                <div style={{ fontSize: '9.5px', color: '#047857', fontWeight: '700', marginTop: '1px', paddingRight: '12px' }}>
+                  {(data.monthlyPaid || 0) > 0 
+                    ? `إجمالي مبالغ اشتراكات الملوك المسددة عن الفترة (${Math.round(data.monthlyPaid || 0).toLocaleString()} ج.م)` 
+                    : 'لم يتم سداد مبالغ اشتراكات شهرية خلال هذه الفترة'}
+                </div>
+              </div>
+
+              {/* التحصيلات الأخرى */}
+              <div style={{ borderBottom: `1px dashed ${isDebt ? '#fca5a5' : (isZeroDebt ? '#bfdbfe' : '#bbf7d0')}`, padding: '4px 0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontWeight: '800' }}>• التحصيلات الأخرى:</span>
+                  <span style={{ fontWeight: '900', color: '#1e3a8a' }}>
+                    {Math.round(data.otherCollectionsPaid || 0).toLocaleString()} ج.م مسدد
+                    {(data.otherCollectionsDebt || 0) > 0 && ` (${Math.round(data.otherCollectionsDebt || 0).toLocaleString()} ج.م غير مسدد)`}
+                  </span>
+                </div>
+                <div style={{ fontSize: '9.5px', color: '#64748b', fontWeight: '700', marginTop: '1px', paddingRight: '12px' }}>
+                  {(data.otherCollectionsDebt || 0) > 0 || (data.otherCollectionsPaid || 0) > 0
+                    ? `تفاصيل التحصيلات الخاصة (صيانة، مصعد، حراسة، أو خدمات مشتركة)`
+                    : 'لا توجد تحصيلات أخرى مسجلة لهذه الوحدة للفترة'}
+                </div>
+              </div>
+
+              {/* الرصيد السابق المرحل */}
+              {!data.hideCarriedBalance && (data.carriedBalance !== undefined && data.carriedBalance !== 0) && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px dashed ${isDebt ? '#fca5a5' : (isZeroDebt ? '#bfdbfe' : '#bbf7d0')}`, padding: '4px 0' }}>
+                  <span style={{ fontWeight: '800' }}>• الرصيد السابق المرحل:</span>
+                  <span style={{ fontWeight: '900', color: data.carriedBalance < 0 ? '#b91c1c' : '#047857' }}>
+                    {data.carriedBalance < 0 
+                      ? `-${Math.abs(data.carriedBalance).toLocaleString()} ج.م (مديونية سابقة)` 
+                      : `+${data.carriedBalance.toLocaleString()} ج.م (فائض سابق)`}
+                  </span>
+                </div>
+              )}
             </div>
 
-            {/* المستطيل المطلوب للتفصيل المالي في الطباعة */}
-            <div style={{ marginTop: '10px', background: '#ffffff', border: '2px solid #f87171', borderRadius: '8px', padding: '8px 12px', fontSize: '11.5px', fontWeight: '900' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#0f172a' }}>
-                <span>اجمالي المبالغ المستحقة عن هذا الشهر :</span>
-                <span style={{ color: '#1e3a8a' }}>{effectiveClaimBreakdown.currentMonthTotalDue.toLocaleString()} ج.م</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#0f172a', marginTop: '4px', paddingTop: '4px', borderTop: '1px dashed #fecaca' }}>
-                <span>احمالي المتأخرات و المديونيات :</span>
-                <span style={{ color: '#991b1b' }}>{effectiveClaimBreakdown.totalArrearsAndDebts.toLocaleString()} ج.م</span>
+            {/* المستطيل النهائي للصافي */}
+            <div style={{ marginTop: '10px', background: '#ffffff', border: `2px solid ${isDebt ? '#f87171' : (isZeroDebt ? '#60a5fa' : '#34d399')}`, borderRadius: '8px', padding: '8px 12px', fontSize: '12px', fontWeight: '900' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>صافي الدين النهائي:</span>
+                <span style={{ color: isDebt ? '#b91c1c' : (isZeroDebt ? '#1d4ed8' : '#047857'), fontSize: '15px' }}>
+                  {isDebt 
+                    ? `${Math.round(netDebtVal).toLocaleString()} ج.م (عليها مديونية)` 
+                    : isZeroDebt 
+                    ? '0 ج.م (الحساب خالص)' 
+                    : `+${Math.round(Math.abs(netDebtVal)).toLocaleString()} ج.م (رصيد دائن)`}
+                </span>
               </div>
             </div>
           </div>

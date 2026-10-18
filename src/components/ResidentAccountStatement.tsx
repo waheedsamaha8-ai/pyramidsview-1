@@ -1240,7 +1240,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                     <th className="sticky right-0 z-20 bg-slate-50 px-1 py-1.5 whitespace-nowrap text-center border-l border-slate-200/80 shadow-[-2px_0_4px_rgba(0,0,0,0.03)] text-[10px] sm:text-[11px]">
                       الشهور
                     </th>
-                    <th className="px-1.5 py-1.5 sm:px-2 whitespace-nowrap text-right">الاشتراك</th>
+                    <th className="px-1.5 py-1.5 sm:px-2 whitespace-nowrap text-right">المستحق</th>
                     <th className="px-1.5 py-1.5 sm:px-2 whitespace-nowrap text-right">المسدد</th>
                     <th className="px-1 py-1.5 whitespace-nowrap text-center text-[9.5px] sm:text-[10px]">
                       فئة التحصيل
@@ -1529,7 +1529,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                     <th className="sticky right-0 z-20 bg-slate-50 px-1 py-1.5 whitespace-nowrap text-center border-l border-slate-200/80 shadow-[-2px_0_4px_rgba(0,0,0,0.03)] text-[10px] sm:text-[11px]">
                       الشهور
                     </th>
-                    <th className="px-1.5 py-1.5 sm:px-2 whitespace-nowrap text-right">الاشتراك</th>
+                    <th className="px-1.5 py-1.5 sm:px-2 whitespace-nowrap text-right">المستحق</th>
                     <th className="px-1.5 py-1.5 sm:px-2 whitespace-nowrap text-right">المسدد</th>
                     <th className="px-1 py-1.5 whitespace-nowrap text-center text-[9.5px] sm:text-[10px]">
                       فئة التحصيل
@@ -1977,7 +1977,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
             <thead>
               <tr className="bg-slate-100 text-slate-800 font-black border-b border-slate-400 text-[11px]">
                 <th className="border border-slate-400 p-2 text-center font-black">الشهر</th>
-                <th className="border border-slate-400 p-2 text-center font-black">قيمة الاشتراك</th>
+                <th className="border border-slate-400 p-2 text-center font-black">المستحق</th>
                 <th className="border border-slate-400 p-2 text-center font-black">المبلغ المسدد</th>
                 <th className="border border-slate-400 p-2 text-center font-black">فئة التحصيل</th>
                 <th className="border border-slate-400 p-2 text-center font-black">حالة السداد</th>
@@ -2158,7 +2158,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                 <thead>
                   <tr className="bg-slate-100 text-slate-800 font-black border-b border-slate-400 text-[11px]">
                     <th className="border border-slate-400 p-2 text-center font-black">الشهر</th>
-                    <th className="border border-slate-400 p-2 text-center font-black">الاشتراك</th>
+                    <th className="border border-slate-400 p-2 text-center font-black">المستحق</th>
                     <th className="border border-slate-400 p-2 text-center font-black">المسدد</th>
                     <th className="border border-slate-400 p-2 text-center font-black">فئة التحصيل</th>
                     <th className="border border-slate-400 p-2 text-center font-black">حالة السداد</th>

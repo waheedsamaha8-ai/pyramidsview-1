@@ -93,6 +93,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
   
   // Year selector for multi-year accounting rollover
   const [selectedYearFilter, setSelectedYearFilter] = useState<'all' | number>('all');
+  const [debtFilter, setDebtFilter] = useState<'all' | 'debt' | 'zero' | 'credit' | 'exempt'>('all');
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportSuccessMsg, setExportSuccessMsg] = useState<string | null>(null);
   const [hideCarriedBalance, setHideCarriedBalance] = useState<boolean>(false);
@@ -253,7 +254,52 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
     }
   }, [selectedYearFilter, accountingStartDate]);
 
-  // Screen filtered residents with debt (based on search term, activity filter, sort order)
+  const debtCounts = useMemo(() => {
+    let debtCount = 0;
+    let zeroCount = 0;
+    let creditCount = 0;
+    let exemptCount = 0;
+
+    allDebtorsList.forEach((item) => {
+      const cBal = hideCarriedBalance ? 0 : (item.carriedBalance || 0);
+      const netPeriodDebt = (item.financials.periodExpectedDues || 0) - (item.financials.monthlyPaid || 0) + (item.financials.otherCollectionsDebt || 0);
+      const calculatedNetDebt = netPeriodDebt - cBal;
+      const isSurplus = calculatedNetDebt < 0 || (item.financials.monthlyPaid > item.financials.periodExpectedDues && item.financials.otherCollectionsDebt === 0 && cBal >= 0);
+      const debtAmount = Math.max(0, Math.round(calculatedNetDebt));
+
+      const act = (item.resident.activityType || '').trim();
+      const isExemptActivity = 
+        act.includes('تشطيب') || 
+        act.includes('مغلق') || 
+        act.includes('مغلقة') || 
+        act.includes('معفي') || 
+        act.includes('معفاه') || 
+        act.includes('معفاة') ||
+        (item.financials.periodExpectedDues === 0 && item.financials.monthlyFee === 0);
+
+      const isExempt = isExemptActivity && debtAmount <= 0;
+
+      if (debtAmount > 0) {
+        debtCount += 1;
+      } else if (isSurplus) {
+        creditCount += 1;
+      } else if (isExempt) {
+        exemptCount += 1;
+      } else {
+        zeroCount += 1;
+      }
+    });
+
+    return {
+      all: allDebtorsList.length,
+      debt: debtCount,
+      zero: zeroCount,
+      credit: creditCount,
+      exempt: exemptCount,
+    };
+  }, [allDebtorsList, hideCarriedBalance]);
+
+  // Screen filtered residents with debt (based on search term, activity filter, debt filter, sort order)
   const residentsWithDebt = useMemo(() => {
     return allDebtorsList
       .filter((item) => {
@@ -269,8 +315,39 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
           
         // Activity filter
         const matchActivity = selectedActivity === 'all' || item.resident.activityType === selectedActivity;
-        
-        return matchSearch && matchActivity;
+
+        // Debt status filter
+        const cBal = hideCarriedBalance ? 0 : (item.carriedBalance || 0);
+        const netPeriodDebt = (item.financials.periodExpectedDues || 0) - (item.financials.monthlyPaid || 0) + (item.financials.otherCollectionsDebt || 0);
+        const calculatedNetDebt = netPeriodDebt - cBal;
+        const isSurplus = calculatedNetDebt < 0 || (item.financials.monthlyPaid > item.financials.periodExpectedDues && item.financials.otherCollectionsDebt === 0 && cBal >= 0);
+        const debtAmount = Math.max(0, Math.round(calculatedNetDebt));
+
+        const act = (item.resident.activityType || '').trim();
+        const isExemptActivity = 
+          act.includes('تشطيب') || 
+          act.includes('مغلق') || 
+          act.includes('مغلقة') || 
+          act.includes('معفي') || 
+          act.includes('معفاه') || 
+          act.includes('معفاة') ||
+          (item.financials.periodExpectedDues === 0 && item.financials.monthlyFee === 0);
+
+        const isExempt = isExemptActivity && debtAmount <= 0;
+        const isZeroDebt = debtAmount === 0 && !isSurplus && !isExempt;
+
+        let matchDebtFilter = true;
+        if (debtFilter === 'debt') {
+          matchDebtFilter = debtAmount > 0;
+        } else if (debtFilter === 'zero') {
+          matchDebtFilter = isZeroDebt;
+        } else if (debtFilter === 'credit') {
+          matchDebtFilter = isSurplus;
+        } else if (debtFilter === 'exempt') {
+          matchDebtFilter = isExempt;
+        }
+
+        return matchSearch && matchActivity && matchDebtFilter;
       })
       .sort((a, b) => {
         if (sortBy === 'flat') {
@@ -292,7 +369,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
             : getNetDebt(b) - getNetDebt(a);
         }
       });
-  }, [allDebtorsList, searchTerm, selectedActivity, sortBy, sortOrder, hideCarriedBalance]);
+  }, [allDebtorsList, searchTerm, selectedActivity, debtFilter, sortBy, sortOrder, hideCarriedBalance]);
 
   const effectiveFloorConfigs = useMemo(() => {
     let base: FloorConfig[] = [];
@@ -538,6 +615,11 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
     const histAct = getHistoricalActivityForDate(resident, `${currentYearNum}-${currentMonthNum}`, config?.defaultMonthlyFee, config?.activityDefaultFees, config?.activityFeePeriods);
     const historical = getHistoricalOccupantForDate(resident, `${currentYearNum}-${currentMonthNum}`);
 
+    const cBal = hideCarriedBalance ? 0 : (carriedBalance || 0);
+    const netPeriodDebt = (financials.periodExpectedDues || 0) - (financials.monthlyPaid || 0) + (financials.otherCollectionsDebt || 0);
+    const calculatedNetDebt = netPeriodDebt - cBal;
+    const periodTitle = activePeriod ? activePeriod.name : (selectedYearFilter !== 'all' ? `السنة المالية ${selectedYearFilter}` : 'الفترة المحاسبية النشطة');
+
     setClaimModalData({
       type: 'claim',
       unitNumber: resident.flatNumber,
@@ -547,18 +629,25 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
       tenantPhone: historical.tenantPhone || resident.tenantPhone,
       activityType: histAct.activityType || resident.activityType || 'سكني',
       occupancyType: (historical.tenantName || resident.tenantName) ? 'إيجار' : (resident.ownershipType || 'تمليك'),
-      amount: debtAmount,
+      amount: calculatedNetDebt,
       month: currentMonthNum,
       year: currentYearNum,
+      periodName: periodTitle,
+      isPeriodClaim: true,
       carriedBalance: carriedBalance,
+      hideCarriedBalance: hideCarriedBalance,
       oldDebtAmount: oldDebt,
       monthlyFee: financials.monthlyFee,
       totalDues: financials.expectedDues,
+      periodExpectedDues: financials.periodExpectedDues || 0,
+      monthlyPaid: financials.monthlyPaid || 0,
+      otherCollectionsDebt: financials.otherCollectionsDebt || 0,
+      netDebt: calculatedNetDebt,
       totalPaid: financials.totalPaid,
       unpaidMonthsCount: financials.unpaidMonthsCount,
       unpaidMonthsDues: financials.unpaidMonthsDues,
       currentMonthStatus: currentMonthStatusText,
-      remainingBalance: debtAmount,
+      remainingBalance: calculatedNetDebt,
       breakdown: breakdownList,
       claimBreakdown: claimBreakdown
     });
@@ -769,8 +858,27 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
             </div>
           </div>
 
-          {/* Activity Dropdown Filter & Fiscal Year Selector (Always in 1 Row) */}
-          <div className="grid grid-cols-2 gap-1.5 sm:gap-2 w-full lg:w-auto items-center">
+          {/* Activity Dropdown Filter, Debt Status Filter & Fiscal Year Selector */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 sm:gap-2 w-full lg:w-auto items-center">
+            {/* Debt Status Filter (الكل / المديونيات / الخالص / الدائن) */}
+            <div className="flex items-center justify-between gap-1 bg-slate-50 border border-slate-200/80 rounded-xl px-2 py-1.5 text-xs min-w-0">
+              <div className="flex items-center gap-1 text-slate-500 shrink-0">
+                <Filter className="w-3 h-3 text-blue-900 shrink-0" />
+                <span className="text-[9px] sm:text-[10px] font-black shrink-0">التصفية:</span>
+              </div>
+              <select
+                value={debtFilter}
+                onChange={(e) => setDebtFilter(e.target.value as any)}
+                className="bg-transparent text-slate-800 text-[10.5px] sm:text-xs font-black outline-none cursor-pointer truncate w-full pr-0.5 text-left"
+              >
+                <option value="all">الكل ({debtCounts.all})</option>
+                <option value="debt">المديونيات فقط ({debtCounts.debt})</option>
+                <option value="zero">الخالص (0 ج.م) ({debtCounts.zero})</option>
+                <option value="credit">الدائن (فائض) ({debtCounts.credit})</option>
+                <option value="exempt">معفي ({debtCounts.exempt})</option>
+              </select>
+            </div>
+
             {/* Activity Dropdown Filter */}
             <div className="flex items-center justify-between gap-1 bg-slate-50 border border-slate-200/80 rounded-xl px-2 py-1.5 text-xs min-w-0">
               <div className="flex items-center gap-1 text-slate-500 shrink-0">
@@ -1024,6 +1132,21 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                         const displayNotes = (resident.notes || '').includes('توليد تلقائي') ? '' : (resident.notes || '');
                         const historical = getHistoricalOccupantForDate(resident, selectedYearFilter === 'all' ? currentYear : selectedYearFilter);
                         const histAct = getHistoricalActivityForDate(resident, selectedYearFilter === 'all' ? currentYear : selectedYearFilter, config?.defaultMonthlyFee, config?.activityDefaultFees, config?.activityFeePeriods);
+
+                        const act = (histAct.activityType || resident.activityType || '').trim();
+                        const isExemptActivity = 
+                          act.includes('تشطيب') || 
+                          act.includes('مغلق') || 
+                          act.includes('مغلقة') || 
+                          act.includes('معفي') || 
+                          act.includes('معفاه') || 
+                          act.includes('معفاة') ||
+                          (financials.periodExpectedDues === 0 && financials.monthlyFee === 0);
+
+                        const isExempt = isExemptActivity && debtAmount <= 0;
+                        const isZeroDebt = debtAmount === 0 && !isSurplus && !isExempt;
+                        const isHasDebt = debtAmount > 0;
+
                         const ownerName = historical.ownerName || resident.name;
                         const tenantName = historical.tenantName !== undefined ? historical.tenantName : (resident.ownershipType === 'إيجار' ? resident.tenantName : '');
                         const hasTenant = Boolean(tenantName && tenantName.trim());
@@ -1036,19 +1159,27 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                             onClick={() => setSelectedItemId(isSelected ? null : resident.id)}
                             className={`group transition cursor-pointer ${
                               isSelected 
-                                ? 'bg-yellow-200 hover:bg-yellow-200/90 border-y-2 border-yellow-400 font-semibold text-slate-900' 
+                                ? 'bg-amber-200 hover:bg-amber-200/90 border-y-2 border-amber-400 font-semibold text-slate-900' 
+                                : isHasDebt
+                                ? 'bg-rose-50/90 hover:bg-rose-100/90 border-y border-rose-200/80 text-slate-900'
                                 : isSurplus
-                                ? 'bg-emerald-50/80 hover:bg-emerald-100/90 border-y border-emerald-200/80 text-slate-900'
-                                : 'hover:bg-red-50/20'
+                                ? 'bg-emerald-50/90 hover:bg-emerald-100/90 border-y border-emerald-200/80 text-slate-900'
+                                : isExempt
+                                ? 'bg-purple-50/90 hover:bg-purple-100/90 border-y border-purple-200/80 text-slate-900'
+                                : 'bg-sky-50/90 hover:bg-sky-100/90 border-y border-sky-200/80 text-slate-900'
                             }`}
                           >
                             {/* Unit Number - Sticky */}
                             <td className={`w-12 sm:w-14 px-1 py-1.5 font-black whitespace-nowrap sticky right-0 z-5 border-l border-slate-100 shadow-xs text-center transition ${
                               isSelected 
-                                ? 'bg-yellow-200 text-amber-950 font-black' 
+                                ? 'bg-amber-200 text-amber-950 font-black' 
+                                : isHasDebt
+                                ? 'bg-rose-100/90 text-rose-950 font-black'
                                 : isSurplus
                                 ? 'bg-emerald-100/90 text-emerald-950 font-black'
-                                : 'bg-white group-hover:bg-slate-50 text-blue-900'
+                                : isExempt
+                                ? 'bg-purple-100/90 text-purple-950 font-black'
+                                : 'bg-sky-100/90 text-sky-950 font-black'
                             }`}>
                               <span className="text-[10px] sm:text-xs">وحدة {resident.flatNumber}</span>
                             </td>
@@ -1070,7 +1201,11 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
 
                             {/* Activity Type */}
                             <td className="w-14 sm:w-16 px-1 py-1.5 text-center whitespace-nowrap">
-                              <span className="px-1.5 py-0.2 bg-slate-50 text-slate-700 rounded text-[8.5px] font-extrabold border border-slate-200">
+                              <span className={`px-1.5 py-0.2 rounded text-[8.5px] font-extrabold border ${
+                                isExempt 
+                                  ? 'bg-purple-100 text-purple-900 border-purple-200'
+                                  : 'bg-slate-50 text-slate-700 border-slate-200'
+                              }`}>
                                 {histAct.activityType || resident.activityType}
                               </span>
                             </td>
@@ -1136,13 +1271,21 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                             {/* صافي الدين */}
                             <td className={`w-20 sm:w-22 px-1 py-1.5 text-center font-black transition-all text-xs whitespace-nowrap border-x ${
                               isSelected 
-                                ? 'bg-yellow-300/60 border-yellow-400 text-slate-950' 
+                                ? 'bg-amber-300/60 border-amber-400 text-slate-950' 
+                                : isHasDebt
+                                ? 'text-rose-700 bg-rose-100/90 group-hover:bg-rose-200/90 border-rose-200'
                                 : isSurplus
                                 ? 'text-emerald-700 bg-emerald-100/90 group-hover:bg-emerald-200/90 border-emerald-200'
-                                : 'text-rose-700 bg-rose-50/70 group-hover:bg-rose-100/80 border-rose-100'
+                                : isExempt
+                                ? 'text-purple-700 bg-purple-100/90 group-hover:bg-purple-200/90 border-purple-200'
+                                : 'text-sky-700 bg-sky-100/90 group-hover:bg-sky-200/90 border-sky-200'
                             }`}>
                               {isSurplus ? (
                                 <span dir="ltr">+{surplusAmount.toLocaleString()} ج.م</span>
+                              ) : isExempt ? (
+                                <span className="text-purple-800 font-black">0 ج.م (معفي)</span>
+                              ) : isZeroDebt ? (
+                                <span className="text-sky-700 font-black">0 ج.م</span>
                               ) : (
                                 <span dir="ltr">-{debtAmount.toLocaleString()} ج.م</span>
                               )}
@@ -1342,6 +1485,9 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                     const debtAmount = Math.max(0, Math.round(calculatedNetDebt));
                     const surplusAmount = Math.max(0, Math.round(-calculatedNetDebt));
 
+                    const isZeroDebt = debtAmount === 0 && !isSurplus;
+                    const isHasDebt = debtAmount > 0;
+
                     const displayNotes = (resident.notes || '').includes('توليد تلقائي') ? '' : (resident.notes || '');
                     const histAct = getHistoricalActivityForDate(resident, selectedYearFilter === 'all' ? currentYear : selectedYearFilter, config?.defaultMonthlyFee, config?.activityDefaultFees, config?.activityFeePeriods);
                     const isSelected = selectedItemId === resident.id;
@@ -1353,9 +1499,11 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                         className={`rounded-2xl p-4 shadow-xs space-y-3 transition flex flex-col justify-between cursor-pointer ${
                           isSelected 
                             ? 'bg-yellow-200 border-2 border-yellow-400 shadow-md ring-2 ring-yellow-400 text-slate-900' 
-                            : isSurplus
-                            ? 'bg-white border-2 border-emerald-200 hover:border-emerald-300'
-                            : 'bg-white border-2 border-red-100 hover:border-red-200'
+                            : isHasDebt
+                            ? 'bg-white border-2 border-red-100 hover:border-red-200'
+                            : isZeroDebt
+                            ? 'bg-white border-2 border-sky-200 hover:border-sky-300'
+                            : 'bg-white border-2 border-emerald-200 hover:border-emerald-300'
                         }`}
                       >
                         <div className="space-y-2.5">
@@ -1435,13 +1583,18 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
 
                             {/* Net Debt Highlight */}
                             <div className="flex items-center justify-between pt-1.5 border-t border-slate-200/80">
-                              <span className={isSurplus ? "text-emerald-950 font-black text-xs" : "text-rose-950 font-black text-xs"}>
-                                {isSurplus ? 'صافي الرصيد (فائض):' : 'صافي المديونية:'}
+                              <span className={isSurplus ? "text-emerald-950 font-black text-xs" : isZeroDebt ? "text-sky-950 font-black text-xs" : "text-rose-950 font-black text-xs"}>
+                                {isSurplus ? 'صافي الرصيد (فائض):' : isZeroDebt ? 'حالة الرصيد (خالص):' : 'صافي المديونية:'}
                               </span>
                               {isSurplus ? (
                                 <span className="inline-flex items-center gap-0.5 px-2.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md font-black text-xs" dir="ltr">
                                   <ArrowUpRight className="w-3.5 h-3.5" />
                                   <span>+{surplusAmount.toLocaleString()} ج.م</span>
+                                </span>
+                              ) : isZeroDebt ? (
+                                <span className="inline-flex items-center gap-0.5 px-2.5 py-0.5 bg-sky-50 text-sky-700 border border-sky-200 rounded-md font-black text-xs">
+                                  <CheckCircle className="w-3.5 h-3.5 text-sky-600" />
+                                  <span>0 ج.م (خالص)</span>
                                 </span>
                               ) : (
                                 <span className="inline-flex items-center gap-0.5 px-2.5 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 rounded-md font-black text-xs" dir="ltr">
