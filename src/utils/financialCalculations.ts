@@ -1036,7 +1036,7 @@ export interface UnitClaimBreakdown {
   monthName: string;
   unitNumber: number | string;
 
-  // حاله الشهر الحالي
+  // 1️⃣ حالة الشهر الحالي
   currentMonthFee: number;
   currentMonthSubsPaid: number;
   currentMonthSubsStatusText: string;
@@ -1051,27 +1051,45 @@ export interface UnitClaimBreakdown {
   currentMonthOtherDue: number;
   otherLineText: string;
 
-  // متأخرات اشتراك شهري
+  // 2️⃣ الاشتراكات الشهرية من بداية الفترة المحاسبية حتى الشهر السابق
+  priorSubsDue: number;
+  priorSubsPaid: number;
+  priorSubsDiff: number;
+  priorSubsDiffType: 'arrears' | 'surplus' | 'zero';
+  priorSubsStatusText: string;
+  priorSubsMonthsCount?: number;
+
+  // متأخرات اشتراك شهري (للتوافق مع الواجهات القائمة)
   monthlyDelayedMonthsCount: number;
   monthlyDelayedAmount: number;
   monthlyArrearsLineText: string;
 
-  // متأخرات تحصيلات اخري
+  // 3️⃣ التحصيلات الأخرى من بداية الفترة المحاسبية حتى الشهر السابق
+  priorOtherDue: number;
+  priorOtherPaid: number;
+  priorOtherDiff: number;
+  priorOtherDiffType: 'arrears' | 'surplus' | 'zero';
+  priorOtherStatusText: string;
+
+  // متأخرات تحصيلات اخري (للتوافق مع الواجهات القائمة)
   otherDelayedMonthsCount: number;
   otherDelayedAmount: number;
   otherArrearsLineText: string;
 
-  // مديونيات سابقة
+  // 4️⃣ مديونيات سابقة أو مرحل من فترات محاسبية سابقة أو رصيد افتتاحي
   previousDebtAmount: number;
+  previousSurplusAmount: number;
   previousDebtLineText: string;
 
-  // اجمالي المبالغ المستحقه للسداد
+  // 5️⃣ إجمالي المستحق عن هذا الشهر
+  currentMonthTotalDue: number;
+
+  // 6️⃣ إجمالي المتأخرات والمديونيات
+  totalArrearsAndDebts: number;
+
+  // إجمالي المبالغ المستحقة للسداد
   totalDueForPayment: number;
   totalDueLineText: string;
-
-  // مستطيل التفصيل المالي
-  currentMonthTotalDue: number;     // اجمالي المبالغ المستحقة عن هذا الشهر
-  totalArrearsAndDebts: number;     // اجمالي المتأخرات و المديونيات
 }
 
 const monthNamesArabicList = [
@@ -1095,7 +1113,8 @@ export function calculateUnitClaimBreakdown(
   defaultMonthlyFee: number = 400,
   activityDefaultFees?: Record<string, number>,
   activePaymentForClaim?: Payment | null,
-  customUnitFeePeriods?: CustomUnitFeePeriod[]
+  customUnitFeePeriods?: CustomUnitFeePeriod[],
+  activityFeePeriods?: ActivityFeePeriod[]
 ): UnitClaimBreakdown {
   const yNum = Number(targetYear) || new Date().getFullYear();
   const mNum = parseInt(String(targetMonth), 10) || (new Date().getMonth() + 1);
@@ -1120,18 +1139,29 @@ export function calculateUnitClaimBreakdown(
       isCurrentMonthOtherPaid: true,
       currentMonthOtherDue: 0,
       otherLineText: `تحصيلات اخري - شهر ${monthName} ${yNum} و قدره 0 ج.م - (مسدد بالكامل ✓) .`,
+      priorSubsDue: 0,
+      priorSubsPaid: 0,
+      priorSubsDiff: 0,
+      priorSubsDiffType: 'zero',
+      priorSubsStatusText: 'لا توجد متأخرات (مسدد بالكامل 0 ج.م)',
       monthlyDelayedMonthsCount: 0,
       monthlyDelayedAmount: 0,
       monthlyArrearsLineText: `متأخرات اشتراك شهري - لا يوجد تأخير (0 ج.م) .`,
+      priorOtherDue: 0,
+      priorOtherPaid: 0,
+      priorOtherDiff: 0,
+      priorOtherDiffType: 'zero',
+      priorOtherStatusText: 'لا توجد متأخرات (0 ج.م)',
       otherDelayedMonthsCount: 0,
       otherDelayedAmount: 0,
       otherArrearsLineText: `متأخرات تحصيلات اخري - لا توجد متأخرات (0 ج.م) .`,
       previousDebtAmount: 0,
+      previousSurplusAmount: 0,
       previousDebtLineText: `مديونيات سابقة - بقيمة (0 ج.م) .`,
-      totalDueForPayment: defaultMonthlyFee,
-      totalDueLineText: `اجمالي المبالغ المستحقه للسداد : ${defaultMonthlyFee} ج. م  (المبالغ المستحقة عن الشهر الحالي + المتأخرات + المديونيات)`,
       currentMonthTotalDue: defaultMonthlyFee,
-      totalArrearsAndDebts: 0
+      totalArrearsAndDebts: 0,
+      totalDueForPayment: defaultMonthlyFee,
+      totalDueLineText: `اجمالي المبالغ المستحقه للسداد : ${defaultMonthlyFee} ج. م  (المبالغ المستحقة عن الشهر الحالي + المتأخرات + المديونيات)`
     };
   }
 
@@ -1172,7 +1202,7 @@ export function calculateUnitClaimBreakdown(
   if (isNoFee) {
     currentMonthFee = 0;
   } else {
-    const prescribed = getPrescribedFeeForMonth(resident, yNum, mNum, allResidentPayments, defaultMonthlyFee, activityDefaultFees, undefined, customUnitFeePeriods);
+    const prescribed = getPrescribedFeeForMonth(resident, yNum, mNum, allResidentPayments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods, customUnitFeePeriods);
     currentMonthFee = prescribed.monthlyFee;
   }
 
@@ -1198,7 +1228,7 @@ export function calculateUnitClaimBreakdown(
     currentMonthSubsDue = currentMonthFee;
   }
 
-  const subsLineText = `اشتراك شهري - شهر ${monthName} ${yNum} و قدره ${Math.round(currentMonthFee).toLocaleString()} ج.م - (${currentMonthSubsStatusText}) .`;
+  const subsLineText = `اشتراك شهري - شهر ${monthName} ${yNum} و قدره ${Math.round(currentMonthFee).toLocaleString()} ج.م - (${currentMonthSubsStatusText}) • المسدد عن التحصيلات الشهرية: ${Math.round(curMonthSubsValidPaid).toLocaleString()} ج.م .`;
 
   // 2. Current Month Other Collections
   const curMonthOtherPayments = allResidentPayments.filter(p => {
@@ -1229,7 +1259,7 @@ export function calculateUnitClaimBreakdown(
     isCurrentMonthOtherPaid = true;
     currentMonthOtherDue = 0;
   } else if (curMonthOtherPaid >= currentMonthOtherFee && currentMonthOtherFee > 0) {
-    currentMonthOtherStatusText = 'مسدد بالكامل';
+    currentMonthOtherStatusText = 'مسدد بالكامل ✓';
     isCurrentMonthOtherPaid = true;
     currentMonthOtherDue = 0;
   } else if (curMonthOtherPaid > 0) {
@@ -1237,88 +1267,143 @@ export function calculateUnitClaimBreakdown(
     isCurrentMonthOtherPaid = false;
     currentMonthOtherDue = Math.max(0, currentMonthOtherFee - curMonthOtherPaid);
   } else {
-    currentMonthOtherStatusText = 'غير مسدد';
+    currentMonthOtherStatusText = 'غير مسدد ⚠️';
     isCurrentMonthOtherPaid = false;
     currentMonthOtherDue = currentMonthOtherFee;
   }
 
-  const otherLineText = `تحصيلات اخري - شهر ${monthName} ${yNum} و قدره ${Math.round(currentMonthOtherFee).toLocaleString()} ج.م - (${currentMonthOtherStatusText}) .`;
+  const otherLineText = currentMonthOtherFee > 0
+    ? `تحصيلات اخري - شهر ${monthName} ${yNum} و قدره ${Math.round(currentMonthOtherFee).toLocaleString()} ج.م - (${currentMonthOtherStatusText}) • المسدد: ${Math.round(curMonthOtherPaid).toLocaleString()} ج.م .`
+    : `تحصيلات اخري - شهر ${monthName} ${yNum} - (${currentMonthOtherStatusText}) .`;
 
-  // 3. متأخرات اشتراك شهري (فقط للشهور التي لم يتم سداد اشتراك شهري لها)
-  let monthlyDelayedMonthsCount = 0;
-  let monthlyDelayedAmount = 0;
+  // 2️⃣ الاشتراكات الشهرية من بداية الفترة المحاسبية وحتى الشهر الحالي
+  let priorSubsDue = 0;
+  let priorSubsPaid = 0;
+  let priorSubsMonthsCount = 0;
+  const pastMonthsList: { month: number; year: number; fee: number; hasPayment: boolean }[] = [];
 
-  // Base monthly fee for unit from units table if set, otherwise from Settings
-  const residentStandardFee = (resident.monthlyFee !== undefined && !isNaN(resident.monthlyFee) && resident.monthlyFee > 0)
-    ? resident.monthlyFee
-    : getDefaultFeeForActivity(resident.activityType, defaultMonthlyFee, activityDefaultFees);
+  for (let y = startYear; y <= yNum; y++) {
+    const mStart = (y === startYear) ? startMonth : 1;
+    const mEnd = (y === yNum) ? mNum : 12; // وحتى الشهر الحالي
+    for (let m = mStart; m <= mEnd; m++) {
+      const mStr = String(m).padStart(2, '0');
+      const pastAct = getHistoricalActivityForDate(resident, `${y}-${mStr}`, defaultMonthlyFee, activityDefaultFees);
+      const isPastNoFee = Boolean(
+        pastAct.activityType === 'بدون تشطيب' ||
+        pastAct.activityType === 'بدون تحصيل' ||
+        pastAct.activityType?.includes('بدون تشطيب') ||
+        pastAct.activityType?.includes('بدون تحصيل')
+      );
 
-  interface PastMonthStatus {
-    month: number;
-    fee: number;
-    hasPayment: boolean;
+      let feeForMonth = 0;
+      if (!isPastNoFee) {
+        const prescribed = getPrescribedFeeForMonth(resident, y, m, allResidentPayments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods, customUnitFeePeriods);
+        feeForMonth = prescribed.monthlyFee || 0;
+        priorSubsDue += feeForMonth;
+        priorSubsMonthsCount++;
+      }
+
+      const monthSubsPayments = allResidentPayments.filter(p => {
+        return isPaymentForYearAndMonth(p, y, m) && isMonthlySubscriptionType(p.paymentType) &&
+          p.status !== 'cancelled' && p.status !== 'لاغي';
+      });
+
+      const hasCollected = monthSubsPayments.some(p =>
+        isValidPaidPayment(p) && (p.amount > 0 || p.isManuallyPaid)
+      );
+
+      const subsCollected = monthSubsPayments
+        .filter(isValidPaidPayment)
+        .reduce((sum, p) => sum + (p.amount || 0), 0);
+      priorSubsPaid += subsCollected;
+
+      if (!isPastNoFee) {
+        pastMonthsList.push({
+          year: y,
+          month: m,
+          fee: feeForMonth,
+          hasPayment: hasCollected,
+        });
+      }
+    }
   }
 
-  const pastMonthsList: PastMonthStatus[] = [];
-
-  for (let m = 1; m < mNum; m++) {
-    if (yNum === startYear && m < startMonth) {
-      continue;
-    }
-    const mStr = String(m).padStart(2, '0');
-    const pastAct = getHistoricalActivityForDate(resident, `${yNum}-${mStr}`, defaultMonthlyFee, activityDefaultFees);
-    const isPastNoFee = Boolean(
-      pastAct.activityType === 'بدون تشطيب' ||
-      pastAct.activityType === 'بدون تحصيل' ||
-      pastAct.activityType?.includes('بدون تشطيب') ||
-      pastAct.activityType?.includes('بدون تحصيل')
-    );
-
-    if (isPastNoFee) {
-      continue;
-    }
-
-    const monthSubsPayments = allResidentPayments.filter(p => {
-      return isPaymentForYearAndMonth(p, yNum, m) && isMonthlySubscriptionType(p.paymentType) &&
-        p.status !== 'cancelled' && p.status !== 'لاغي';
-    });
-
-    const hasCollected = monthSubsPayments.some(p =>
-      isValidPaidPayment(p) && (p.amount > 0 || p.isManuallyPaid)
-    );
-
-    const prescribed = getPrescribedFeeForMonth(resident, yNum, m, allResidentPayments, defaultMonthlyFee, activityDefaultFees, undefined, customUnitFeePeriods);
-    let feeForMonth = prescribed.monthlyFee;
-
-    pastMonthsList.push({
-      month: m,
-      fee: feeForMonth,
-      hasPayment: hasCollected,
-    });
-  }
-
-  // Check unassigned lump sums
+  // المدفوعات غير المحددة لشهر بعينه من بداية الفترة وحتى الشهر الحالي
   const unassignedSubsPayments = allResidentPayments.filter(p => {
-    const pYear = Number(p.year) || (p.date ? new Date(p.date).getFullYear() : yNum);
+    const pYear = Number(p.year) || (p.date ? new Date(p.date).getFullYear() : 0);
     const pMonth = parseInt(String(p.month), 10);
+    const isUpToCurrent = pYear < yNum || (pYear === yNum && (!pMonth || pMonth <= mNum));
     const isUnassigned = !pMonth || pMonth < 1 || pMonth > 12;
-    return pYear === yNum && isUnassigned && isMonthlySubscriptionType(p.paymentType) && isValidPaidPayment(p);
+    return isUpToCurrent && isUnassigned && isMonthlySubscriptionType(p.paymentType) && isValidPaidPayment(p);
   });
+  const unassignedSubsAmt = unassignedSubsPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
+  priorSubsPaid += unassignedSubsAmt;
 
-  const unpaidPastMonths: PastMonthStatus[] = pastMonthsList.filter(pm => !pm.hasPayment);
+  const priorSubsDiff = Math.round(priorSubsDue - priorSubsPaid);
+  let priorSubsDiffType: 'arrears' | 'surplus' | 'zero' = 'zero';
+  let priorSubsStatusText = '';
 
-  monthlyDelayedMonthsCount = unpaidPastMonths.length;
-  monthlyDelayedAmount = unpaidPastMonths.reduce((sum, pm) => sum + pm.fee, 0);
+  if (priorSubsDiff > 0) {
+    priorSubsDiffType = 'arrears';
+    priorSubsStatusText = `متأخرات اشتراك شهري بقيمة (${priorSubsDiff.toLocaleString()} ج.م)`;
+  } else if (priorSubsDiff < 0) {
+    priorSubsDiffType = 'surplus';
+    priorSubsStatusText = `رصيد موجب (فائض مسدد) بقيمة (+${Math.abs(priorSubsDiff).toLocaleString()} ج.م)`;
+  } else {
+    priorSubsDiffType = 'zero';
+    priorSubsStatusText = 'لا توجد متأخرات (مسدد بالكامل 0 ج.م)';
+  }
 
-  const monthlyArrearsLineText = monthlyDelayedMonthsCount > 0
-    ? `متأخرات اشتراك شهري - تأخير ${monthlyDelayedMonthsCount} شهور بقيمة (${Math.round(monthlyDelayedAmount).toLocaleString()} ج.م) .`
+  const unpaidPastMonths = pastMonthsList.filter(pm => !pm.hasPayment);
+  const monthlyDelayedMonthsCount = unpaidPastMonths.length;
+  const monthlyDelayedAmount = priorSubsDiff > 0 ? priorSubsDiff : 0;
+  const monthlyArrearsLineText = monthlyDelayedAmount > 0
+    ? `متأخرات اشتراك شهري - بقيمة (${Math.round(monthlyDelayedAmount).toLocaleString()} ج.م) .`
     : `متأخرات اشتراك شهري - لا يوجد تأخير (0 ج.م) .`;
 
-  // 4. متأخرات تحصيلات أخرى (الشهور السابقة في نفس السنة)
+  // 3️⃣ التحصيلات الأخرى من بداية الفترة المحاسبية حتى الشهر الحالي
+  let priorOtherDue = 0;
+  let priorOtherPaid = 0;
+
+  allResidentPayments.forEach(p => {
+    if (isMonthlySubscriptionType(p.paymentType)) return;
+    if (p.status === 'cancelled' || p.status === 'لاغي') return;
+    const pYear = Number(p.year) || (p.date ? new Date(p.date).getFullYear() : 0);
+    const pMonth = parseInt(String(p.month), 10) || 0;
+
+    // التحقق من الوقوع ضمن الفترة المحاسبية وحتى الشهر الحالي
+    const isAfterOrAtStart = (pYear > startYear) || (pYear === startYear && (pMonth === 0 || pMonth >= startMonth));
+    const isUpToTarget = (pYear < yNum) || (pYear === yNum && (pMonth === 0 || pMonth <= mNum));
+
+    if (isAfterOrAtStart && isUpToTarget) {
+      const itemDue = (p.expectedAmount && p.expectedAmount > 0) ? p.expectedAmount : (p.amount || 0);
+      priorOtherDue += itemDue;
+      if (isValidPaidPayment(p)) {
+        priorOtherPaid += (p.amount || 0);
+      }
+    }
+  });
+
+  const priorOtherDiff = Math.round(priorOtherDue - priorOtherPaid);
+  let priorOtherDiffType: 'arrears' | 'surplus' | 'zero' = 'zero';
+  let priorOtherStatusText = '';
+
+  if (priorOtherDiff > 0) {
+    priorOtherDiffType = 'arrears';
+    priorOtherStatusText = `متأخرات تحصيلات أخرى بقيمة (${priorOtherDiff.toLocaleString()} ج.م)`;
+  } else if (priorOtherDiff < 0) {
+    priorOtherDiffType = 'surplus';
+    priorOtherStatusText = `رصيد موجب بقيمة (+${Math.abs(priorOtherDiff).toLocaleString()} ج.م)`;
+  } else {
+    priorOtherDiffType = 'zero';
+    priorOtherStatusText = 'لا توجد متأخرات (0 ج.م)';
+  }
+
   const prevOtherPending = allResidentPayments.filter(p => {
     const pYear = Number(p.year) || (p.date ? new Date(p.date).getFullYear() : yNum);
     const pMonth = parseInt(String(p.month), 10);
-    return pYear === yNum && pMonth < mNum && 
+    const isPrior = (pYear < yNum) || (pYear === yNum && pMonth <= mNum);
+    return isPrior && 
       !isMonthlySubscriptionType(p.paymentType) && 
       !p.isAggregatedCollection && 
       !p.paymentType?.includes('مجمع') &&
@@ -1327,16 +1412,15 @@ export function calculateUnitClaimBreakdown(
 
   const uniqueOtherMonths = new Set(prevOtherPending.map(p => parseInt(String(p.month), 10)));
   const otherDelayedMonthsCount = uniqueOtherMonths.size;
-  const otherDelayedAmount = prevOtherPending.reduce((sum, p) => sum + (p.amount || 0), 0);
-
-  const otherArrearsLineText = otherDelayedMonthsCount > 0
-    ? `متأخرات تحصيلات اخري - تأخير ${otherDelayedMonthsCount} شهور بقيمة (${Math.round(otherDelayedAmount).toLocaleString()} ج.م) .`
+  const otherDelayedAmount = priorOtherDiff > 0 ? priorOtherDiff : 0;
+  const otherArrearsLineText = priorOtherDiff > 0
+    ? `متأخرات تحصيلات اخري بقيمة (${Math.round(priorOtherDiff).toLocaleString()} ج.م) .`
     : `متأخرات تحصيلات اخري - لا توجد متأخرات (0 ج.م) .`;
 
-  // 5. مديونيات سابقة
+  // 4️⃣ مديونيات سابقة أو مرحل من فترات محاسبية سابقة أو رصيد افتتاحي للوحدة
   const carriedBal = getCarriedPreviousBalance(
     resident,
-    yNum,
+    startYear,
     payments,
     accountingStartDate,
     defaultMonthlyFee,
@@ -1344,18 +1428,39 @@ export function calculateUnitClaimBreakdown(
   );
 
   let previousDebtAmount = 0;
+  let previousSurplusAmount = 0;
   if (carriedBal < 0) {
     previousDebtAmount = Math.abs(carriedBal);
+  } else if (carriedBal > 0) {
+    previousSurplusAmount = carriedBal;
   } else if (resident.initialBalance && resident.initialBalance < 0 && yNum <= startYear) {
     previousDebtAmount = Math.abs(resident.initialBalance);
+  } else if (resident.initialBalance && resident.initialBalance > 0 && yNum <= startYear) {
+    previousSurplusAmount = resident.initialBalance;
   }
 
-  const previousDebtLineText = `مديونيات سابقة - بقيمة (${Math.round(previousDebtAmount).toLocaleString()} ج.م) .`;
+  const previousDebtLineText = previousDebtAmount > 0
+    ? `مديونيات سابقة مرحلة من فترات سابقة أو رصيد افتتاحي: بقيمة (${Math.round(previousDebtAmount).toLocaleString()} ج.م)`
+    : (previousSurplusAmount > 0
+        ? `رصيد موجب دائن مرحل من فترات سابقة أو رصيد افتتاحي: بقيمة (+${Math.round(previousSurplusAmount).toLocaleString()} ج.م)`
+        : `مديونيات سابقة مرحلة أو رصيد افتتاحي: (0 ج.م)`);
 
-  // 6. اجمالي المبالغ المستحقه للسداد
-  const currentMonthTotalDue = Math.round(currentMonthSubsDue + currentMonthOtherDue);
-  const totalArrearsAndDebts = Math.round(monthlyDelayedAmount + otherDelayedAmount + previousDebtAmount);
-  const totalDueForPayment = Math.round(currentMonthTotalDue + totalArrearsAndDebts);
+  // 5️⃣ إجمالي المستحق عن هذا الشهر
+  const currentMonthTotalDue = Math.round(currentMonthFee + currentMonthOtherFee);
+
+  // 6️⃣ إجمالي المتأخرات والمديونيات
+  const step2Arrears = priorSubsDiff > 0 ? priorSubsDiff : 0;
+  const step3Arrears = priorOtherDiff > 0 ? priorOtherDiff : 0;
+  const step4Debt = previousDebtAmount;
+  const totalArrearsAndDebts = Math.round(step2Arrears + step3Arrears + step4Debt);
+
+  const step2Credit = priorSubsDiff < 0 ? Math.abs(priorSubsDiff) : 0;
+  const step3Credit = priorOtherDiff < 0 ? Math.abs(priorOtherDiff) : 0;
+  const totalCredits = step2Credit + step3Credit + previousSurplusAmount;
+
+  // صافي المستحق المطلوب سداده
+  const netTotalArrearsAndDebts = Math.round((priorSubsDiff + priorOtherDiff + (previousDebtAmount - previousSurplusAmount)));
+  const totalDueForPayment = Math.max(0, netTotalArrearsAndDebts > 0 ? netTotalArrearsAndDebts : 0);
 
   const totalDueLineText = `اجمالي المبالغ المستحقه للسداد : ${totalDueForPayment.toLocaleString()} ج. م  (المبالغ المستحقة عن الشهر الحالي + المتأخرات + المديونيات)`;
 
@@ -1376,18 +1481,30 @@ export function calculateUnitClaimBreakdown(
     isCurrentMonthOtherPaid,
     currentMonthOtherDue,
     otherLineText,
+    priorSubsDue,
+    priorSubsPaid,
+    priorSubsDiff,
+    priorSubsDiffType,
+    priorSubsStatusText,
+    priorSubsMonthsCount,
     monthlyDelayedMonthsCount,
     monthlyDelayedAmount,
     monthlyArrearsLineText,
+    priorOtherDue,
+    priorOtherPaid,
+    priorOtherDiff,
+    priorOtherDiffType,
+    priorOtherStatusText,
     otherDelayedMonthsCount,
     otherDelayedAmount,
     otherArrearsLineText,
     previousDebtAmount,
+    previousSurplusAmount,
     previousDebtLineText,
-    totalDueForPayment,
-    totalDueLineText,
     currentMonthTotalDue,
-    totalArrearsAndDebts
+    totalArrearsAndDebts,
+    totalDueForPayment,
+    totalDueLineText
   };
 }
 

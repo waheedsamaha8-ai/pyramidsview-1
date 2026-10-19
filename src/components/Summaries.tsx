@@ -3,6 +3,7 @@ import { Resident, Payment, Expense, UserRole, FloorConfig, AppConfig } from '..
 import { Calendar, Check, AlertCircle, RefreshCw, X, ExternalLink, Trash2, PlusCircle, CreditCard, Clock, Layers, Receipt, Edit, Save, Minus, Sparkles, RotateCcw, FileText, Filter } from 'lucide-react';
 import { BuildingMap } from './BuildingMap';
 import { deriveFloorConfigsFromResidents, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber, getHistoricalOccupantForDate, getHistoricalActivityForDate } from '../utils/buildingStructure';
+import { getPrescribedFeeForMonth, isPaymentForYearAndMonth, isMonthlySubscriptionType } from '../utils/financialCalculations';
 
 interface SummariesProps {
   residents: Resident[];
@@ -132,23 +133,22 @@ export const Summaries: React.FC<SummariesProps> = ({
     activeScrollerRef.current = e.currentTarget;
   };
 
-  const getDefaultFeeForResident = (resident: Resident) => {
-    let fee = defaultMonthlyFee || 400;
-    if (resident.monthlyFee !== undefined && !isNaN(resident.monthlyFee) && resident.monthlyFee > 0) {
-      fee = resident.monthlyFee;
-    } else if (activityDefaultFees && activityDefaultFees[resident.activityType] !== undefined) {
-      fee = activityDefaultFees[resident.activityType];
-    } else {
-      switch (resident.activityType) {
-        case 'سكني': fee = 400; break;
-        case 'سكني مغلق': fee = 200; break;
-        case 'مفروش': fee = 600; break;
-        case 'إداري': fee = 800; break;
-        case 'تجاري': fee = 500; break;
-        default: fee = defaultMonthlyFee || 400;
-      }
-    }
-    return fee;
+  const getDefaultFeeForResident = (resident: Resident, targetMonth?: string, targetYear?: number) => {
+    if (!resident) return defaultMonthlyFee || 400;
+    const yr = targetYear ?? currentYear;
+    const mStr = targetMonth ?? (selectedCell ? selectedCell.month : '01');
+    const mNum = parseInt(mStr, 10) || 1;
+    const prescribed = getPrescribedFeeForMonth(
+      resident,
+      yr,
+      mNum,
+      payments,
+      defaultMonthlyFee,
+      activityDefaultFees,
+      config?.activityFeePeriods,
+      config?.customUnitFeePeriods
+    );
+    return prescribed.monthlyFee;
   };
 
   const months = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'];
@@ -363,7 +363,7 @@ export const Summaries: React.FC<SummariesProps> = ({
     setEditNotes(pay.notes || '');
     setConfirmCancelId(null);
 
-    const fee = selectedCell ? getDefaultFeeForResident(selectedCell.resident) : 400;
+    const fee = selectedCell ? getDefaultFeeForResident(selectedCell.resident, pay.month, currentYear) : (defaultMonthlyFee || 400);
     const currentMonthNum = parseInt(pay.month, 10) || 1;
     const normalizedMonth = String(currentMonthNum).padStart(2, '0');
 
@@ -551,8 +551,20 @@ export const Summaries: React.FC<SummariesProps> = ({
         const hist = selectedCell ? getHistoricalOccupantForDate(selectedCell.resident, `${currentYear}-${m}`) : null;
         const occupant = hist?.occupantName || selectedCell?.resident.name || masterPay.residentName;
 
+        const prevLinkedChild = existingChildPayments.find(p => p.month === m);
+        const existingPaymentInMonth = payments.find(p => {
+          const isSameUnit = (p.residentId && p.residentId === masterPay.residentId) || isSameFlatNumber(p.flatNumber, masterPay.flatNumber);
+          if (!isSameUnit) return false;
+          if (!isPaymentForYearAndMonth(p, currentYear, parseInt(m, 10))) return false;
+          if (p.status === 'cancelled' || p.status === 'لاغي') return false;
+          if (String(p.id) === String(masterPay.id)) return false;
+          return isMonthlySubscriptionType(p.paymentType) || String(p.distributionSourceId || '') === String(masterPay.id);
+        });
+
         const useOriginalId = isMaster;
-        const newId = useOriginalId ? masterPay.id : `pay_${Date.now()}_${m}_${idx}_${Math.random().toString(36).substr(2, 4)}`;
+        const newId = useOriginalId
+          ? masterPay.id
+          : (prevLinkedChild?.id || existingPaymentInMonth?.id || `pay_${Date.now()}_${m}_${idx}_${Math.random().toString(36).substr(2, 4)}`);
         if (!isMaster) {
           childIds.push(newId);
         }
@@ -1248,7 +1260,16 @@ export const Summaries: React.FC<SummariesProps> = ({
               <div className="p-3 space-y-2 overflow-y-auto flex-1 min-h-0">
                 {/* Resident Summary Bar */}
                 {(() => {
-                  const cellHistAct = getHistoricalActivityForDate(selectedCell.resident, `${currentYear}-${selectedCell.month}`, defaultMonthlyFee, activityDefaultFees, config?.activityFeePeriods);
+                  const cellPrescribed = getPrescribedFeeForMonth(
+                    selectedCell.resident,
+                    currentYear,
+                    parseInt(selectedCell.month, 10),
+                    payments,
+                    defaultMonthlyFee,
+                    activityDefaultFees,
+                    config?.activityFeePeriods,
+                    config?.customUnitFeePeriods
+                  );
                   return (
                     <div className="bg-blue-50/50 px-3 py-1.5 rounded-lg border border-blue-100/60 flex items-center justify-between gap-2 shrink-0 flex-wrap">
                       <div className="flex items-center gap-1.5">
@@ -1256,7 +1277,7 @@ export const Summaries: React.FC<SummariesProps> = ({
                         <span className="text-xs font-black text-slate-800">{selectedCell.resident.name}</span>
                       </div>
                       <div className="flex items-center gap-1 bg-purple-100 text-purple-900 px-2 py-0.5 rounded text-[10px] font-black border border-purple-200">
-                        <span>النشاط: {cellHistAct.activityType} ({cellHistAct.monthlyFee} ج.م)</span>
+                        <span>النشاط: {cellPrescribed.activityType} ({cellPrescribed.monthlyFee.toLocaleString()} ج.م)</span>
                       </div>
                       <div className="flex items-center gap-1.5">
                         <span className="text-[10px] text-slate-500 font-bold">الإجمالي:</span>
@@ -1396,7 +1417,7 @@ export const Summaries: React.FC<SummariesProps> = ({
 
                               {/* Multi-Month Aggregated Distribution Section */}
                               {(() => {
-                                const fee = selectedCell ? getDefaultFeeForResident(selectedCell.resident) : 400;
+                                const fee = selectedCell ? getDefaultFeeForResident(selectedCell.resident, pay.month || selectedCell.month, currentYear) : 400;
                                 const parsedAmt = parseFloat(editAmount) || pay.amount;
                                 const coveredCount = fee > 0 ? Math.max(1, Math.round(parsedAmt / fee)) : 1;
 
@@ -1849,7 +1870,7 @@ export const Summaries: React.FC<SummariesProps> = ({
                         } : null);
 
                         // Reset inputs
-                        const defaultAmt = getDefaultFeeForResident(selectedCell.resident);
+                        const defaultAmt = getDefaultFeeForResident(selectedCell.resident, selectedCell.month, currentYear);
                         setNewAmount(String(defaultAmt));
                       }}
                       className="w-full py-1 sm:py-1.5 px-1 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-[10px] sm:text-xs font-black rounded-lg shadow-2xs transition cursor-pointer flex items-center justify-center gap-1 leading-tight"

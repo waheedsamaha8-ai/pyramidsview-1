@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { generateElementImage, generateElementImageBlob, GeneratedImageResult } from '../utils/imageExport';
 import { printReportElement } from '../utils/printReport';
 import { Resident, Payment, AppConfig, FloorConfig } from '../types';
-import { calculateResidentFinancials, getCarriedPreviousBalance, isMonthlySubscriptionType, getPrescribedFeeForMonth, isValidPaidPayment, isPendingUnpaidPayment, isPaymentForYearAndMonth, parsePaymentYear, parsePaymentMonth } from '../utils/financialCalculations';
+import { calculateResidentFinancials, getCarriedPreviousBalance, isMonthlySubscriptionType, getPrescribedFeeForMonth, isValidPaidPayment, isPendingUnpaidPayment, isPaymentForYearAndMonth, parsePaymentYear, parsePaymentMonth, calculateUnitClaimBreakdown } from '../utils/financialCalculations';
 import { compareFlatNumbers, isSameFlatNumber, deriveFloorConfigsFromResidents, getUnitNumbersForFloor, getLatestOccupantFromHistory, getHistoricalActivityForDate, formatResidentOptionLabel } from '../utils/buildingStructure';
 import { formatMobileNumber, formatPhoneForDisplay, toWhatsAppNumber } from '../utils/phoneUtils';
 import { getActiveAccountingPeriod, parseYearMonth, formatPeriodDateRange } from '../utils/periodUtils';
@@ -74,6 +74,8 @@ interface ResidentAccountStatementProps {
   payments: Payment[];
   config: AppConfig;
   currentYear: number;
+  currentMonth?: number; // 0-indexed (0 to 11)
+  viewMode?: 'month' | 'year';
   floorConfigs?: FloorConfig[];
   isResidentOnly?: boolean;
   onSelectResidentId?: (residentId: string) => void;
@@ -93,6 +95,8 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
   payments,
   config,
   currentYear,
+  currentMonth,
+  viewMode = 'month',
   floorConfigs,
   isResidentOnly = false,
   onSelectResidentId,
@@ -222,8 +226,39 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
   const activityDefaultFees = config?.activityDefaultFees;
   const activityFeePeriods = config?.activityFeePeriods;
 
-  const effectiveStartDate = activePeriod ? activePeriod.startDate : accountingStartDate;
-  const effectiveEndDate = activePeriod ? activePeriod.endDate : undefined;
+  const calculatedEndDate = useMemo(() => {
+    if (viewMode === 'month' && currentMonth !== undefined) {
+      const lastDay = new Date(currentYear, currentMonth + 1, 0).getDate();
+      const monthEndStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+      if (activePeriod?.endDate && activePeriod.endDate < monthEndStr) {
+        return activePeriod.endDate;
+      }
+      return monthEndStr;
+    }
+    if (viewMode === 'year') {
+      const yearEndStr = `${currentYear}-12-31`;
+      if (activePeriod?.endDate && activePeriod.endDate < yearEndStr) {
+        return activePeriod.endDate;
+      }
+      return yearEndStr;
+    }
+    return activePeriod ? activePeriod.endDate : undefined;
+  }, [viewMode, currentMonth, currentYear, activePeriod]);
+
+  const calculatedStartDate = useMemo(() => {
+    if (viewMode === 'year') {
+      const baseStart = activePeriod ? activePeriod.startDate : accountingStartDate;
+      const s = parseYearMonth(baseStart) || { year: currentYear, month: 1 };
+      if (s.year === currentYear) {
+        return baseStart;
+      }
+      return `${currentYear}-01-01`;
+    }
+    return activePeriod ? activePeriod.startDate : accountingStartDate;
+  }, [viewMode, currentYear, activePeriod, accountingStartDate]);
+
+  const effectiveStartDate = calculatedStartDate;
+  const effectiveEndDate = calculatedEndDate;
 
   const startYear = useMemo(() => {
     const s = new Date(effectiveStartDate);
@@ -277,12 +312,12 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
       effectiveStartDate,
       defaultMonthlyFee,
       activityDefaultFees,
-      undefined,
+      viewMode === 'year' ? currentYear : undefined,
       effectiveEndDate,
       activityFeePeriods,
       config?.customUnitFeePeriods
     );
-  }, [activeResident, payments, effectiveStartDate, effectiveEndDate, defaultMonthlyFee, activityDefaultFees, activityFeePeriods, config?.customUnitFeePeriods]);
+  }, [activeResident, payments, effectiveStartDate, effectiveEndDate, defaultMonthlyFee, activityDefaultFees, activityFeePeriods, config?.customUnitFeePeriods, viewMode, currentYear]);
 
   // All payments belonging to this unit (excluding zero-value distribution payments, ordered Jan to Dec)
   const unitPayments = useMemo(() => {
@@ -397,23 +432,62 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
     let endYear: number;
     let endMonth: number; // 0-indexed
 
-    if (activePeriod) {
-      const s = parseYearMonth(activePeriod.startDate) || { year: 2022, month: 1 };
-      const e = parseYearMonth(activePeriod.endDate) || { year: 2023, month: 12 };
-      startYear = s.year;
-      startMonth = s.month - 1;
-      endYear = e.year;
-      endMonth = e.month - 1;
-    } else {
-      let start = new Date(accountingStartDate);
-      if (isNaN(start.getTime())) {
-        start = new Date(currentYear, 0, 1);
+    if (viewMode === 'month' && currentMonth !== undefined) {
+      // Filter on specific month: from accounting start date / active period start UP TO the specified month
+      if (activePeriod) {
+        const s = parseYearMonth(activePeriod.startDate) || { year: currentYear, month: 1 };
+        startYear = s.year;
+        startMonth = s.month - 1;
+      } else {
+        const s = new Date(accountingStartDate);
+        startYear = isNaN(s.getFullYear()) ? currentYear : s.getFullYear();
+        startMonth = isNaN(s.getMonth()) ? 0 : s.getMonth();
       }
-      const now = new Date();
-      startYear = start.getFullYear();
-      startMonth = start.getMonth();
-      endYear = now.getFullYear();
-      endMonth = now.getMonth();
+      endYear = currentYear;
+      endMonth = currentMonth;
+
+      // Safety check if currentMonth/currentYear is prior to start:
+      if (endYear < startYear || (endYear === startYear && endMonth < startMonth)) {
+        startYear = endYear;
+        startMonth = endMonth;
+      }
+    } else if (viewMode === 'year') {
+      // Annual account statement for currentYear
+      if (activePeriod) {
+        const s = parseYearMonth(activePeriod.startDate) || { year: currentYear, month: 1 };
+        const e = parseYearMonth(activePeriod.endDate) || { year: currentYear, month: 12 };
+        startYear = currentYear;
+        startMonth = (s.year === currentYear ? (s.month - 1) : 0);
+        endYear = currentYear;
+        endMonth = (e.year === currentYear ? (e.month - 1) : 11);
+      } else {
+        const s = new Date(accountingStartDate);
+        const sYear = isNaN(s.getFullYear()) ? currentYear : s.getFullYear();
+        const sMonth = isNaN(s.getMonth()) ? 0 : s.getMonth();
+        startYear = currentYear;
+        startMonth = (sYear === currentYear ? sMonth : 0);
+        endYear = currentYear;
+        endMonth = 11;
+      }
+    } else {
+      if (activePeriod) {
+        const s = parseYearMonth(activePeriod.startDate) || { year: 2022, month: 1 };
+        const e = parseYearMonth(activePeriod.endDate) || { year: 2023, month: 12 };
+        startYear = s.year;
+        startMonth = s.month - 1;
+        endYear = e.year;
+        endMonth = e.month - 1;
+      } else {
+        let start = new Date(accountingStartDate);
+        if (isNaN(start.getTime())) {
+          start = new Date(currentYear, 0, 1);
+        }
+        const now = new Date();
+        startYear = start.getFullYear();
+        startMonth = start.getMonth();
+        endYear = now.getFullYear();
+        endMonth = now.getMonth();
+      }
     }
     
     // We iterate from start month to end month
@@ -478,26 +552,67 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
     }
 
     return timeline;
-  }, [activeResident, activePeriod, accountingStartDate, currentYear, unitPayments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods]);
+  }, [activeResident, activePeriod, accountingStartDate, currentYear, currentMonth, viewMode, unitPayments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods, config?.customUnitFeePeriods]);
 
   const paidMonthsList = useMemo(() => monthsTimeline.filter(m => m.isPaid), [monthsTimeline]);
   const unpaidMonthsList = useMemo(() => monthsTimeline.filter(m => !m.isPaid && !m.isFuture), [monthsTimeline]);
 
+  // Unit prescribed fee and activity type for the target period/year
+  const unitPrescribedInfo = useMemo(() => {
+    if (!activeResident) return { monthlyFee: defaultMonthlyFee, activityType: 'سكني' };
+    const tYear = currentYear;
+    const tMonth = (viewMode === 'month' && currentMonth !== undefined)
+      ? (currentMonth + 1)
+      : (monthsTimeline.length > 0 ? monthsTimeline[monthsTimeline.length - 1].monthNum : 1);
+
+    const matchingInTimeline = monthsTimeline.find(m => m.year === tYear && m.monthNum === tMonth)
+      || monthsTimeline.find(m => m.year === tYear)
+      || (monthsTimeline.length > 0 ? monthsTimeline[monthsTimeline.length - 1] : null);
+
+    if (matchingInTimeline && matchingInTimeline.fee !== undefined) {
+      return {
+        monthlyFee: matchingInTimeline.fee,
+        activityType: matchingInTimeline.activityType || activeResident.activityType || 'سكني',
+      };
+    }
+
+    return getPrescribedFeeForMonth(
+      activeResident,
+      tYear,
+      tMonth,
+      unitPayments,
+      defaultMonthlyFee,
+      activityDefaultFees,
+      activityFeePeriods,
+      config?.customUnitFeePeriods
+    );
+  }, [activeResident, currentYear, viewMode, currentMonth, monthsTimeline, unitPayments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods, config?.customUnitFeePeriods]);
+
   // Synchronize top-level summary financials with monthsTimeline
   const financials = useMemo(() => {
-    if (monthsTimeline.length === 0) return rawFinancials;
+    const timelineDues = monthsTimeline.reduce((sum, m) => sum + m.fee, 0);
+
+    if (monthsTimeline.length === 0) {
+      return {
+        ...rawFinancials,
+        monthlyFee: unitPrescribedInfo.monthlyFee,
+      };
+    }
 
     const timelineUnpaidCount = unpaidMonthsList.length;
     const timelineUnpaidDues = unpaidMonthsList.reduce((sum, m) => sum + m.fee, 0);
 
-    const prevDebt = rawFinancials.carriedPreviousBalance < 0 ? Math.abs(rawFinancials.carriedPreviousBalance) : 0;
-    const prevSurplus = rawFinancials.carriedPreviousBalance > 0 ? rawFinancials.carriedPreviousBalance : 0;
+    const prevDebt = effectiveCarriedBalance < 0 ? Math.abs(effectiveCarriedBalance) : 0;
+    const prevSurplus = effectiveCarriedBalance > 0 ? effectiveCarriedBalance : 0;
     const totalArrears = timelineUnpaidDues + rawFinancials.otherCollectionsDebt;
     const totalDueForPayment = Math.max(0, totalArrears + prevDebt - prevSurplus);
     const netBal = (prevSurplus > totalArrears) ? (prevSurplus - totalArrears) : -totalDueForPayment;
 
     return {
       ...rawFinancials,
+      monthlyFee: unitPrescribedInfo.monthlyFee,
+      expectedDues: timelineDues,
+      monthsElapsed: monthsTimeline.length,
       unpaidMonthsCount: timelineUnpaidCount,
       unpaidMonthsDues: timelineUnpaidDues,
       totalArrears,
@@ -506,7 +621,29 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
       isDebt: netBal < 0,
       isSurplus: netBal > 0,
     };
-  }, [rawFinancials, monthsTimeline, unpaidMonthsList]);
+  }, [rawFinancials, monthsTimeline, unpaidMonthsList, effectiveCarriedBalance, unitPrescribedInfo]);
+
+  // 📋 بيان وتفصيل المبالغ المستحقة على الوحدة (6 أجزاء كاملة تماماً كما هي في صفحة بيانات وإيصال الوحدة)
+  const targetClaimYear = currentYear;
+  const targetClaimMonth = (viewMode === 'month' && currentMonth !== undefined)
+    ? (currentMonth + 1)
+    : (monthsTimeline.length > 0 ? monthsTimeline[monthsTimeline.length - 1].monthNum : (new Date().getMonth() + 1));
+
+  const claimBreakdown = useMemo(() => {
+    if (!activeResident) return null;
+    return calculateUnitClaimBreakdown(
+      activeResident,
+      payments,
+      targetClaimYear,
+      targetClaimMonth,
+      calculatedStartDate,
+      unitPrescribedInfo.monthlyFee || defaultMonthlyFee,
+      activityDefaultFees,
+      null,
+      config?.customUnitFeePeriods,
+      activityFeePeriods
+    );
+  }, [activeResident, payments, targetClaimYear, targetClaimMonth, calculatedStartDate, unitPrescribedInfo, defaultMonthlyFee, activityDefaultFees, config?.customUnitFeePeriods, activityFeePeriods]);
 
   const displayedMonths = useMemo(() => {
     if (monthFilter === 'paid') return paidMonthsList;
@@ -521,10 +658,54 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isCopied, setIsCopied] = useState(false);
 
-  // Clear cached generated image whenever active resident or financial data changes
+  // Accurate dynamic accounting period label matching active month / year filter
+  const accountingPeriodDisplay = useMemo(() => {
+    // Determine start label
+    let startLabel = '';
+    if (activePeriod) {
+      const s = parseYearMonth(activePeriod.startDate);
+      if (s) {
+        startLabel = `شهر ${monthNamesArabic[s.month - 1]} ${s.year}`;
+      } else {
+        startLabel = activePeriod.startDate;
+      }
+    } else {
+      const s = new Date(accountingStartDate);
+      if (!isNaN(s.getTime())) {
+        startLabel = `شهر ${monthNamesArabic[s.getMonth()]} ${s.getFullYear()}`;
+      } else {
+        startLabel = accountingStartDate;
+      }
+    }
+
+    if (viewMode === 'month' && currentMonth !== undefined) {
+      const endLabel = `شهر ${monthNamesArabic[currentMonth]} ${currentYear}`;
+      return `من ${startLabel} وإلى نهاية ${endLabel}`;
+    }
+
+    if (viewMode === 'year') {
+      if (activePeriod) {
+        const s = parseYearMonth(activePeriod.startDate);
+        const e = parseYearMonth(activePeriod.endDate);
+        if (s && e && s.year === currentYear) {
+          const endMonthLabel = monthNamesArabic[e.month - 1] || 'ديسمبر';
+          return `السنة المحاسبية ${currentYear} (من ${startLabel} وإلى نهاية شهر ${endMonthLabel} ${e.year})`;
+        }
+      }
+      return `السنة المحاسبية ${currentYear} (من شهر يناير ${currentYear} وإلى نهاية شهر ديسمبر ${currentYear})`;
+    }
+
+    // Default fallback
+    if (activePeriod) {
+      return `الفترة: ${formatPeriodDateRange(activePeriod.startDate, activePeriod.endDate)}`;
+    }
+    return `من ${startLabel} حتى تاريخ اليوم`;
+  }, [activePeriod, accountingStartDate, viewMode, currentMonth, currentYear]);
+
+  // Clear cached generated image whenever active resident or financial data or filter changes
   useEffect(() => {
     setGeneratedImageResult(null);
-  }, [activeResident?.id, activeResident?.flatNumber, payments, effectiveCarriedBalance]);
+  }, [activeResident?.id, activeResident?.flatNumber, payments, effectiveCarriedBalance, currentYear, currentMonth, viewMode, claimBreakdown]);
 
   const activeOccupant = useMemo(() => {
     if (!activeResident) return { ownerName: '', tenantName: undefined, occupantName: '' };
@@ -664,10 +845,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
 
   // Opens the visual image preview and direct sharing modal
   const handleOpenShareModal = async () => {
-    let img = generatedImageResult;
-    if (!img) {
-      img = await generateFreshImageBlob();
-    }
+    const img = await generateFreshImageBlob();
     if (img) {
       setIsShareModalOpen(true);
     }
@@ -689,10 +867,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
       return;
     }
 
-    let img = generatedImageResult;
-    if (!img) {
-      img = await generateFreshImageBlob();
-    }
+    const img = await generateFreshImageBlob();
     if (!img) return;
 
     // 1. Try Native Web Share API with File (Mobile devices send image directly to WhatsApp recipient!)
@@ -939,8 +1114,8 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                 </span>
               )}
             </h2>
-            <p className="text-[10px] text-slate-400 font-semibold">
-              تاريخ بدء المحاسبة المعتمد: <span className="font-bold text-slate-600">{accountingStartDate}</span> | التقرير محدث حتى تاريخ اليوم
+            <p className="text-[11px] text-slate-500 font-bold mt-0.5">
+              الفترة المحاسبية: <span className="font-black text-slate-800">{accountingPeriodDisplay}</span> | التقرير محدث ومطابق لحالة الوحدة
             </p>
           </div>
 
@@ -1035,10 +1210,10 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
           <div className="bg-slate-50/90 border border-slate-200/80 rounded-2xl p-3 sm:p-4 text-center flex flex-col items-center justify-center space-y-1 shadow-2xs">
             <span className="text-[11px] font-bold text-slate-500 block">اشتراك شهري</span>
             <div className="flex items-baseline justify-center gap-1 font-black text-slate-800" dir="ltr">
-              <span className="text-base sm:text-xl font-black">{financials.monthlyFee.toLocaleString()}</span>
+              <span className="text-base sm:text-xl font-black">{unitPrescribedInfo.monthlyFee.toLocaleString()}</span>
               <span className="text-[10px] sm:text-[11px] font-bold text-slate-400">ج.م</span>
             </div>
-            <span className="text-[10px] text-slate-400 font-semibold block">بحسب فئة {activeResident.activityType}</span>
+            <span className="text-[10px] text-slate-400 font-semibold block">بحسب فئة {unitPrescribedInfo.activityType || activeResident.activityType || 'سكني'}</span>
           </div>
 
           {/* 2. Previous Balance Card */}
@@ -1099,49 +1274,152 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
 
         </div>
 
-        {/* Notice Banner if Debt or Settled */}
-        {isDebt && (
-          <div className="bg-rose-50/80 border border-rose-200 rounded-2xl p-3 sm:p-3.5 flex items-start sm:items-center gap-3">
-            <div className="w-8 h-8 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center shrink-0">
-              <AlertTriangle className="w-4 h-4" />
-            </div>
-            <div className="flex-1 text-xs">
-              <span className="font-extrabold text-rose-950 block">يوجد متأخرات على الوحدة بقيمة {Math.abs(Math.round(financials.netBalance)).toLocaleString()} ج.م</span>
-              <span className="text-rose-700 text-[11px] font-semibold leading-relaxed">
-                تفاصيل المتأخرات: شهور اشتراك شهري غير المسددة ({financials.unpaidMonthsCount} شهر = {financials.unpaidMonthsDues.toLocaleString()} ج.م)
-                {financials.otherCollectionsDebt > 0 ? ` + تحصيلات أخرى غير مسددة (${financials.otherCollectionsDebt.toLocaleString()} ج.م)` : ''}
-                {effectiveCarriedBalance < 0 
-                  ? ` بالإضافة إلى مديونية سابقة مرحلة (${Math.abs(effectiveCarriedBalance).toLocaleString()} ج.م).`
-                  : effectiveCarriedBalance > 0 
-                  ? ` بعد خصم رصيد دائن سابق مرحل (${effectiveCarriedBalance.toLocaleString()} ج.م).`
-                  : ' (لا يوجد رصيد سابق مرحل).'}
-                {' '}يرجى التكرم بسرعة السداد لضمان استمرار أعمال الصيانة والخدمات بالعمارة.
+        {/* 📋 بيان وتفصيل المبالغ المستحقة (6 أجزاء كاملة تماماً كما هي في بيانات وإيصال الوحدة) */}
+        {claimBreakdown && (
+          <div className={`p-3.5 sm:p-4 rounded-2xl text-slate-900 text-xs font-black space-y-3 shadow-xs border ${
+            claimBreakdown.totalArrearsAndDebts === 0
+              ? 'bg-gradient-to-b from-emerald-50/70 to-slate-50 border-emerald-300'
+              : 'bg-gradient-to-b from-rose-50/80 to-slate-50 border-rose-300'
+          }`}>
+            {/* Header Banner */}
+            <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+              <div className="flex items-center gap-1.5 font-black text-xs sm:text-sm">
+                {claimBreakdown.totalArrearsAndDebts === 0 ? (
+                  <div className="flex items-center gap-1.5 text-emerald-900">
+                    <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>📋 بيان وتفصيل المبالغ المستحقة (الحساب مسدد بالكامل ✓):</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1.5 text-slate-900">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>📋 بيان وتفصيل المبالغ المستحقة على الوحدة:</span>
+                  </div>
+                )}
+              </div>
+              <span className="text-[11px] bg-white font-black px-2.5 py-0.5 rounded-lg border border-slate-200 text-slate-800">
+                الوحدة {activeResident.flatNumber}
               </span>
             </div>
-          </div>
-        )}
 
-        {isSettled && (
-          <div className="bg-blue-50/80 border border-blue-200 rounded-2xl p-3 sm:p-3.5 flex items-center gap-3">
-            <div className="w-8 h-8 rounded-xl bg-blue-100 text-blue-800 flex items-center justify-center shrink-0">
-              <CheckCircle2 className="w-4 h-4" />
+            {/* 1️⃣ الجزء الأول: حالة الشهر الحالي كما هي بدون تعديل مع كتابة قيمة المسدد عن التحصيلات الشهرية */}
+            <div className="bg-white p-3 rounded-xl border border-slate-200/90 shadow-2xs space-y-1.5">
+              <div className="text-xs font-black text-blue-950 flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-blue-600 inline-block"></span>
+                <span>1️⃣ حالة الشهر الحالي ({claimBreakdown.monthName} {claimBreakdown.targetYear}):</span>
+              </div>
+              <div className="text-xs text-slate-800 pr-3 space-y-1 font-bold">
+                <div>• {claimBreakdown.subsLineText}</div>
+                <div>• {claimBreakdown.otherLineText}</div>
+              </div>
             </div>
-            <div className="flex-1 text-xs">
-              <span className="font-extrabold text-blue-950 block">حسابك منتظم تماماً ومسدد بالكامل حتى تاريخه!</span>
-              <span className="text-blue-700 text-[11px] font-semibold">نشكر لكم حرصكم الدائم على الالتزام بسداد اشتراكات الوحدة بانتظام.</span>
-            </div>
-          </div>
-        )}
 
-        {isSurplus && (
-          <div className="bg-emerald-50/80 border border-emerald-200 rounded-2xl p-3 sm:p-3.5 flex items-center gap-3">
-            <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center shrink-0">
-              <ArrowUpRight className="w-4 h-4" />
+            {/* 2️⃣ الجزء الثاني: إجمالي المبالغ المستحقة للاشتراك الشهري من بداية الفترة المحاسبية وحتى الشهر الحالي */}
+            <div className="bg-white p-3 rounded-xl border border-slate-200/90 shadow-2xs space-y-2">
+              <div className="text-xs font-black text-slate-900 flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-600 inline-block"></span>
+                <span>2️⃣ الاشتراكات الشهرية (من بداية الفترة المحاسبية وحتى الشهر الحالي):</span>
+              </div>
+              <div className="text-xs text-slate-800 pr-3 space-y-1.5 font-bold">
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-600">• إجمالي المبالغ المستحقة للاشتراك الشهري:</span>
+                  <span className="font-black text-slate-900">{claimBreakdown.priorSubsDue.toLocaleString()} ج.م</span>
+                </div>
+                <div className="flex justify-between items-center text-emerald-800">
+                  <span>• المبالغ المسددة من بداية الفترة المحاسبية وحتى الشهر الحالي:</span>
+                  <span className="font-black">{claimBreakdown.priorSubsPaid.toLocaleString()} ج.م</span>
+                </div>
+                <div className={`flex justify-between items-center pt-1 border-t border-dashed border-slate-200 font-black ${
+                  claimBreakdown.priorSubsDiff > 0 ? 'text-rose-700' : claimBreakdown.priorSubsDiff < 0 ? 'text-emerald-700' : 'text-slate-600'
+                }`}>
+                  <span>• الفرق بينهما (متأخرات أو رصيد موجب):</span>
+                  <span className="underline">{claimBreakdown.priorSubsStatusText}</span>
+                </div>
+              </div>
             </div>
-            <div className="flex-1 text-xs">
-              <span className="font-extrabold text-emerald-950 block">لديك رصيد إضافي مسدد مقدماً بقيمة {financials.netBalance.toLocaleString()} ج.م</span>
-              <span className="text-emerald-700 text-[11px] font-semibold">سيتم خصم هذا الرصيد تلقائياً من اشتراكات الشهور القادمة.</span>
+
+            {/* 3️⃣ الجزء الثالث: إجمالي المبالغ المستحقة عن التحصيلات الأخرى من بداية الفترة المحاسبية حتى الشهر الحالي */}
+            <div className="bg-white p-3 rounded-xl border border-slate-200/90 shadow-2xs space-y-2">
+              <div className="text-xs font-black text-slate-900 flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-purple-600 inline-block"></span>
+                <span>3️⃣ التحصيلات الأخرى (من بداية الفترة المحاسبية وحتى الشهر الحالي):</span>
+              </div>
+              <div className="text-xs text-slate-800 pr-3 space-y-1.5 font-bold">
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-600">• إجمالي المبالغ المستحقة عن التحصيلات الأخرى:</span>
+                  <span className="font-black text-slate-900">{claimBreakdown.priorOtherDue.toLocaleString()} ج.م</span>
+                </div>
+                <div className="flex justify-between items-center text-emerald-800">
+                  <span>• إجمالي المبالغ المسددة للتحصيلات الأخرى:</span>
+                  <span className="font-black">{claimBreakdown.priorOtherPaid.toLocaleString()} ج.م</span>
+                </div>
+                <div className={`flex justify-between items-center pt-1 border-t border-dashed border-slate-200 font-black ${
+                  claimBreakdown.priorOtherDiff > 0 ? 'text-rose-700' : claimBreakdown.priorOtherDiff < 0 ? 'text-emerald-700' : 'text-slate-600'
+                }`}>
+                  <span>• الفرق بينهما (متأخرات أو رصيد موجب):</span>
+                  <span className="underline">{claimBreakdown.priorOtherStatusText}</span>
+                </div>
+              </div>
             </div>
+
+            {/* 4️⃣ الجزء الرابع: مديونيات سابقة أو مرحل من فترات محاسبية سابقة أو رصيد افتتاحي للوحدة */}
+            <div className="bg-white p-3 rounded-xl border border-slate-200/90 shadow-2xs space-y-1.5">
+              <div className="text-xs font-black text-slate-900 flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-slate-600 inline-block"></span>
+                <span>4️⃣ مديونيات سابقة أو مرحل من فترات محاسبية سابقة أو رصيد افتتاحي للوحدة:</span>
+              </div>
+              <div className="text-xs text-slate-800 pr-3 font-bold flex justify-between items-center">
+                <span className="text-slate-600">• القيمة:</span>
+                <span className={`font-black ${
+                  claimBreakdown.previousDebtAmount > 0 
+                    ? 'text-rose-700 underline' 
+                    : claimBreakdown.previousSurplusAmount > 0 
+                    ? 'text-emerald-700 underline' 
+                    : 'text-slate-700'
+                }`}>
+                  {claimBreakdown.previousDebtAmount > 0
+                    ? `${claimBreakdown.previousDebtAmount.toLocaleString()} ج.م (مديونيات سابقة)`
+                    : (claimBreakdown.previousSurplusAmount > 0
+                        ? `+${claimBreakdown.previousSurplusAmount.toLocaleString()} ج.م (رصيد موجب دائن مرحل)`
+                        : '0 ج.م (لا توجد مديونيات سابقة)')}
+                </span>
+              </div>
+            </div>
+
+            {/* 5️⃣ & 6️⃣ المستطيل المالي المطلوب للتفصيل */}
+            <div className="p-3.5 bg-white rounded-xl border-2 border-amber-400/90 shadow-2xs space-y-2.5 text-xs">
+              {/* الجزء الخامس */}
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 text-slate-900 font-black">
+                <span>5️⃣ إجمالي المستحق عن هذا الشهر:</span>
+                <span className="text-blue-900 font-black text-xs sm:text-sm bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200 self-start sm:self-auto">
+                  {claimBreakdown.currentMonthTotalDue.toLocaleString()} ج.م
+                </span>
+              </div>
+
+              {/* الجزء السادس */}
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 text-slate-900 font-black pt-2.5 border-t border-dashed border-amber-300">
+                <span>6️⃣ إجمالي المتأخرات والمديونيات:</span>
+                <span className={`font-black text-xs sm:text-sm px-2.5 py-1 rounded-lg border self-start sm:self-auto ${
+                  claimBreakdown.totalArrearsAndDebts > 0
+                    ? 'text-rose-900 bg-rose-50 border-rose-200'
+                    : 'text-emerald-900 bg-emerald-50 border-emerald-200'
+                }`}>
+                  {claimBreakdown.totalArrearsAndDebts > 0
+                    ? `${claimBreakdown.totalArrearsAndDebts.toLocaleString()} ج.م`
+                    : '0 ج.م (خالص بالكامل)'}
+                </span>
+              </div>
+            </div>
+
+            {/* Encouraging / Thanking Note */}
+            {claimBreakdown.totalArrearsAndDebts === 0 ? (
+              <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-900 text-[11px] font-bold text-center leading-relaxed shadow-2xs">
+                🌺 نشكركم جزيل الشكر والتقدير على حرصكم الدائم وسدادكم المنتظم، مما يساهم مباشرةً في الحفاظ على العمارة وتطوير خدماتها.
+              </div>
+            ) : (
+              <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-xl text-blue-900 text-[11px] font-bold text-center leading-relaxed shadow-2xs">
+                🤝 نأمل من سيادتكم التكرم بالمبادرة بسداد المستحقات في أقرب وقت لضمان استمرار خدمات النظافة، الحراسة، الصيانة، وتشغيل المصاعد بكفاءة لراحة جميع السكّان.
+              </div>
+            )}
           </div>
         )}
 
@@ -1153,14 +1431,26 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                 <Calendar className="w-4 h-4 text-blue-900" />
                 <span>كشف الشهور تفصيلياً (الشهور المسددة وغير المسددة)</span>
               </h3>
-              {activePeriod && (
+              {viewMode === 'month' && currentMonth !== undefined ? (
+                <span className="px-2.5 py-0.5 bg-blue-50 border border-blue-200 text-blue-900 text-[11px] font-black rounded-lg">
+                  الفلتر: حتى شهر {monthNamesArabic[currentMonth]} {currentYear}
+                </span>
+              ) : viewMode === 'year' ? (
+                <span className="px-2.5 py-0.5 bg-amber-50 border border-amber-200 text-amber-900 text-[11px] font-black rounded-lg">
+                  الفلتر: كشف حساب سنوي لسنة {currentYear}
+                </span>
+              ) : activePeriod ? (
                 <span className="px-2.5 py-0.5 bg-blue-50 border border-blue-200 text-blue-900 text-[11px] font-black rounded-lg">
                   فترة: {activePeriod.name} ({formatPeriodDateRange(activePeriod.startDate, activePeriod.endDate)})
                 </span>
-              )}
+              ) : null}
             </div>
             <p className="text-[11px] text-slate-500 font-semibold mt-0.5">
-              {activePeriod
+              {viewMode === 'month' && currentMonth !== undefined
+                ? `متابعة حالة الحساب في الفترة المحاسبية حتى شهر ${monthNamesArabic[currentMonth]} ${currentYear}`
+                : viewMode === 'year'
+                ? `متابعة كشف الحساب السنوي للوحدة لسنة ${currentYear}`
+                : activePeriod
                 ? `متابعة حالة كل شهر للفترة المحاسبية النشطة (${formatPeriodDateRange(activePeriod.startDate, activePeriod.endDate)})`
                 : 'متابعة حالة كل شهر من تاريخ بدء المحاسبة حتى الشهر الحالي'}
             </p>
@@ -1879,9 +2169,9 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
             <p className="text-sm font-bold text-slate-600">
               كشف حساب ومطالبات اشتراكات - وحدة رقم ({activeResident.flatNumber})
             </p>
-            <div className="flex justify-between items-center text-xs text-slate-500 pt-2 font-semibold">
+            <div className="flex justify-between items-center text-xs text-slate-700 pt-2 font-bold border-t border-slate-200">
               <span>تاريخ إصدار الكشف: {new Date().toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
-              <span>تاريخ بدء المحاسبة: {accountingStartDate}</span>
+              <span className="font-black text-slate-900">تاريخ بدء المحاسبة: {accountingPeriodDisplay}</span>
             </div>
           </div>
 
@@ -1945,26 +2235,111 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
             </div>
           </div>
 
-          {/* Notice Banner matching on-screen status */}
-          {financials.netBalance < 0 ? (
-            <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-right text-xs mb-5 text-red-950 font-bold flex items-center justify-between">
-              <span>⚠️ تنبيه المتأخرات: على الوحدة متأخرات مستحقة السداد بقيمة {Math.abs(Math.round(financials.netBalance)).toLocaleString()} ج.م تشمل شهور اشتراك شهري غير المسددة ({financials.unpaidMonthsCount} شهر = {financials.unpaidMonthsDues.toLocaleString()} ج.م){financials.otherCollectionsDebt > 0 ? ` بالإضافة للتحصيلات الأخرى غير المسددة (${financials.otherCollectionsDebt.toLocaleString()} ج.م)` : ''}{effectiveCarriedBalance < 0 ? ` بالإضافة لرصيد مديونية مرحل (${Math.abs(effectiveCarriedBalance).toLocaleString()} ج.م)` : ''}.</span>
-              <span className="text-red-700 font-black text-xs px-2 py-0.5 bg-red-100 rounded-lg">مطلوب السداد</span>
-            </div>
-          ) : financials.netBalance === 0 ? (
-            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-right text-xs mb-5 text-emerald-950 font-bold flex items-center justify-between">
-              <span>✨ الموقف المالي: تم سداد جميع اشتراكات ومستحقات الوحدة بالكامل حتى تاريخه ولا توجد أي مديونيات متأخرة.</span>
-              <span className="text-emerald-800 font-black text-xs px-2 py-0.5 bg-emerald-100 rounded-lg">مسدد بالكامل</span>
-            </div>
-          ) : (
-            <div className="bg-teal-50 border border-teal-200 rounded-xl p-3 text-right text-xs mb-5 text-teal-950 font-bold flex items-center justify-between">
-              <span>🎉 الموقف المالي: يوجد رصيد إضافي مسدد مقدماً بقيمة {Math.round(financials.netBalance).toLocaleString()} ج.م سيتم خصمه تلقائياً من اشتراكات الشهور القادمة.</span>
-              <span className="text-teal-800 font-black text-xs px-2 py-0.5 bg-teal-100 rounded-lg">رصيد دائن فائض</span>
+          {/* 📋 بيان وتفصيل المبالغ المستحقة للفترة المحاسبية (6 أجزاء كاملة) */}
+          {claimBreakdown && (
+            <div className="border border-slate-300 rounded-xl p-3 bg-slate-50/50 mb-5 text-xs font-bold space-y-2.5">
+              <div className="flex items-center justify-between pb-1.5 border-b border-slate-200">
+                <span className="font-black text-slate-900 text-xs">📋 بيان وتفصيل المبالغ المستحقة على الوحدة:</span>
+                <span className="text-[10px] bg-white font-black px-2 py-0.5 rounded border border-slate-300 text-slate-800">
+                  الوحدة {activeResident.flatNumber}
+                </span>
+              </div>
+
+              {/* 1️⃣ */}
+              <div className="bg-white p-2.5 rounded-lg border border-slate-200 space-y-1">
+                <div className="text-[11px] font-black text-blue-950">1️⃣ حالة الشهر الحالي ({claimBreakdown.monthName} {claimBreakdown.targetYear}):</div>
+                <div className="text-[10px] text-slate-800 pr-2 space-y-0.5 font-bold">
+                  <div>• {claimBreakdown.subsLineText}</div>
+                  <div>• {claimBreakdown.otherLineText}</div>
+                </div>
+              </div>
+
+              {/* 2️⃣ */}
+              <div className="bg-white p-2.5 rounded-lg border border-slate-200 space-y-1">
+                <div className="text-[11px] font-black text-slate-900">2️⃣ الاشتراكات الشهرية (من بداية الفترة المحاسبية وحتى الشهر الحالي):</div>
+                <div className="text-[10px] text-slate-800 pr-2 space-y-1 font-bold">
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">• إجمالي المبالغ المستحقة للاشتراك الشهري:</span>
+                    <span className="font-black">{claimBreakdown.priorSubsDue.toLocaleString()} ج.م</span>
+                  </div>
+                  <div className="flex justify-between text-emerald-800">
+                    <span>• المبالغ المسددة من بداية الفترة المحاسبية وحتى الشهر الحالي:</span>
+                    <span className="font-black">{claimBreakdown.priorSubsPaid.toLocaleString()} ج.م</span>
+                  </div>
+                  <div className="flex justify-between pt-0.5 border-t border-dashed border-slate-200 font-black">
+                    <span>• الفرق بينهما (متأخرات أو رصيد موجب):</span>
+                    <span>{claimBreakdown.priorSubsStatusText}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 3️⃣ */}
+              <div className="bg-white p-2.5 rounded-lg border border-slate-200 space-y-1">
+                <div className="text-[11px] font-black text-slate-900">3️⃣ التحصيلات الأخرى (من بداية الفترة المحاسبية وحتى الشهر الحالي):</div>
+                <div className="text-[10px] text-slate-800 pr-2 space-y-1 font-bold">
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">• إجمالي المبالغ المستحقة عن التحصيلات الأخرى:</span>
+                    <span className="font-black">{claimBreakdown.priorOtherDue.toLocaleString()} ج.م</span>
+                  </div>
+                  <div className="flex justify-between text-emerald-800">
+                    <span>• إجمالي المبالغ المسددة للتحصيلات الأخرى:</span>
+                    <span className="font-black">{claimBreakdown.priorOtherPaid.toLocaleString()} ج.م</span>
+                  </div>
+                  <div className="flex justify-between pt-0.5 border-t border-dashed border-slate-200 font-black">
+                    <span>• الفرق بينهما (متأخرات أو رصيد موجب):</span>
+                    <span>{claimBreakdown.priorOtherStatusText}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 4️⃣ */}
+              <div className="bg-white p-2.5 rounded-lg border border-slate-200 flex justify-between items-center text-[10px] font-bold">
+                <span className="font-black text-slate-900">4️⃣ مديونيات سابقة أو مرحل من فترات محاسبية سابقة أو رصيد افتتاحي:</span>
+                <span className="font-black">
+                  {claimBreakdown.previousDebtAmount > 0
+                    ? `${claimBreakdown.previousDebtAmount.toLocaleString()} ج.م (مديونيات سابقة)`
+                    : claimBreakdown.previousSurplusAmount > 0
+                    ? `+${claimBreakdown.previousSurplusAmount.toLocaleString()} ج.م (رصيد موجب مرحل)`
+                    : '0 ج.م (لا توجد مديونيات)'}
+                </span>
+              </div>
+
+              {/* 5️⃣ & 6️⃣ */}
+              <div className="bg-white p-2.5 rounded-lg border-2 border-slate-400 space-y-1.5 text-[11px] font-black">
+                <div className="flex justify-between items-center">
+                  <span>5️⃣ إجمالي المستحق عن هذا الشهر:</span>
+                  <span className="text-blue-900 font-black">{claimBreakdown.currentMonthTotalDue.toLocaleString()} ج.م</span>
+                </div>
+                <div className="flex justify-between items-center pt-1 border-t border-dashed border-slate-300">
+                  <span>6️⃣ إجمالي المتأخرات والمديونيات:</span>
+                  <span className="font-black text-slate-900">
+                    {claimBreakdown.totalArrearsAndDebts > 0
+                      ? `${claimBreakdown.totalArrearsAndDebts.toLocaleString()} ج.م`
+                      : '0 ج.م (خالص بالكامل)'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Encouraging / Thanking Note */}
+              {claimBreakdown.totalArrearsAndDebts === 0 ? (
+                <div className="p-2 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-900 text-[10.5px] font-bold text-center leading-relaxed">
+                  🌺 نشكركم جزيل الشكر والتقدير على حرصكم الدائم وسدادكم المنتظم، مما يساهم مباشرةً في الحفاظ على العمارة وتطوير خدماتها.
+                </div>
+              ) : (
+                <div className="p-2 bg-blue-50 border border-blue-200 rounded-lg text-blue-900 text-[10.5px] font-bold text-center leading-relaxed">
+                  🤝 نأمل من سيادتكم التكرم بالمبادرة بسداد المستحقات في أقرب وقت لضمان استمرار خدمات النظافة، الحراسة، الصيانة، وتشغيل المصاعد بكفاءة لراحة جميع السكّان.
+                </div>
+              )}
             </div>
           )}
 
           {/* Monthly Accounting Timeline Table */}
-          <h2 className="font-black text-slate-800 text-xs mb-2">جدول المحاسبة والمطالبات الشهري ({monthsTimeline.length} شهر)</h2>
+          <div className="flex justify-between items-center mb-2">
+            <h2 className="font-black text-slate-800 text-xs">جدول المحاسبة والمطالبات الشهري ({monthsTimeline.length} شهر)</h2>
+            <span className="text-[10px] font-bold text-slate-700 bg-slate-100 px-2.5 py-0.5 rounded border border-slate-300">
+              {accountingPeriodDisplay}
+            </span>
+          </div>
           <table className="w-full text-right border-collapse border border-slate-400 text-xs mb-6 table-fixed">
             <colgroup>
               <col className="w-[14%]" />

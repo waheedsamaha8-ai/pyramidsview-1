@@ -106,7 +106,8 @@ import {
   parseExpenseMonth,
   isPaymentForYearAndMonth,
   isExpenseForYearAndMonth,
-  isValidPaidPayment
+  isValidPaidPayment,
+  isMonthlySubscriptionType
 } from './utils/financialCalculations';
 import { 
   removeUnitFromBuildingLayout, 
@@ -1615,10 +1616,29 @@ export default function App() {
       )
       .map(p => String(p.id));
 
+    // Also look for any pre-existing subscription payments in the target months/units to prevent duplicate payments
+    const duplicatePaymentIds: string[] = [];
+    distributedPayments.forEach(dp => {
+      const cleanDpId = String(dp.id);
+      const dupes = payments.filter(p => {
+        const pId = String(p.id);
+        if (pId === cleanOrigId || pId === cleanDpId) return false;
+        if (distributedPayments.some(item => String(item.id) === pId)) return false;
+        const isSameUnit = (p.residentId && p.residentId === dp.residentId) || isSameFlatNumber(p.flatNumber, dp.flatNumber);
+        if (!isSameUnit) return false;
+        const isSameMonth = String(p.month).padStart(2, '0') === String(dp.month).padStart(2, '0');
+        const isSameYear = Number(p.year) === Number(dp.year);
+        if (!isSameMonth || !isSameYear) return false;
+        return isMonthlySubscriptionType(p.paymentType);
+      });
+      dupes.forEach(d => duplicatePaymentIds.push(String(d.id)));
+    });
+
     const allIdsToRemove = new Set<string>([
       ...(origPayment ? [cleanOrigId] : []),
       ...linkedChildIds,
-      ...(deletedPaymentIds ? deletedPaymentIds.map(String) : [])
+      ...(deletedPaymentIds ? deletedPaymentIds.map(String) : []),
+      ...duplicatePaymentIds
     ]);
 
     const idsToDelete = Array.from(allIdsToRemove).filter(id => !distributedPayments.some(dp => String(dp.id) === id));

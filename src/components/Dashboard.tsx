@@ -541,6 +541,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
             config={config}
             floorConfigs={config?.buildingLayout}
             currentYear={currentYear}
+            currentMonth={currentMonth}
+            viewMode={viewMode}
             isResidentOnly={true}
             onPreviewImage={onPreviewImage}
             onOpenResidentsList={() => onNavigateTab('residents')}
@@ -555,6 +557,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
             config={config}
             floorConfigs={config?.buildingLayout}
             currentYear={currentYear}
+            currentMonth={currentMonth}
+            viewMode={viewMode}
             isResidentOnly={false}
             onSelectResidentId={(id) => setReportResidentId(id)}
             onSelectFlatNumber={(flatNum) => {

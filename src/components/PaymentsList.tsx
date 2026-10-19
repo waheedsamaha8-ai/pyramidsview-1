@@ -53,6 +53,15 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
   const [filterMonth, setFilterMonth] = useState('');
   const [filterType, setFilterType] = useState('');
   const [onlyCurrentMonth, setOnlyCurrentMonth] = useState(true);
+  const [distributionFilter, setDistributionFilter] = useState<'with_distributed' | 'without_distributed'>('with_distributed');
+
+  const isDistributedChildPayment = (p: Payment): boolean => {
+    if (p.distributionSourceId) return true;
+    if (p.notes && (p.notes.includes('تم السداد في شهر') || p.notes.includes('القيمة الموزعة للشهر'))) {
+      return true;
+    }
+    return false;
+  };
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [receiptSort, setReceiptSort] = useState<'none' | 'desc' | 'asc'>('none');
@@ -385,7 +394,13 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       }
       return filterMonth ? parseInt(p.month, 10) === parseInt(filterMonth, 10) : true;
     })
-    .filter((p) => (filterType ? p.paymentType === filterType : true));
+    .filter((p) => (filterType ? p.paymentType === filterType : true))
+    .filter((p) => {
+      if (distributionFilter === 'without_distributed') {
+        return !isDistributedChildPayment(p);
+      }
+      return true;
+    });
 
   const currentMonthPayments = useMemo(() => {
     return payments
@@ -393,8 +408,14 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       .filter((p) => parseInt(p.month, 10) === parseInt(actualCurrentMonth, 10))
       .filter((p) => (filterResident ? p.residentId === filterResident : true))
       .filter((p) => (filterType ? p.paymentType === filterType : true))
+      .filter((p) => {
+        if (distributionFilter === 'without_distributed') {
+          return !isDistributedChildPayment(p);
+        }
+        return true;
+      })
       .sort((a, b) => compareFlatNumbers(a.flatNumber, b.flatNumber) || a.id.localeCompare(b.id));
-  }, [payments, currentYear, actualCurrentMonth, filterResident, filterType]);
+  }, [payments, currentYear, actualCurrentMonth, filterResident, filterType, distributionFilter]);
 
   const sortedFilteredPayments = useMemo(() => {
     if (receiptSort === 'none') {
@@ -437,6 +458,10 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
         periodLabel = `إجمالي_التحصيلات_${currentYear}`;
       }
 
+      if (distributionFilter === 'without_distributed') {
+        periodLabel += '_بدون_الموزعة';
+      }
+
       const activeResidentObj = filterResident ? residents.find((r) => r.id === filterResident) : null;
       if (activeResidentObj) {
         periodLabel += `_وحدة_${activeResidentObj.flatNumber}`;
@@ -455,11 +480,12 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       const validCollectedList = sortedFilteredPayments.filter(p => !isUncollectedPayment(p) && !isCancelledPayment(p));
       const totalAmt = validCollectedList.reduce((s, p) => s + p.amount, 0);
       const count = validCollectedList.length;
-      const periodText = onlyCurrentMonth
+      const distSuffix = distributionFilter === 'without_distributed' ? ' (بدون المبالغ الموزعة من شهور أخرى)' : '';
+      const periodText = (onlyCurrentMonth
         ? `تحصيلات شهر ${monthNamesArabic[parseInt(actualCurrentMonth, 10) - 1]} ${currentYear}`
         : filterMonth
         ? `تحصيلات شهر ${monthNamesArabic[parseInt(filterMonth, 10) - 1]} ${currentYear}`
-        : `إجمالي تحصيلات السنة المالية ${currentYear}`;
+        : `إجمالي تحصيلات السنة المالية ${currentYear}`) + distSuffix;
 
       const statsText = `إجمالي المقبوض المستلم: ${totalAmt.toLocaleString()} ج.م | عدد العمليات المقبوضة: ${count}`;
 
@@ -1307,7 +1333,18 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
         // Multi-month or different-month distribution on edit
         const masterMonth = masterMonthNorm;
         const otherMonths = targetCoveredMonths.filter(m => m !== masterMonth);
-        const otherIds = otherMonths.map((m, idx) => existingChildIds[idx] || `pay_${Date.now()}_${m}_${idx + 1}`);
+        const otherIds = otherMonths.map((m, idx) => {
+          if (existingChildIds[idx]) return existingChildIds[idx];
+          const existingInMonth = payments.find(p => {
+            const isSameUnit = (p.residentId && p.residentId === residentId) || isSameFlatNumber(p.flatNumber, resident.flatNumber);
+            if (!isSameUnit) return false;
+            if (!isPaymentForYearAndMonth(p, currentYear, parseInt(m, 10))) return false;
+            if (p.status === 'cancelled' || p.status === 'لاغي') return false;
+            if (String(p.id) === String(masterPaymentId)) return false;
+            return isMonthlySubscriptionType(p.paymentType) || String(p.distributionSourceId || '') === String(masterPaymentId);
+          });
+          return existingInMonth ? String(existingInMonth.id) : `pay_${Date.now()}_${m}_${idx + 1}`;
+        });
         const deletedPaymentIds = existingChildIds.filter(id => !otherIds.includes(id));
 
         const hist0 = getHistoricalOccupantForDate(resident, `${currentYear}-${masterMonth}`);
@@ -1428,7 +1465,16 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
         const masterMonth = masterMonthNorm;
         const otherMonths = targetCoveredMonths.filter(m => m !== masterMonth);
         const masterId = `pay_${Date.now()}_${masterMonth}_0`;
-        const otherIds = otherMonths.map((m, idx) => `pay_${Date.now()}_${m}_${idx + 1}`);
+        const otherIds = otherMonths.map((m, idx) => {
+          const existingInMonth = payments.find(p => {
+            const isSameUnit = (p.residentId && p.residentId === residentId) || isSameFlatNumber(p.flatNumber, resident.flatNumber);
+            if (!isSameUnit) return false;
+            if (!isPaymentForYearAndMonth(p, currentYear, parseInt(m, 10))) return false;
+            if (p.status === 'cancelled' || p.status === 'لاغي') return false;
+            return isMonthlySubscriptionType(p.paymentType);
+          });
+          return existingInMonth ? String(existingInMonth.id) : `pay_${Date.now()}_${m}_${idx + 1}`;
+        });
 
         const histMaster = getHistoricalOccupantForDate(resident, `${currentYear}-${masterMonth}`);
         const coveredNames = targetCoveredMonths
@@ -1627,6 +1673,22 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                   {type}
                 </option>
               ))}
+            </select>
+          </div>
+
+          <div className="relative flex-1 md:flex-none">
+            <select
+              value={distributionFilter}
+              onChange={(e) => setDistributionFilter(e.target.value as 'with_distributed' | 'without_distributed')}
+              className={`w-full md:w-56 px-2.5 py-2 bg-white border rounded-xl text-xs font-bold outline-none rtl:text-right cursor-pointer transition ${
+                distributionFilter === 'without_distributed'
+                  ? 'border-amber-400 bg-amber-50/70 text-amber-950 font-black ring-2 ring-amber-400/20'
+                  : 'border-slate-100 text-slate-700 focus:ring-2 focus:ring-blue-500/10'
+              }`}
+              title="فلترة المبالغ الموزعة من شهور أخرى"
+            >
+              <option value="with_distributed">بالمبالغ الموزعة (افتراضي)</option>
+              <option value="without_distributed">بدون المبالغ الموزعة من شهور أخرى</option>
             </select>
           </div>
 
@@ -3244,7 +3306,11 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                         onDistributePayment(origId, confirmData.multiplePayments);
                       } else {
                         confirmData.multiplePayments.forEach((p) => {
-                          onAdd(p, confirmData.base64Image);
+                          if (payments.some(existing => String(existing.id) === String(p.id))) {
+                            onEdit(p, confirmData.base64Image);
+                          } else {
+                            onAdd(p, confirmData.base64Image);
+                          }
                         });
                       }
                     }
@@ -3298,7 +3364,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
           </div>
 
           {/* Active Filter Indicators on Report */}
-          {(filterResident || filterType || !onlyCurrentMonth || receiptSort !== 'none') && (
+          {(filterResident || filterType || !onlyCurrentMonth || receiptSort !== 'none' || distributionFilter === 'without_distributed') && (
             <div className="flex flex-wrap items-center justify-center gap-2 pt-2 border-t border-dashed border-slate-200 text-[11px] text-slate-600 font-bold">
               <span className="text-slate-400">الفلاتر المطبقة:</span>
               {filterResident && (
@@ -3319,6 +3385,11 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
               {!onlyCurrentMonth && !filterMonth && (
                 <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded border border-slate-200">
                   عرض كل الشهور
+                </span>
+              )}
+              {distributionFilter === 'without_distributed' && (
+                <span className="px-2 py-0.5 bg-amber-50 text-amber-800 rounded border border-amber-200 font-black">
+                  بدون المبالغ الموزعة من شهور أخرى
                 </span>
               )}
               {receiptSort !== 'none' && (
