@@ -1,4 +1,4 @@
-import { AccountingPeriod, AppConfig, Payment, Expense, Resident, ActivityFeePeriod } from '../types';
+import { AccountingPeriod, AppConfig, Payment, Expense, Resident, ActivityFeePeriod, CustomUnitFeePeriod } from '../types';
 import { 
   isValidPaidPayment, 
   getResidentMonthlyFee, 
@@ -114,7 +114,9 @@ export function computePeriodClosingSummary(
   expenses: Expense[] = [],
   residents: Resident[] = [],
   defaultMonthlyFee: number = 400,
-  activityDefaultFees?: Record<string, number>
+  activityDefaultFees?: Record<string, number>,
+  activityFeePeriods?: ActivityFeePeriod[],
+  customUnitFeePeriods?: CustomUnitFeePeriod[]
 ) {
   const periodPayments = payments.filter(p => isPaymentInPeriod(p, period) && isValidPaidPayment(p));
   const totalCollections = periodPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
@@ -136,7 +138,7 @@ export function computePeriodClosingSummary(
   // Calculate expected dues for all units for this period
   let totalExpectedDues = 0;
   residents.forEach(res => {
-    const fee = getResidentMonthlyFee(res, defaultMonthlyFee, activityDefaultFees);
+    const fee = getResidentMonthlyFee(res, defaultMonthlyFee, activityDefaultFees, period.startDate, payments, activityFeePeriods, customUnitFeePeriods);
     totalExpectedDues += fee * monthsCount;
   });
 

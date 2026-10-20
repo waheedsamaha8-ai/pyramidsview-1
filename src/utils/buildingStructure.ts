@@ -647,7 +647,7 @@ export function isPeriodMatchingTarget(
  */
 export function getHistoricalOccupantForDate(
   resident: Resident,
-  dateOrPeriod?: string | number
+  dateOrPeriod?: string | number | { startDate?: string; endDate?: string; year?: number; name?: string } | any
 ): HistoricalOccupantResult {
   if (!resident) {
     return { ownerName: '', occupantName: '' };
@@ -757,7 +757,7 @@ export function isTenantPhone(phone: string | undefined, tenantPhonesSet: Set<st
  */
 export function getLatestOccupantFromHistory(
   resident: Resident,
-  targetDateOrPeriod?: string | number
+  targetDateOrPeriod?: string | number | { startDate?: string; endDate?: string; year?: number; name?: string } | any
 ): {
   ownerName: string;
   ownerPhone?: string;
@@ -786,21 +786,86 @@ export function getLatestOccupantFromHistory(
     return fallback;
   }
 
-  // Current calendar month and date at the time the account statement is run
-  const now = new Date();
-  const currentY = String(now.getFullYear());
-  const currentM = String(now.getMonth() + 1).padStart(2, '0');
-  const currentD = String(now.getDate()).padStart(2, '0');
-  const currentMonthStr = `${currentY}-${currentM}`;
-  const currentDateStr = `${currentMonthStr}-${currentD}`;
+  // Determine normalized date range [rangeStart, rangeEnd] for target period
+  let rangeStart = '';
+  let rangeEnd = '';
 
-  let targetNorm: { year: string; month: string; dateStr: string };
+  const normalizeTo10CharStart = (dStr: string) => {
+    if (!dStr) return '2000-01-01';
+    if (dStr.length === 10) return dStr;
+    if (dStr.length === 7) return `${dStr}-01`;
+    if (dStr.length === 4) return `${dStr}-01-01`;
+    return dStr;
+  };
+
+  const normalizeTo10CharEnd = (dStr: string) => {
+    if (!dStr || dStr === '9999-99-99') return '9999-99-99';
+    if (dStr.length === 10) return dStr;
+    if (dStr.length === 7) return `${dStr}-31`;
+    if (dStr.length === 4) return `${dStr}-12-31`;
+    return dStr;
+  };
+
   if (targetDateOrPeriod && targetDateOrPeriod !== 'latest' && targetDateOrPeriod !== 'current') {
-    const parsed = parseToStandardDate(targetDateOrPeriod);
-    targetNorm = parsed || { year: currentY, month: currentMonthStr, dateStr: currentDateStr };
-  } else {
-    targetNorm = { year: currentY, month: currentMonthStr, dateStr: currentDateStr };
+    if (typeof targetDateOrPeriod === 'object' && targetDateOrPeriod !== null) {
+      if (targetDateOrPeriod.startDate || targetDateOrPeriod.endDate) {
+        const s = parseToStandardDate(targetDateOrPeriod.startDate);
+        const e = isOngoingOrCurrentDate(targetDateOrPeriod.endDate) ? null : parseToStandardDate(targetDateOrPeriod.endDate);
+        rangeStart = s?.dateStr || '2000-01-01';
+        rangeEnd = e?.dateStr || '9999-99-99';
+      } else if (targetDateOrPeriod.year) {
+        const y = Number(targetDateOrPeriod.year);
+        if (targetDateOrPeriod.month) {
+          const m = String(Number(targetDateOrPeriod.month)).padStart(2, '0');
+          rangeStart = `${y}-${m}-01`;
+          rangeEnd = `${y}-${m}-31`;
+        } else {
+          rangeStart = `${y}-01-01`;
+          rangeEnd = `${y}-12-31`;
+        }
+      }
+    } else if (typeof targetDateOrPeriod === 'number') {
+      rangeStart = `${targetDateOrPeriod}-01-01`;
+      rangeEnd = `${targetDateOrPeriod}-12-31`;
+    } else {
+      const str = String(targetDateOrPeriod).trim();
+      const twoYearsMatch = str.match(/(19\d\d|20\d\d)\s*(?:-|–|—|\/|➔|إلى|الي)\s*(19\d\d|20\d\d)/);
+      if (twoYearsMatch) {
+        rangeStart = `${twoYearsMatch[1]}-01-01`;
+        rangeEnd = `${twoYearsMatch[2]}-12-31`;
+      } else if (/^\d{4}$/.test(str)) {
+        rangeStart = `${str}-01-01`;
+        rangeEnd = `${str}-12-31`;
+      } else {
+        const parsed = parseToStandardDate(str);
+        if (parsed) {
+          if (parsed.dateStr.length === 10) {
+            rangeStart = parsed.dateStr;
+            rangeEnd = parsed.dateStr;
+          } else if (parsed.month && parsed.month.length === 7) {
+            rangeStart = `${parsed.month}-01`;
+            rangeEnd = `${parsed.month}-31`;
+          } else if (parsed.year) {
+            rangeStart = `${parsed.year}-01-01`;
+            rangeEnd = `${parsed.year}-12-31`;
+          }
+        }
+      }
+    }
   }
+
+  if (!rangeStart || !rangeEnd) {
+    const now = new Date();
+    const currentY = String(now.getFullYear());
+    const currentM = String(now.getMonth() + 1).padStart(2, '0');
+    const currentD = String(now.getDate()).padStart(2, '0');
+    const currentMonthStr = `${currentY}-${currentM}`;
+    rangeStart = `${currentMonthStr}-01`;
+    rangeEnd = `${currentMonthStr}-${currentD}`;
+  }
+
+  rangeStart = normalizeTo10CharStart(rangeStart);
+  rangeEnd = normalizeTo10CharEnd(rangeEnd);
 
   // Sorted history chronologically
   const historyList = sortHistoryRecordsChronologically(resident.history);
@@ -808,7 +873,25 @@ export function getLatestOccupantFromHistory(
     return fallback;
   }
 
-  // 1. Resolve Owner for the target/current month
+  const isOverlap = (fromRaw?: string, toRaw?: string) => {
+    let recStart = '0000-00-00';
+    if (fromRaw && fromRaw.trim()) {
+      const p = parseToStandardDate(fromRaw);
+      if (p?.dateStr) {
+        recStart = p.dateStr.length === 7 ? `${p.dateStr}-01` : p.dateStr.length === 4 ? `${p.dateStr}-01-01` : p.dateStr;
+      }
+    }
+    let recEnd = '9999-99-99';
+    if (toRaw && toRaw.trim() && !isOngoingOrCurrentDate(toRaw)) {
+      const p = parseToStandardDate(toRaw);
+      if (p?.dateStr) {
+        recEnd = p.dateStr.length === 7 ? `${p.dateStr}-31` : p.dateStr.length === 4 ? `${p.dateStr}-12-31` : p.dateStr;
+      }
+    }
+    return recStart <= rangeEnd && recEnd >= rangeStart;
+  };
+
+  // 1. Resolve Owner for the target period/interval
   let resolvedOwnerName = '';
   let resolvedOwnerPhone: string | undefined = undefined;
   let ownerMatched = false;
@@ -816,9 +899,8 @@ export function getLatestOccupantFromHistory(
   for (let i = historyList.length - 1; i >= 0; i--) {
     const rec = historyList[i];
     if (rec.ownerName && rec.ownerName.trim()) {
-      if (isPeriodMatchingTarget(targetNorm, rec.ownerFromDate, rec.ownerToDate)) {
+      if (isOverlap(rec.ownerFromDate, rec.ownerToDate)) {
         resolvedOwnerName = rec.ownerName.trim();
-        // Use explicitly registered ownerPhone for that period in history. If empty, it's undefined.
         resolvedOwnerPhone = rec.ownerPhone && rec.ownerPhone.trim() ? rec.ownerPhone.trim() : undefined;
         ownerMatched = true;
         break;
@@ -844,13 +926,11 @@ export function getLatestOccupantFromHistory(
     resolvedOwnerPhone = fallback.ownerPhone;
   }
 
-  // Double check resolvedOwnerPhone never matches any tenant's phone
   if (resolvedOwnerPhone && isTenantPhone(resolvedOwnerPhone, tenantPhonesSet)) {
     resolvedOwnerPhone = undefined;
   }
 
-  // 2. Resolve Tenant strictly for the target/current month (الشهر الحالي):
-  // Check if any record in history has an active tenant whose period covers this exact month.
+  // 2. Resolve Tenant strictly for the target period/interval:
   let resolvedTenantName: string | undefined = undefined;
   let resolvedTenantPhone: string | undefined = undefined;
   let tenantMatched = false;
@@ -859,7 +939,7 @@ export function getLatestOccupantFromHistory(
     const rec = historyList[i];
     const hasTenant = Boolean(rec.tenantName && rec.tenantName.trim());
     if (hasTenant) {
-      if (isPeriodMatchingTarget(targetNorm, rec.tenantFromDate, rec.tenantToDate)) {
+      if (isOverlap(rec.tenantFromDate, rec.tenantToDate)) {
         resolvedTenantName = rec.tenantName!.trim();
         resolvedTenantPhone = rec.tenantPhone && rec.tenantPhone.trim() ? rec.tenantPhone.trim() : undefined;
         tenantMatched = true;
@@ -868,8 +948,6 @@ export function getLatestOccupantFromHistory(
     }
   }
 
-  // If history exists but NO tenant matched for this month (e.g. apartment is vacant/owner-occupied in this month):
-  // resolvedTenantName is strictly undefined! Do NOT leak past or future tenant!
   const finalTenant = tenantMatched && resolvedTenantName ? resolvedTenantName : undefined;
   const finalTenantPhone = finalTenant ? resolvedTenantPhone : undefined;
 

@@ -3,7 +3,7 @@ import { generateElementImage, generateElementImageBlob, GeneratedImageResult } 
 import { printReportElement } from '../utils/printReport';
 import { Resident, Payment, AppConfig, FloorConfig } from '../types';
 import { calculateResidentFinancials, getCarriedPreviousBalance, isMonthlySubscriptionType, getPrescribedFeeForMonth, isValidPaidPayment, isPendingUnpaidPayment, isPaymentForYearAndMonth, parsePaymentYear, parsePaymentMonth, calculateUnitClaimBreakdown } from '../utils/financialCalculations';
-import { compareFlatNumbers, isSameFlatNumber, deriveFloorConfigsFromResidents, getUnitNumbersForFloor, getLatestOccupantFromHistory, getHistoricalActivityForDate, formatResidentOptionLabel } from '../utils/buildingStructure';
+import { compareFlatNumbers, isSameFlatNumber, deriveFloorConfigsFromResidents, getUnitNumbersForFloor, getLatestOccupantFromHistory, getHistoricalActivityForDate, formatResidentOptionLabel, parseToStandardDate } from '../utils/buildingStructure';
 import { formatMobileNumber, formatPhoneForDisplay, toWhatsAppNumber } from '../utils/phoneUtils';
 import { getActiveAccountingPeriod, parseYearMonth, formatPeriodDateRange } from '../utils/periodUtils';
 import { 
@@ -670,9 +670,10 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
         startLabel = activePeriod.startDate;
       }
     } else {
-      const s = new Date(accountingStartDate);
-      if (!isNaN(s.getTime())) {
-        startLabel = `شهر ${monthNamesArabic[s.getMonth()]} ${s.getFullYear()}`;
+      const s = parseToStandardDate(accountingStartDate);
+      if (s && s.year) {
+        const mIdx = s.month ? parseInt(s.month.slice(5, 7), 10) - 1 : 0;
+        startLabel = `شهر ${monthNamesArabic[Math.max(0, Math.min(11, mIdx))]} ${s.year}`;
       } else {
         startLabel = accountingStartDate;
       }
@@ -680,24 +681,25 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
 
     if (viewMode === 'month' && currentMonth !== undefined) {
       const endLabel = `شهر ${monthNamesArabic[currentMonth]} ${currentYear}`;
-      return `من ${startLabel} وإلى نهاية ${endLabel}`;
+      return `من ${startLabel} وإلى ${endLabel}`;
     }
 
     if (viewMode === 'year') {
+      let endMonthName = 'شهر ديسمبر';
+      let endYear = currentYear;
       if (activePeriod) {
-        const s = parseYearMonth(activePeriod.startDate);
         const e = parseYearMonth(activePeriod.endDate);
-        if (s && e && s.year === currentYear) {
-          const endMonthLabel = monthNamesArabic[e.month - 1] || 'ديسمبر';
-          return `السنة المحاسبية ${currentYear} (من ${startLabel} وإلى نهاية شهر ${endMonthLabel} ${e.year})`;
+        if (e && e.year === currentYear) {
+          endMonthName = `شهر ${monthNamesArabic[e.month - 1]}`;
+          endYear = e.year;
         }
       }
-      return `السنة المحاسبية ${currentYear} (من شهر يناير ${currentYear} وإلى نهاية شهر ديسمبر ${currentYear})`;
+      return `من ${startLabel} وإلى ${endMonthName} ${endYear} (السنة المحاسبية ${currentYear})`;
     }
 
     // Default fallback
     if (activePeriod) {
-      return `الفترة: ${formatPeriodDateRange(activePeriod.startDate, activePeriod.endDate)}`;
+      return `من ${startLabel} وإلى ${formatPeriodDateRange(activePeriod.startDate, activePeriod.endDate)}`;
     }
     return `من ${startLabel} حتى تاريخ اليوم`;
   }, [activePeriod, accountingStartDate, viewMode, currentMonth, currentYear]);
@@ -709,8 +711,18 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
 
   const activeOccupant = useMemo(() => {
     if (!activeResident) return { ownerName: '', tenantName: undefined, occupantName: '' };
-    return getLatestOccupantFromHistory(activeResident);
-  }, [activeResident]);
+    if (viewMode === 'month' && currentMonth !== undefined) {
+      const mStr = String(currentMonth + 1).padStart(2, '0');
+      return getLatestOccupantFromHistory(activeResident, `${currentYear}-${mStr}`);
+    }
+    if (viewMode === 'year') {
+      return getLatestOccupantFromHistory(activeResident, currentYear);
+    }
+    if (activePeriod) {
+      return getLatestOccupantFromHistory(activeResident, activePeriod);
+    }
+    return getLatestOccupantFromHistory(activeResident, currentYear);
+  }, [activeResident, currentYear, currentMonth, viewMode, activePeriod]);
 
   const hasHistory = Boolean(activeResident?.history && Array.isArray(activeResident.history) && activeResident.history.length > 0);
   const activeOwnerName = activeOccupant.ownerName || activeResident?.name || '';
@@ -1024,11 +1036,11 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                     <span className="text-slate-800 font-extrabold">المالك: {activeOwnerName}</span>
                     {activeTenantName ? (
                       <span className="text-amber-800 font-black bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 text-[10px]">
-                        المستأجر الحالي: {activeTenantName}
+                        المستأجر: {activeTenantName}
                       </span>
                     ) : (
                       <span className="text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 text-[10px]">
-                        الشاغل: المالك (بدون مستأجر خلال الشهر الحالي)
+                        الشاغل: المالك (بدون مستأجر لهذه الفترة)
                       </span>
                     )}
                   </div>
@@ -2166,12 +2178,14 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
           {/* Header */}
           <div className="text-center space-y-2 border-b-2 border-slate-800 pb-4 mb-6">
             <h1 className="text-2xl font-black text-slate-900">اتحاد ملاك عمارة بيراميدز فيو ١</h1>
-            <p className="text-sm font-bold text-slate-600">
+            <p className="text-sm font-bold text-slate-700">
               كشف حساب ومطالبات اشتراكات - وحدة رقم ({activeResident.flatNumber})
             </p>
-            <div className="flex justify-between items-center text-xs text-slate-700 pt-2 font-bold border-t border-slate-200">
+            <div className="flex justify-between items-center text-xs text-slate-800 pt-2 font-bold border-t border-slate-200">
               <span>تاريخ إصدار الكشف: {new Date().toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
-              <span className="font-black text-slate-900">تاريخ بدء المحاسبة: {accountingPeriodDisplay}</span>
+              <span className="font-black text-slate-900 bg-slate-100 px-3 py-1 rounded-lg border border-slate-300">
+                تاريخ بدء المحاسبة: {accountingPeriodDisplay}
+              </span>
             </div>
           </div>
 
@@ -2235,84 +2249,135 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
             </div>
           </div>
 
-          {/* 📋 بيان وتفصيل المبالغ المستحقة للفترة المحاسبية (6 أجزاء كاملة) */}
+          {/* 📋 بيان وتفصيل المبالغ المستحقة للفترة المحاسبية (6 أجزاء كاملة تماماً كما هي معروضة على الشاشة) */}
           {claimBreakdown && (
-            <div className="border border-slate-300 rounded-xl p-3 bg-slate-50/50 mb-5 text-xs font-bold space-y-2.5">
-              <div className="flex items-center justify-between pb-1.5 border-b border-slate-200">
-                <span className="font-black text-slate-900 text-xs">📋 بيان وتفصيل المبالغ المستحقة على الوحدة:</span>
-                <span className="text-[10px] bg-white font-black px-2 py-0.5 rounded border border-slate-300 text-slate-800">
+            <div className={`p-3.5 rounded-2xl text-slate-900 text-xs font-black space-y-3 shadow-xs border mb-5 ${
+              claimBreakdown.totalArrearsAndDebts === 0
+                ? 'bg-gradient-to-b from-emerald-50/70 to-slate-50 border-emerald-300'
+                : 'bg-gradient-to-b from-rose-50/80 to-slate-50 border-rose-300'
+            }`}>
+              {/* Header Banner */}
+              <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                <div className="flex items-center gap-1.5 font-black text-xs sm:text-sm">
+                  {claimBreakdown.totalArrearsAndDebts === 0 ? (
+                    <div className="flex items-center gap-1.5 text-emerald-900">
+                      <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>📋 بيان وتفصيل المبالغ المستحقة (الحساب مسدد بالكامل ✓):</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5 text-slate-900">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                      <span>📋 بيان وتفصيل المبالغ المستحقة على الوحدة:</span>
+                    </div>
+                  )}
+                </div>
+                <span className="text-[11px] bg-white font-black px-2.5 py-0.5 rounded-lg border border-slate-200 text-slate-800">
                   الوحدة {activeResident.flatNumber}
                 </span>
               </div>
 
-              {/* 1️⃣ */}
-              <div className="bg-white p-2.5 rounded-lg border border-slate-200 space-y-1">
-                <div className="text-[11px] font-black text-blue-950">1️⃣ حالة الشهر الحالي ({claimBreakdown.monthName} {claimBreakdown.targetYear}):</div>
-                <div className="text-[10px] text-slate-800 pr-2 space-y-0.5 font-bold">
+              {/* 1️⃣ الجزء الأول: حالة الشهر الحالي كما هي بدون تعديل مع كتابة قيمة المسدد عن التحصيلات الشهرية */}
+              <div className="bg-white p-3 rounded-xl border border-slate-200/90 shadow-2xs space-y-1.5">
+                <div className="text-xs font-black text-blue-950 flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-blue-600 inline-block"></span>
+                  <span>1️⃣ حالة الشهر الحالي ({claimBreakdown.monthName} {claimBreakdown.targetYear}):</span>
+                </div>
+                <div className="text-xs text-slate-800 pr-3 space-y-1 font-bold">
                   <div>• {claimBreakdown.subsLineText}</div>
                   <div>• {claimBreakdown.otherLineText}</div>
                 </div>
               </div>
 
-              {/* 2️⃣ */}
-              <div className="bg-white p-2.5 rounded-lg border border-slate-200 space-y-1">
-                <div className="text-[11px] font-black text-slate-900">2️⃣ الاشتراكات الشهرية (من بداية الفترة المحاسبية وحتى الشهر الحالي):</div>
-                <div className="text-[10px] text-slate-800 pr-2 space-y-1 font-bold">
-                  <div className="flex justify-between">
+              {/* 2️⃣ الجزء الثاني: إجمالي المبالغ المستحقة للاشتراك الشهري من بداية الفترة المحاسبية وحتى الشهر الحالي */}
+              <div className="bg-white p-3 rounded-xl border border-slate-200/90 shadow-2xs space-y-2">
+                <div className="text-xs font-black text-slate-900 flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-600 inline-block"></span>
+                  <span>2️⃣ الاشتراكات الشهرية (من بداية الفترة المحاسبية وحتى الشهر الحالي):</span>
+                </div>
+                <div className="text-xs text-slate-800 pr-3 space-y-1.5 font-bold">
+                  <div className="flex justify-between items-center">
                     <span className="text-slate-600">• إجمالي المبالغ المستحقة للاشتراك الشهري:</span>
-                    <span className="font-black">{claimBreakdown.priorSubsDue.toLocaleString()} ج.م</span>
+                    <span className="font-black text-slate-900">{claimBreakdown.priorSubsDue.toLocaleString()} ج.م</span>
                   </div>
-                  <div className="flex justify-between text-emerald-800">
+                  <div className="flex justify-between items-center text-emerald-800">
                     <span>• المبالغ المسددة من بداية الفترة المحاسبية وحتى الشهر الحالي:</span>
                     <span className="font-black">{claimBreakdown.priorSubsPaid.toLocaleString()} ج.م</span>
                   </div>
-                  <div className="flex justify-between pt-0.5 border-t border-dashed border-slate-200 font-black">
+                  <div className={`flex justify-between items-center pt-1 border-t border-dashed border-slate-200 font-black ${
+                    claimBreakdown.priorSubsDiff > 0 ? 'text-rose-700' : claimBreakdown.priorSubsDiff < 0 ? 'text-emerald-700' : 'text-slate-600'
+                  }`}>
                     <span>• الفرق بينهما (متأخرات أو رصيد موجب):</span>
-                    <span>{claimBreakdown.priorSubsStatusText}</span>
+                    <span className="underline">{claimBreakdown.priorSubsStatusText}</span>
                   </div>
                 </div>
               </div>
 
-              {/* 3️⃣ */}
-              <div className="bg-white p-2.5 rounded-lg border border-slate-200 space-y-1">
-                <div className="text-[11px] font-black text-slate-900">3️⃣ التحصيلات الأخرى (من بداية الفترة المحاسبية وحتى الشهر الحالي):</div>
-                <div className="text-[10px] text-slate-800 pr-2 space-y-1 font-bold">
-                  <div className="flex justify-between">
+              {/* 3️⃣ الجزء الثالث: إجمالي المبالغ المستحقة عن التحصيلات الأخرى من بداية الفترة المحاسبية حتى الشهر الحالي */}
+              <div className="bg-white p-3 rounded-xl border border-slate-200/90 shadow-2xs space-y-2">
+                <div className="text-xs font-black text-slate-900 flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-purple-600 inline-block"></span>
+                  <span>3️⃣ التحصيلات الأخرى (من بداية الفترة المحاسبية وحتى الشهر الحالي):</span>
+                </div>
+                <div className="text-xs text-slate-800 pr-3 space-y-1.5 font-bold">
+                  <div className="flex justify-between items-center">
                     <span className="text-slate-600">• إجمالي المبالغ المستحقة عن التحصيلات الأخرى:</span>
-                    <span className="font-black">{claimBreakdown.priorOtherDue.toLocaleString()} ج.م</span>
+                    <span className="font-black text-slate-900">{claimBreakdown.priorOtherDue.toLocaleString()} ج.م</span>
                   </div>
-                  <div className="flex justify-between text-emerald-800">
+                  <div className="flex justify-between items-center text-emerald-800">
                     <span>• إجمالي المبالغ المسددة للتحصيلات الأخرى:</span>
                     <span className="font-black">{claimBreakdown.priorOtherPaid.toLocaleString()} ج.م</span>
                   </div>
-                  <div className="flex justify-between pt-0.5 border-t border-dashed border-slate-200 font-black">
+                  <div className={`flex justify-between items-center pt-1 border-t border-dashed border-slate-200 font-black ${
+                    claimBreakdown.priorOtherDiff > 0 ? 'text-rose-700' : claimBreakdown.priorOtherDiff < 0 ? 'text-emerald-700' : 'text-slate-600'
+                  }`}>
                     <span>• الفرق بينهما (متأخرات أو رصيد موجب):</span>
-                    <span>{claimBreakdown.priorOtherStatusText}</span>
+                    <span className="underline">{claimBreakdown.priorOtherStatusText}</span>
                   </div>
                 </div>
               </div>
 
-              {/* 4️⃣ */}
-              <div className="bg-white p-2.5 rounded-lg border border-slate-200 flex justify-between items-center text-[10px] font-bold">
-                <span className="font-black text-slate-900">4️⃣ مديونيات سابقة أو مرحل من فترات محاسبية سابقة أو رصيد افتتاحي:</span>
-                <span className="font-black">
-                  {claimBreakdown.previousDebtAmount > 0
-                    ? `${claimBreakdown.previousDebtAmount.toLocaleString()} ج.م (مديونيات سابقة)`
-                    : claimBreakdown.previousSurplusAmount > 0
-                    ? `+${claimBreakdown.previousSurplusAmount.toLocaleString()} ج.م (رصيد موجب مرحل)`
-                    : '0 ج.م (لا توجد مديونيات)'}
-                </span>
+              {/* 4️⃣ الجزء الرابع: مديونيات سابقة أو مرحل من فترات محاسبية سابقة أو رصيد افتتاحي للوحدة */}
+              <div className="bg-white p-3 rounded-xl border border-slate-200/90 shadow-2xs space-y-1.5">
+                <div className="text-xs font-black text-slate-900 flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-slate-600 inline-block"></span>
+                  <span>4️⃣ مديونيات سابقة أو مرحل من فترات محاسبية سابقة أو رصيد افتتاحي للوحدة:</span>
+                </div>
+                <div className="text-xs text-slate-800 pr-3 font-bold flex justify-between items-center">
+                  <span className="text-slate-600">• القيمة:</span>
+                  <span className={`font-black ${
+                    claimBreakdown.previousDebtAmount > 0 
+                      ? 'text-rose-700 underline' 
+                      : claimBreakdown.previousSurplusAmount > 0 
+                      ? 'text-emerald-700 underline' 
+                      : 'text-slate-700'
+                  }`}>
+                    {claimBreakdown.previousDebtAmount > 0
+                      ? `${claimBreakdown.previousDebtAmount.toLocaleString()} ج.م (مديونيات سابقة)`
+                      : (claimBreakdown.previousSurplusAmount > 0
+                          ? `+${claimBreakdown.previousSurplusAmount.toLocaleString()} ج.م (رصيد موجب دائن مرحل)`
+                          : '0 ج.م (لا توجد مديونيات سابقة)')}
+                  </span>
+                </div>
               </div>
 
-              {/* 5️⃣ & 6️⃣ */}
-              <div className="bg-white p-2.5 rounded-lg border-2 border-slate-400 space-y-1.5 text-[11px] font-black">
-                <div className="flex justify-between items-center">
+              {/* 5️⃣ & 6️⃣ المستطيل المالي المطلوب للتفصيل */}
+              <div className="p-3.5 bg-white rounded-xl border-2 border-amber-400/90 shadow-2xs space-y-2.5 text-xs">
+                {/* الجزء الخامس */}
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 text-slate-900 font-black">
                   <span>5️⃣ إجمالي المستحق عن هذا الشهر:</span>
-                  <span className="text-blue-900 font-black">{claimBreakdown.currentMonthTotalDue.toLocaleString()} ج.م</span>
+                  <span className="text-blue-900 font-black text-xs sm:text-sm bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200 self-start sm:self-auto">
+                    {claimBreakdown.currentMonthTotalDue.toLocaleString()} ج.م
+                  </span>
                 </div>
-                <div className="flex justify-between items-center pt-1 border-t border-dashed border-slate-300">
+
+                {/* الجزء السادس */}
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 text-slate-900 font-black pt-2.5 border-t border-dashed border-amber-300">
                   <span>6️⃣ إجمالي المتأخرات والمديونيات:</span>
-                  <span className="font-black text-slate-900">
+                  <span className={`font-black text-xs sm:text-sm px-2.5 py-1 rounded-lg border self-start sm:self-auto ${
+                    claimBreakdown.totalArrearsAndDebts > 0
+                      ? 'text-rose-900 bg-rose-50 border-rose-200'
+                      : 'text-emerald-900 bg-emerald-50 border-emerald-200'
+                  }`}>
                     {claimBreakdown.totalArrearsAndDebts > 0
                       ? `${claimBreakdown.totalArrearsAndDebts.toLocaleString()} ج.م`
                       : '0 ج.م (خالص بالكامل)'}
@@ -2322,11 +2387,11 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
 
               {/* Encouraging / Thanking Note */}
               {claimBreakdown.totalArrearsAndDebts === 0 ? (
-                <div className="p-2 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-900 text-[10.5px] font-bold text-center leading-relaxed">
+                <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-900 text-[11px] font-bold text-center leading-relaxed shadow-2xs">
                   🌺 نشكركم جزيل الشكر والتقدير على حرصكم الدائم وسدادكم المنتظم، مما يساهم مباشرةً في الحفاظ على العمارة وتطوير خدماتها.
                 </div>
               ) : (
-                <div className="p-2 bg-blue-50 border border-blue-200 rounded-lg text-blue-900 text-[10.5px] font-bold text-center leading-relaxed">
+                <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-xl text-blue-900 text-[11px] font-bold text-center leading-relaxed shadow-2xs">
                   🤝 نأمل من سيادتكم التكرم بالمبادرة بسداد المستحقات في أقرب وقت لضمان استمرار خدمات النظافة، الحراسة، الصيانة، وتشغيل المصاعد بكفاءة لراحة جميع السكّان.
                 </div>
               )}

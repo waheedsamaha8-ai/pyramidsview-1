@@ -247,7 +247,9 @@ export const SettingsGeneralSection: React.FC<SettingsGeneralSectionProps> = ({
         expenses,
         residents,
         config.defaultMonthlyFee,
-        config.activityDefaultFees
+        config.activityDefaultFees,
+        config.activityFeePeriods,
+        config.customUnitFeePeriods
       );
       closingSummary = {
         ...summary,
@@ -443,7 +445,9 @@ export const SettingsGeneralSection: React.FC<SettingsGeneralSectionProps> = ({
                 expenses,
                 residents,
                 config.defaultMonthlyFee,
-                config.activityDefaultFees
+                config.activityDefaultFees,
+                config.activityFeePeriods,
+                config.customUnitFeePeriods
               );
 
               return (

@@ -29,6 +29,8 @@ interface PaymentsListProps {
   onEditResident?: (resident: Resident) => void;
   onDistributePayment?: (originalPaymentId: string, distributedPayments: Payment[], deletedPaymentIds?: string[]) => void;
   onAddBatchPayments?: (payments: Payment[]) => void;
+  onDeleteBatchPayments?: (ids: string[]) => void;
+  onUpdateBatchPayments?: (payments: Payment[]) => void;
 }
 
 export const PaymentsList: React.FC<PaymentsListProps> = ({
@@ -48,6 +50,8 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
   onEditResident,
   onDistributePayment,
   onAddBatchPayments,
+  onDeleteBatchPayments,
+  onUpdateBatchPayments,
 }) => {
   const [filterResident, setFilterResident] = useState('');
   const [filterMonth, setFilterMonth] = useState('');
@@ -83,13 +87,17 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('table');
   const [confirmData, setConfirmData] = useState<{
-    type: 'add' | 'edit' | 'delete';
+    type: 'add' | 'edit' | 'delete' | 'deleteMonthDues';
     paymentData?: Payment;
     multiplePayments?: Payment[];
     deletedPaymentIds?: string[];
     residentToUpdate?: Resident;
     base64Image?: string;
     deleteId?: string;
+    deleteIds?: string[];
+    monthName?: string;
+    year?: number;
+    count?: number;
   } | null>(null);
 
   // Form states
@@ -258,6 +266,12 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       status: 'collected',
     }));
 
+    try {
+      localStorage.setItem('pyramids_last_excel_imported_payments', JSON.stringify(newPayments));
+    } catch (e) {
+      console.warn('LocalStorage backup error:', e);
+    }
+
     if (onAddBatchPayments) {
       onAddBatchPayments(newPayments);
     } else {
@@ -268,6 +282,32 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
     setShowExcelPreviewModal(false);
     setExcelPreviewPayments(null);
     setShowModal(false);
+  };
+
+  const handleRestoreExcelImport = () => {
+    try {
+      const raw = localStorage.getItem('pyramids_last_excel_imported_payments');
+      if (!raw) {
+        alert('لا توجد نسخة سابقة من تحصيلات الإكسل المحفوظة لاستعادتها.');
+        return;
+      }
+      const restoredPayments: Payment[] = JSON.parse(raw);
+      if (!Array.isArray(restoredPayments) || restoredPayments.length === 0) {
+        alert('سجل تحصيلات الإكسل المحفوظ فارغ.');
+        return;
+      }
+
+      if (onAddBatchPayments) {
+        onAddBatchPayments(restoredPayments);
+      } else {
+        restoredPayments.forEach(p => onAdd(p));
+      }
+
+      setToastMsg(`تم بنجاح استعادة (${restoredPayments.length}) عملية تحصيل مستوردة من ملف الإكسل! 🎉`);
+    } catch (err) {
+      console.error('Error restoring Excel payments:', err);
+      alert('حدث خطأ أثناء استعادة تحصيلات الإكسل.');
+    }
   };
 
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -291,88 +331,136 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
   });
 
   // State for bulk generating monthly dues for all units
+  // State for bulk generating monthly dues for all units
   const [bulkGenerateModal, setBulkGenerateModal] = useState<{
     isOpen: boolean;
     monthStr: string;
     yearNum: number;
-    items: Payment[];
-    totalDue: number;
-    alreadyExistCount: number;
   } | null>(null);
+  const [bulkModalActiveTab, setBulkModalActiveTab] = useState<'pending' | 'existing'>('pending');
+  const [isUpdatingDues, setIsUpdatingDues] = useState(false);
+  const [isDeletingDues, setIsDeletingDues] = useState(false);
 
-  const handleOpenGenerateMonthlyDuesModal = () => {
-    const targetMonthNum = parseInt(month, 10);
-    const monthName = monthNamesArabic[targetMonthNum - 1] || month;
+  const bulkTargetMonthNum = bulkGenerateModal ? parseInt(bulkGenerateModal.monthStr, 10) : parseInt(actualCurrentMonth, 10);
+  const bulkTargetYearNum = bulkGenerateModal ? bulkGenerateModal.yearNum : currentYear;
+
+  // Existing monthly subscription payments recorded for this month & year that were generated via bulk/monthly subscription generation
+  const bulkExistingPayments = useMemo(() => {
+    if (!bulkGenerateModal) return [];
+    return payments.filter(p => {
+      if (!isPaymentForYearAndMonth(p, bulkTargetYearNum, bulkTargetMonthNum)) return false;
+      if (!isMonthlySubscriptionType(p.paymentType)) return false;
+      if (p.status === 'cancelled' || p.status === 'لاغي') return false;
+      
+      const isGeneratedMonthlyDue = p.isManuallyPaid !== true && ((p.isManuallyPaid === false) || (p.notes && (p.notes.includes('استحقاق اشتراك شهر') || p.notes.includes('توليد تلقائي'))));
+      return isGeneratedMonthlyDue;
+    });
+  }, [payments, bulkGenerateModal, bulkTargetYearNum, bulkTargetMonthNum]);
+
+  // Existing payments with recalculated fee according to unit record and pricing period
+  const bulkExistingWithRecalc = useMemo(() => {
+    if (!bulkGenerateModal || bulkExistingPayments.length === 0) return [];
     const defaultFee = config?.defaultMonthlyFee || 400;
     const actFees = config?.activityDefaultFees;
 
-    const toGenerate: Payment[] = [];
-    let alreadyExist = 0;
+    return bulkExistingPayments.map(p => {
+      const resObj = residents.find(r => r.id === p.residentId || isSameFlatNumber(r.flatNumber, p.flatNumber));
+      const prescribed = resObj ? getPrescribedFeeForMonth(
+        resObj,
+        bulkTargetYearNum,
+        bulkTargetMonthNum,
+        payments,
+        defaultFee,
+        actFees,
+        config?.activityFeePeriods,
+        config?.customUnitFeePeriods
+      ) : { monthlyFee: p.amount };
+
+      const historical = resObj ? getHistoricalOccupantForDate(resObj, `${bulkTargetYearNum}-${bulkGenerateModal.monthStr}`) : { ownerName: p.residentName, tenantName: undefined };
+
+      return {
+        payment: p,
+        resident: resObj,
+        prescribedFee: prescribed.monthlyFee,
+        currentFee: p.amount,
+        isDifferent: prescribed.monthlyFee !== p.amount,
+        displayOwner: historical.ownerName || resObj?.name || p.residentName,
+        displayTenant: historical.tenantName,
+      };
+    });
+  }, [bulkGenerateModal, bulkExistingPayments, residents, config, bulkTargetYearNum, bulkTargetMonthNum, payments]);
+
+  // Units that do not have monthly subscription payment for this month yet
+  const bulkPendingItems = useMemo(() => {
+    if (!bulkGenerateModal) return [];
+    const defaultFee = config?.defaultMonthlyFee || 400;
+    const actFees = config?.activityDefaultFees;
+    const items: Payment[] = [];
 
     const sortedResidents = [...residents].sort((a, b) => compareFlatNumbers(a.flatNumber, b.flatNumber));
 
     sortedResidents.forEach((r) => {
-      // Check if this unit already has a monthly subscription payment for this month and year
-      const hasSub = payments.some(p => {
-        const isSameUnit = (p.residentId && p.residentId === r.id) || isSameFlatNumber(p.flatNumber, r.flatNumber);
-        if (!isSameUnit) return false;
-        if (!isPaymentForYearAndMonth(p, currentYear, targetMonthNum)) return false;
-        if (!isMonthlySubscriptionType(p.paymentType)) return false;
-        if (p.status === 'cancelled' || p.status === 'لاغي') return false;
-        return true;
-      });
-
-      if (hasSub) {
-        alreadyExist++;
-      } else {
+      const alreadyHas = bulkExistingPayments.some(p => 
+        (p.residentId && p.residentId === r.id) || isSameFlatNumber(p.flatNumber, r.flatNumber)
+      );
+      if (!alreadyHas) {
         const prescribed = getPrescribedFeeForMonth(
           r,
-          currentYear,
-          targetMonthNum,
+          bulkTargetYearNum,
+          bulkTargetMonthNum,
           [],
           defaultFee,
           actFees,
           config?.activityFeePeriods,
           config?.customUnitFeePeriods
         );
-
-        toGenerate.push({
+        const mName = monthNamesArabic[bulkTargetMonthNum - 1] || bulkGenerateModal.monthStr;
+        items.push({
           id: `pay_${Date.now()}_${Math.random().toString(36).substring(2, 7)}_${r.id}`,
-          year: currentYear,
-          month: month,
+          year: bulkTargetYearNum,
+          month: bulkGenerateModal.monthStr,
           residentId: r.id,
           residentName: r.name,
           flatNumber: r.flatNumber,
           paymentType: 'اشتراك شهري',
           amount: prescribed.monthlyFee,
-          status: 'pending',
+          expectedAmount: prescribed.monthlyFee,
+          status: prescribed.monthlyFee === 0 ? 'معفي' : 'pending',
           isManuallyPaid: false,
           date: new Date().toISOString().split('T')[0],
-          notes: `استحقاق اشتراك شهر ${monthName} ${currentYear}`,
+          notes: `استحقاق اشتراك شهر ${mName} ${bulkTargetYearNum}`,
         });
       }
     });
+    return items;
+  }, [bulkGenerateModal, bulkExistingPayments, residents, config, bulkTargetYearNum, bulkTargetMonthNum]);
 
-    const totalDue = toGenerate.reduce((sum, p) => sum + p.amount, 0);
+  const bulkTotalPendingDue = useMemo(() => {
+    return bulkPendingItems.reduce((sum, p) => sum + p.amount, 0);
+  }, [bulkPendingItems]);
 
+  const bulkTotalExistingDue = useMemo(() => {
+    return bulkExistingPayments.reduce((sum, p) => sum + p.amount, 0);
+  }, [bulkExistingPayments]);
+
+  const handleOpenGenerateMonthlyDuesModal = (customMonthStr?: string) => {
+    const selectedMonth = customMonthStr || month || actualCurrentMonth;
     setBulkGenerateModal({
       isOpen: true,
-      monthStr: month,
+      monthStr: selectedMonth,
       yearNum: currentYear,
-      items: toGenerate,
-      totalDue,
-      alreadyExistCount: alreadyExist,
     });
+    setBulkModalActiveTab('pending');
   };
 
   const handleConfirmBulkGenerate = () => {
-    if (!bulkGenerateModal || bulkGenerateModal.items.length === 0) {
+    if (!bulkGenerateModal || bulkPendingItems.length === 0) {
       setBulkGenerateModal(null);
       return;
     }
 
-    const items = bulkGenerateModal.items;
-    const monthName = monthNamesArabic[parseInt(bulkGenerateModal.monthStr, 10) - 1];
+    const items = bulkPendingItems;
+    const monthName = monthNamesArabic[bulkTargetMonthNum - 1];
 
     if (onAddBatchPayments) {
       onAddBatchPayments(items);
@@ -380,9 +468,110 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       items.forEach(p => onAdd(p));
     }
 
-    setToastMsg(`تم بنجاح توليد ${items.length} دفعات اشتراك شهري لشهر ${monthName} ${bulkGenerateModal.yearNum} بحالة (لم يتم التحصيل).`);
-    setBulkGenerateModal(null);
+    setToastMsg(`تم بنجاح توليد ${items.length} دفعات اشتراك شهري لشهر ${monthName} ${bulkTargetYearNum} بحالة (لم يتم التحصيل).`);
     setShowModal(false);
+  };
+
+  // 1. Delete all dues/payments for this month
+  const handleDeleteExistingMonthDues = () => {
+    if (!bulkGenerateModal || bulkExistingPayments.length === 0) return;
+    const monthName = monthNamesArabic[bulkTargetMonthNum - 1];
+    setConfirmData({
+      type: 'deleteMonthDues',
+      deleteIds: bulkExistingPayments.map(p => String(p.id)),
+      monthName,
+      year: bulkTargetYearNum,
+      count: bulkExistingPayments.length
+    });
+  };
+
+  // 2. Update existing dues/payments for this month to reflect latest unit record and pricing period
+  const handleUpdateExistingMonthDues = () => {
+    if (!bulkGenerateModal || bulkExistingPayments.length === 0) return;
+    setIsUpdatingDues(true);
+    const defaultFee = config?.defaultMonthlyFee || 400;
+    const actFees = config?.activityDefaultFees;
+
+    const updatedPayments: Payment[] = [];
+    let updatedCount = 0;
+
+    bulkExistingPayments.forEach(p => {
+      const resObj = residents.find(r => r.id === p.residentId || isSameFlatNumber(r.flatNumber, p.flatNumber));
+      if (resObj) {
+        const prescribed = getPrescribedFeeForMonth(
+          resObj,
+          bulkTargetYearNum,
+          bulkTargetMonthNum,
+          payments,
+          defaultFee,
+          actFees,
+          config?.activityFeePeriods,
+          config?.customUnitFeePeriods
+        );
+
+        const targetFee = prescribed.monthlyFee;
+        const isUncollected = p.status === 'pending' || p.status === 'لم يتم التحصيل' || p.status === 'uncollected' || p.status === 'معلق';
+        const newStatus = targetFee === 0 ? 'معفي' : (isUncollected ? 'pending' : (p.status || 'collected'));
+
+        const historical = getHistoricalOccupantForDate(resObj, `${bulkTargetYearNum}-${bulkGenerateModal.monthStr}`);
+        const updatedResidentName = historical.ownerName || resObj.name || p.residentName;
+
+        updatedPayments.push({
+          ...p,
+          amount: targetFee,
+          expectedAmount: targetFee,
+          status: newStatus,
+          residentName: updatedResidentName,
+        });
+        updatedCount++;
+      } else {
+        updatedPayments.push(p);
+      }
+    });
+
+    if (onUpdateBatchPayments) {
+      onUpdateBatchPayments(updatedPayments);
+    } else {
+      updatedPayments.forEach(p => onEdit(p));
+    }
+
+    const monthName = monthNamesArabic[bulkTargetMonthNum - 1];
+    setToastMsg(`تم بنجاح تحديث وتعديل مبالغ (${updatedCount}) دفعات اشتراك لشهر ${monthName} ${bulkTargetYearNum} وفقاً لسجل الوحدات وفترة التسعير.`);
+    setIsUpdatingDues(false);
+  };
+
+  const isMasterDistributionPayment = (p: Payment): boolean => {
+    if (isDistributedChildPayment(p)) return false;
+    if (p.isDistributed) return true;
+    if (Array.isArray(p.distributedPaymentIds) && p.distributedPaymentIds.length > 0) return true;
+    if (payments.some(other => String(other.id) !== String(p.id) && String(other.distributionSourceId || '') === String(p.id))) return true;
+    return false;
+  };
+
+  const isDistributedFromAnotherMonth = (p: Payment): boolean => {
+    if (!isDistributedChildPayment(p)) return false;
+    if (p.distributionSourceId) {
+      const master = payments.find(m => String(m.id) === String(p.distributionSourceId));
+      if (master) {
+        const masterMonth = parseInt(String(master.month), 10);
+        const childMonth = parseInt(String(p.month), 10);
+        const masterYear = Number(master.year) || 0;
+        const childYear = Number(p.year) || 0;
+        if (masterMonth !== childMonth || masterYear !== childYear) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
+  const getEffectiveDisplayAmount = (p: Payment): number => {
+    if (distributionFilter === 'without_distributed') {
+      if (p.isDistributed || (p as any).originalAmountBeforeDistribution) {
+        return (p as any).originalAmountBeforeDistribution || p.amount;
+      }
+    }
+    return p.amount;
   };
 
   const filteredPayments = payments
@@ -397,7 +586,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
     .filter((p) => (filterType ? p.paymentType === filterType : true))
     .filter((p) => {
       if (distributionFilter === 'without_distributed') {
-        return !isDistributedChildPayment(p);
+        return !isDistributedFromAnotherMonth(p);
       }
       return true;
     });
@@ -410,7 +599,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       .filter((p) => (filterType ? p.paymentType === filterType : true))
       .filter((p) => {
         if (distributionFilter === 'without_distributed') {
-          return !isDistributedChildPayment(p);
+          return !isDistributedFromAnotherMonth(p);
         }
         return true;
       })
@@ -478,7 +667,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
         p.status === 'cancelled' || p.status === 'لاغي' || p.status === 'VOID' || p.status === 'ملغي' || p.status === 'مرفوض';
 
       const validCollectedList = sortedFilteredPayments.filter(p => !isUncollectedPayment(p) && !isCancelledPayment(p));
-      const totalAmt = validCollectedList.reduce((s, p) => s + p.amount, 0);
+      const totalAmt = validCollectedList.reduce((s, p) => s + getEffectiveDisplayAmount(p), 0);
       const count = validCollectedList.length;
       const distSuffix = distributionFilter === 'without_distributed' ? ' (بدون المبالغ الموزعة من شهور أخرى)' : '';
       const periodText = (onlyCurrentMonth
@@ -725,7 +914,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
 
   const totalAmount = filteredPayments
     .filter(p => p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل')
-    .reduce((sum, p) => sum + p.amount, 0);
+    .reduce((sum, p) => sum + getEffectiveDisplayAmount(p), 0);
 
   const effectiveFloorConfigs = useMemo(() => {
     let base: FloorConfig[] = [];
@@ -875,21 +1064,33 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
 
   const handleActivityTypeChange = (newAct: string) => {
     setTargetActivityType(newAct);
-    const actFee = getActivityDefaultFee(newAct);
-    const totalMonthsCount = (isAggregatedCollection && coveredMonths.length > 0) ? coveredMonths.length : 1;
-    const calcDue = actFee * totalMonthsCount;
-    setDueAmount(calcDue);
-    if (!selectedPayment) {
-      setAmount(calcDue);
+    const selectedRes = residents.find(r => r.id === residentId);
+    if (selectedRes) {
+      const targetYearNum = Number(currentYear) || new Date().getFullYear();
+      const targetMonthNum = parseInt(month, 10) || 1;
+      const prescribed = getPrescribedFeeForMonth(selectedRes, targetYearNum, targetMonthNum, payments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods, customUnitFeePeriods);
+      const fee = prescribed.monthlyFee;
+      const totalMonthsCount = (isAggregatedCollection && coveredMonths.length > 0) ? coveredMonths.length : 1;
+      const calcDue = fee * totalMonthsCount;
+      setDueAmount(calcDue);
+      if (!selectedPayment) {
+        setAmount(calcDue);
+      }
     }
   };
 
   const applyDefaultFeeForActivity = (act: string) => {
-    const actFee = getActivityDefaultFee(act);
-    const totalMonthsCount = (isAggregatedCollection && coveredMonths.length > 0) ? coveredMonths.length : 1;
-    const calcDue = actFee * totalMonthsCount;
-    setDueAmount(calcDue);
-    setAmount(calcDue);
+    const selectedRes = residents.find(r => r.id === residentId);
+    if (selectedRes) {
+      const targetYearNum = Number(currentYear) || new Date().getFullYear();
+      const targetMonthNum = parseInt(month, 10) || 1;
+      const prescribed = getPrescribedFeeForMonth(selectedRes, targetYearNum, targetMonthNum, payments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods, customUnitFeePeriods);
+      const fee = prescribed.monthlyFee;
+      const totalMonthsCount = (isAggregatedCollection && coveredMonths.length > 0) ? coveredMonths.length : 1;
+      const calcDue = fee * totalMonthsCount;
+      setDueAmount(calcDue);
+      setAmount(calcDue);
+    }
   };
 
   const toggleCoveredMonth = (m: string) => {
@@ -907,9 +1108,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       const targetYearNum = Number(currentYear) || new Date().getFullYear();
       const targetMonthNum = parseInt(month, 10) || 1;
       const prescribed = getPrescribedFeeForMonth(selectedRes, targetYearNum, targetMonthNum, payments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods, customUnitFeePeriods);
-      const baseFee = targetActivityType !== selectedRes.activityType
-        ? getActivityDefaultFee(targetActivityType)
-        : prescribed.monthlyFee;
+      const baseFee = prescribed.monthlyFee;
       const totalMonthsCount = updated.length > 0 ? updated.length : 1;
       const calcDue = baseFee * totalMonthsCount;
       setDueAmount(calcDue);
@@ -928,9 +1127,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       const targetYearNum = Number(currentYear) || new Date().getFullYear();
       const targetMonthNum = parseInt(month, 10) || 1;
       const prescribed = getPrescribedFeeForMonth(selectedRes, targetYearNum, targetMonthNum, payments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods, customUnitFeePeriods);
-      const baseFee = targetActivityType !== selectedRes.activityType
-        ? getActivityDefaultFee(targetActivityType)
-        : prescribed.monthlyFee;
+      const baseFee = prescribed.monthlyFee;
       const totalMonthsCount = uniqueSorted.length > 0 ? uniqueSorted.length : 1;
       const calcDue = baseFee * totalMonthsCount;
       setDueAmount(calcDue);
@@ -989,13 +1186,17 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
           const targetYearNum = Number(currentYear) || new Date().getFullYear();
           const targetMonthNum = parseInt(month, 10) || 1;
           const prescribed = getPrescribedFeeForMonth(selectedRes, targetYearNum, targetMonthNum, payments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods, customUnitFeePeriods);
-          const fee = targetActivityType !== selectedRes.activityType
-            ? getActivityDefaultFee(targetActivityType)
-            : prescribed.monthlyFee;
+          const fee = prescribed.monthlyFee;
           const totalMonthsCount = (isAggregatedCollection && coveredMonths.length > 0) ? coveredMonths.length : 1;
           const calcDue = fee * totalMonthsCount;
           setDueAmount(calcDue);
           setAmount(calcDue);
+        } else {
+          // For "تحصيلات اخرى" and other non-subscription collection types
+          if (dueAmount === '' || dueAmount === 0 || typeof dueAmount !== 'number') {
+            const fallbackVal = (typeof amount === 'number' && amount > 0) ? amount : '';
+            setDueAmount(fallbackVal);
+          }
         }
       }
     }
@@ -1020,9 +1221,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
     const initialPrescribed = initialRes 
       ? getPrescribedFeeForMonth(initialRes, targetYearNum, targetMonthNum, payments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods, customUnitFeePeriods)
       : null;
-    const initialFee = initialPrescribed 
-      ? initialPrescribed.monthlyFee 
-      : (initialRes ? getResidentMonthlyFee(initialRes, defaultMonthlyFee, activityDefaultFees, undefined, undefined, activityFeePeriods, customUnitFeePeriods) : '');
+    const initialFee = initialPrescribed ? initialPrescribed.monthlyFee : 0;
 
     setResidentId(initialResId);
     setMonth(defaultTargetMonth);
@@ -1285,7 +1484,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
     setError(null);
 
     const numAmount = Number(amount);
-    const numDueAmount = dueAmount !== '' && !isNaN(Number(dueAmount)) ? Number(dueAmount) : undefined;
+    const numDueAmount = (dueAmount !== '' && !isNaN(Number(dueAmount))) ? Number(dueAmount) : (numAmount > 0 ? numAmount : undefined);
     if (!residentId || !paymentType || !amount || isNaN(numAmount) || numAmount <= 0) {
       setError('يرجى ملء جميع الحقول المطلوبة (الساكن، نوع التحصيل، مبلغ صحيح وموجب).');
       return;
@@ -1427,6 +1626,10 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       } else {
         // Single month collection in same month on edit
         const hist = getHistoricalOccupantForDate(resident, `${currentYear}-${masterMonthNorm}`);
+        const isPreviouslyPurple = selectedPayment && (selectedPayment.status === 'pending' || selectedPayment.status === 'لم يتم التحصيل' || selectedPayment.isManuallyPaid === false || (selectedPayment.notes && (selectedPayment.notes.includes('استحقاق اشتراك') || selectedPayment.notes.includes('توليد تلقائي'))));
+        const finalStatus = paymentStatus;
+        const finalIsManuallyPaid = isPreviouslyPurple ? true : (selectedPayment ? selectedPayment.isManuallyPaid : true);
+
         const paymentData: Payment = {
           id: masterPaymentId,
           year: currentYear,
@@ -1442,8 +1645,8 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
           fileId: base64Image ? '' : (existingFileUrl ? (selectedPayment?.fileId || '') : ''),
           fileUrl: base64Image ? base64Image : (existingFileUrl || ''),
           date: selectedPayment ? selectedPayment.date : new Date().toISOString().split('T')[0],
-          isManuallyPaid: false,
-          status: paymentStatus,
+          isManuallyPaid: finalIsManuallyPaid,
+          status: finalStatus,
           isAggregatedCollection: false,
           isDistributed: false,
           distributionSourceId: undefined,
@@ -1569,7 +1772,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
           fileId: base64Image ? '' : (existingFileUrl ? (selectedPayment?.fileId || '') : ''),
           fileUrl: base64Image ? base64Image : (existingFileUrl || ''),
           date: new Date().toISOString().split('T')[0],
-          isManuallyPaid: false,
+          isManuallyPaid: true,
           status: paymentStatus,
           isAggregatedCollection: false,
           isDistributed: false,
@@ -1593,6 +1796,126 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       type: 'delete',
       deleteId: id
     });
+  };
+
+  const getPaymentStatusStyles = (p: Payment, isSelected: boolean) => {
+    const isCancelled = 
+      p.status === 'cancelled' || 
+      p.status === 'لاغي' || 
+      p.status === 'VOID' || 
+      p.status === 'ملغي' || 
+      p.status === 'مرفوض';
+
+    const isExempt = 
+      p.status === 'معفي' || 
+      p.status === 'exempt' || 
+      (p.amount === 0 && (
+        p.notes?.includes('معفي') || 
+        p.paymentType?.includes('معفي') || 
+        p.status === 'pending' || 
+        p.status === 'لم يتم التحصيل' ||
+        p.status === 'uncollected'
+      ));
+
+    const isUncollected = !isCancelled && !isExempt && (
+      p.status === 'pending' || 
+      p.status === 'لم يتم التحصيل' || 
+      p.status === 'uncollected' ||
+      p.status === 'unpaid' ||
+      p.status === 'غير مسدد' ||
+      p.status === 'لم يسدد' ||
+      p.status === 'معلق'
+    );
+
+    const isPaid = !isCancelled && !isExempt && !isUncollected;
+
+    if (isSelected) {
+      return {
+        rowClass: 'bg-amber-100 hover:bg-amber-200/90 border-y-2 border-amber-400 font-semibold text-slate-900 shadow-2xs',
+        stickyCellClass: 'bg-amber-100 text-amber-950 font-black border-l border-amber-300',
+        unitBadgeClass: 'bg-amber-200 text-amber-950 border border-amber-400 font-black',
+        amountClass: 'text-amber-900 font-black',
+        cardClass: 'bg-amber-50 border-2 border-amber-400 shadow-md ring-2 ring-amber-400 text-slate-900',
+        isPaid,
+        isUncollected,
+        isCancelled,
+        isExempt,
+      };
+    }
+
+    if (isCancelled) {
+      // لاغي: باللون الأحمر الغامق المشبع
+      return {
+        rowClass: 'bg-rose-200/90 hover:bg-rose-300/90 border-y border-rose-400 text-rose-950 font-bold',
+        stickyCellClass: 'bg-rose-200/95 text-rose-950 group-hover:bg-rose-300/90 border-l border-rose-400',
+        unitBadgeClass: 'bg-rose-300 text-rose-950 border border-rose-500 font-black',
+        amountClass: 'line-through text-rose-900 font-black',
+        cardClass: 'bg-rose-200/90 border-rose-400 hover:border-rose-500 text-rose-950 shadow-xs',
+        isPaid,
+        isUncollected,
+        isCancelled,
+        isExempt,
+      };
+    }
+
+    if (isExempt) {
+      // معفي: باللون الأزرق / الرمادي الغامق المشبع
+      return {
+        rowClass: 'bg-slate-300/85 hover:bg-slate-300 border-y border-slate-400 text-slate-950 font-bold',
+        stickyCellClass: 'bg-slate-300/90 text-slate-950 group-hover:bg-slate-300 border-l border-slate-400',
+        unitBadgeClass: 'bg-slate-400 text-slate-950 border border-slate-500 font-black',
+        amountClass: 'text-slate-900 font-black',
+        cardClass: 'bg-slate-300/85 border-slate-400 hover:border-slate-500 text-slate-950 shadow-xs',
+        isPaid,
+        isUncollected,
+        isCancelled,
+        isExempt,
+      };
+    }
+
+    if (isUncollected) {
+      const isBulkGenerated = p.isManuallyPaid !== true && ((p.isManuallyPaid === false) || (p.notes && (p.notes.includes('استحقاق اشتراك شهر') || p.notes.includes('توليد تلقائي'))));
+      if (isBulkGenerated) {
+        // توليد استحقاقات الشهرية للكل: باللون البنفسجي
+        return {
+          rowClass: 'bg-purple-200/90 hover:bg-purple-300/90 border-y border-purple-400 text-purple-950 font-bold',
+          stickyCellClass: 'bg-purple-200/95 text-purple-950 group-hover:bg-purple-300/90 border-l border-purple-400',
+          unitBadgeClass: 'bg-purple-300 text-purple-950 border border-purple-500 font-black',
+          amountClass: 'text-purple-900 font-black',
+          cardClass: 'bg-purple-200/90 border-purple-400 hover:border-purple-500 text-purple-950 shadow-xs',
+          isPaid,
+          isUncollected,
+          isCancelled,
+          isExempt,
+        };
+      }
+
+      // تحصيل جديد بشكل يدوي لوحدة معينة بحالة لم يتم التحصيل: باللون الأزرق
+      return {
+        rowClass: 'bg-blue-200/90 hover:bg-blue-300/90 border-y border-blue-400 text-blue-950 font-bold',
+        stickyCellClass: 'bg-blue-200/95 text-blue-950 group-hover:bg-blue-300/90 border-l border-blue-400',
+        unitBadgeClass: 'bg-blue-300 text-blue-950 border border-blue-500 font-black',
+        amountClass: 'text-blue-900 font-black',
+        cardClass: 'bg-blue-200/90 border-blue-400 hover:border-blue-500 text-blue-950 shadow-xs',
+        isPaid,
+        isUncollected,
+        isCancelled,
+        isExempt,
+      };
+    }
+
+    // مسددة: باللون الأخضر المشبع
+    return {
+      rowClass: 'bg-emerald-200/80 hover:bg-emerald-300/80 border-y border-emerald-400 text-emerald-950 font-bold',
+      stickyCellClass: 'bg-emerald-200/90 text-emerald-950 group-hover:bg-emerald-300/90 border-l border-emerald-400',
+      unitBadgeClass: 'bg-emerald-300 text-emerald-950 border border-emerald-500 font-black',
+      amountClass: 'text-emerald-900 font-black',
+      cardClass: 'bg-emerald-200/80 border-emerald-400 hover:border-emerald-500 text-emerald-950 shadow-xs',
+      isPaid,
+      isUncollected,
+      isCancelled,
+      isExempt,
+    };
   };
 
   const isReadOnly = role === 'RESIDENT';
@@ -1829,37 +2152,16 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                     const tenantName = historical.tenantName !== undefined ? historical.tenantName : (resObj?.ownershipType === 'إيجار' ? resObj?.tenantName : '');
                     const hasTenant = Boolean(tenantName && tenantName.trim());
 
-                    const isUncollected = p.status === 'pending' || p.status === 'لم يتم التحصيل' || p.status === 'uncollected';
-                    const isCancelled = p.status === 'cancelled' || p.status === 'لاغي';
-                    const isAttention = isUncollected || isCancelled;
-                    const isExempt = isUncollected && p.amount === 0;
+                    const { rowClass, stickyCellClass, unitBadgeClass, amountClass, isCancelled, isExempt, isUncollected } = getPaymentStatusStyles(p, isSelected);
 
                     return (
                       <tr 
                         key={p.id} 
                         onClick={() => setSelectedItemId(isSelected ? null : p.id)}
-                        className={`group transition cursor-pointer ${
-                          isSelected 
-                            ? 'bg-yellow-50/90 border-y border-yellow-400' 
-                            : isExempt
-                              ? 'bg-slate-100/90 hover:bg-slate-200/70 border-y border-slate-200 text-slate-700'
-                              : isAttention
-                              ? 'bg-rose-50/70 hover:bg-rose-100/60 border-y border-rose-200/80'
-                              : 'hover:bg-slate-50/50'
-                        }`}
+                        className={`group transition cursor-pointer ${rowClass}`}
                       >
-                        <td className={`w-12 sm:w-14 px-1 py-1.5 sticky right-0 z-5 border-l border-slate-100 shadow-xs transition text-center ${
-                          isSelected 
-                            ? 'bg-yellow-50 text-amber-950' 
-                            : isExempt
-                              ? 'bg-slate-100 text-slate-700 group-hover:bg-slate-200'
-                              : isAttention
-                              ? 'bg-rose-50/90 text-rose-950 group-hover:bg-rose-100/80'
-                              : 'bg-white group-hover:bg-slate-50'
-                        }`}>
-                          <span className={`px-1 py-0.5 rounded text-[9px] font-black ${
-                            isExempt ? 'bg-slate-200 text-slate-700 border border-slate-300' : isAttention ? 'bg-rose-100 text-rose-900 border border-rose-200' : 'bg-blue-50 text-blue-700'
-                          }`}>
+                        <td className={`w-12 sm:w-14 px-1 py-1.5 sticky right-0 z-5 shadow-xs transition text-center ${stickyCellClass}`}>
+                          <span className={`px-1 py-0.5 rounded text-[9px] ${unitBadgeClass}`}>
                             وحدة {p.flatNumber}
                           </span>
                         </td>
@@ -1885,24 +2187,21 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                         {/* Amount */}
                         <td className="w-16 sm:w-20 px-1 py-1.5 whitespace-nowrap text-center">
                           <div className="flex flex-col items-center">
-                            <span className={`text-xs font-black ${
-                              isCancelled ? 'line-through text-rose-500' : p.amount === 0 ? 'text-slate-600' : isUncollected ? 'text-amber-600' : 'text-emerald-600'
-                            }`}>
-                              {Math.round(p.amount)} ج.م
+                            <span className={`text-xs font-black ${amountClass}`}>
+                              {Math.round(getEffectiveDisplayAmount(p))} ج.م
                             </span>
-                            {isUncollected && (
-                              p.amount === 0 ? (
-                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 bg-slate-200 text-slate-700 border border-slate-300 rounded text-[8px] font-black w-fit mt-0.5">
-                                  ⚪ معفي
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center gap-0.5 px-1 py-0.2 bg-amber-50 text-amber-700 border border-amber-200 rounded text-[8px] font-black w-fit mt-0.5">
-                                  ⏳ معلق
-                                </span>
-                              )
+                            {isExempt && (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 bg-slate-300 text-slate-800 border border-slate-400 rounded text-[8px] font-black w-fit mt-0.5">
+                                ⚪ معفي
+                              </span>
+                            )}
+                            {isUncollected && !isExempt && (
+                              <span className="inline-flex items-center gap-0.5 px-1 py-0.2 bg-orange-100 text-orange-900 border border-orange-300 rounded text-[8px] font-black w-fit mt-0.5">
+                                ⏳ معلق
+                              </span>
                             )}
                             {isCancelled && (
-                              <span className="inline-flex items-center gap-0.5 px-1 py-0.2 bg-rose-50 text-rose-700 border border-rose-200 rounded text-[8px] font-black w-fit mt-0.5">
+                              <span className="inline-flex items-center gap-0.5 px-1 py-0.2 bg-red-200 text-red-950 border border-red-400 rounded text-[8px] font-black w-fit mt-0.5">
                                 🚫 لاغي
                               </span>
                             )}
@@ -2016,53 +2315,16 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                         const tenantName = historical.tenantName !== undefined ? historical.tenantName : (resObj?.ownershipType === 'إيجار' ? resObj?.tenantName : '');
                         const hasTenant = Boolean(tenantName && tenantName.trim());
 
-                        const isUncollected = 
-                          p.status === 'pending' || 
-                          p.status === 'لم يتم التحصيل' || 
-                          p.status === 'uncollected' ||
-                          p.status === 'unpaid' ||
-                          p.status === 'غير مسدد' ||
-                          p.status === 'لم يسدد' ||
-                          p.status === 'معلق';
-                        const isCancelled = 
-                          p.status === 'cancelled' || 
-                          p.status === 'لاغي' || 
-                          p.status === 'VOID' || 
-                          p.status === 'ملغي' || 
-                          p.status === 'مرفوض';
-                        const isAttention = isUncollected || isCancelled;
-                        const isZeroAmount = p.amount === 0;
+                        const { rowClass, stickyCellClass, unitBadgeClass, amountClass, isCancelled, isExempt, isUncollected } = getPaymentStatusStyles(p, isSelected);
 
                         return (
                           <tr 
                             key={p.id} 
                             onClick={() => setSelectedItemId(isSelected ? null : p.id)}
-                            className={`group transition cursor-pointer ${
-                              isSelected 
-                                ? 'bg-yellow-200 hover:bg-yellow-200/90 border-y-2 border-yellow-400 font-semibold text-slate-900' 
-                                : isZeroAmount
-                                  ? 'bg-slate-100/90 hover:bg-slate-200/70 border-y border-slate-200 text-slate-700'
-                                  : isAttention
-                                    ? 'bg-red-100 hover:bg-red-200/80 border-y border-red-300 text-slate-900'
-                                    : 'hover:bg-slate-50/50'
-                            }`}
+                            className={`group transition cursor-pointer ${rowClass}`}
                           >
-                            <td className={`w-12 sm:w-14 px-1 py-1.5 sticky right-0 z-5 border-l border-slate-100 shadow-xs transition text-center ${
-                              isSelected 
-                                ? 'bg-yellow-200 text-amber-950 font-black' 
-                                : isZeroAmount
-                                  ? 'bg-slate-100 text-slate-700 group-hover:bg-slate-200'
-                                  : isAttention
-                                    ? 'bg-red-100 text-rose-950 group-hover:bg-red-200/80'
-                                    : 'bg-white group-hover:bg-slate-50'
-                            }`}>
-                              <span className={`px-1 py-0.5 rounded text-[9px] font-black ${
-                                isZeroAmount
-                                  ? 'bg-slate-200 text-slate-700 border border-slate-300'
-                                  : isAttention 
-                                    ? 'bg-red-200/90 text-red-950 border border-red-300' 
-                                    : 'bg-blue-50 text-blue-700'
-                              }`}>
+                            <td className={`w-12 sm:w-14 px-1 py-1.5 sticky right-0 z-5 shadow-xs transition text-center ${stickyCellClass}`}>
+                              <span className={`px-1 py-0.5 rounded text-[9px] ${unitBadgeClass}`}>
                                 وحدة {p.flatNumber}
                               </span>
                             </td>
@@ -2088,24 +2350,21 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                             {/* Amount */}
                             <td className="w-16 sm:w-20 px-1 py-1.5 whitespace-nowrap text-center">
                               <div className="flex flex-col items-center">
-                                <span className={`text-xs font-black ${
-                                  isCancelled ? 'line-through text-rose-500' : p.amount === 0 ? 'text-slate-600' : isUncollected ? 'text-amber-600' : 'text-emerald-600'
-                                }`}>
-                                  {Math.round(p.amount)} ج.م
+                                <span className={`text-xs font-black ${amountClass}`}>
+                                  {Math.round(getEffectiveDisplayAmount(p))} ج.م
                                 </span>
-                                {isUncollected && (
-                                  p.amount === 0 ? (
-                                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 bg-slate-200 text-slate-700 border border-slate-300 rounded text-[8px] font-black w-fit mt-0.5">
-                                      ⚪ معفي
-                                    </span>
-                                  ) : (
-                                    <span className="inline-flex items-center gap-0.5 px-1 py-0.2 bg-amber-50 text-amber-700 border border-amber-200 rounded text-[8px] font-black w-fit mt-0.5">
-                                      ⏳ معلق
-                                    </span>
-                                  )
+                                {isExempt && (
+                                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 bg-slate-300 text-slate-800 border border-slate-400 rounded text-[8px] font-black w-fit mt-0.5">
+                                    ⚪ معفي
+                                  </span>
+                                )}
+                                {isUncollected && !isExempt && (
+                                  <span className="inline-flex items-center gap-0.5 px-1 py-0.2 bg-orange-100 text-orange-900 border border-orange-300 rounded text-[8px] font-black w-fit mt-0.5">
+                                    ⏳ معلق
+                                  </span>
                                 )}
                                 {isCancelled && (
-                                  <span className="inline-flex items-center gap-0.5 px-1 py-0.2 bg-rose-50 text-rose-700 border border-rose-200 rounded text-[8px] font-black w-fit mt-0.5">
+                                  <span className="inline-flex items-center gap-0.5 px-1 py-0.2 bg-red-200 text-red-950 border border-red-400 rounded text-[8px] font-black w-fit mt-0.5">
                                     🚫 لاغي
                                   </span>
                                 )}
@@ -2255,46 +2514,17 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                     const tenantName = historical.tenantName !== undefined ? historical.tenantName : (resObj?.ownershipType === 'إيجار' ? resObj?.tenantName : '');
                     const hasTenant = Boolean(tenantName && tenantName.trim());
 
-                    const isUncollected = 
-                      p.status === 'pending' || 
-                      p.status === 'لم يتم التحصيل' || 
-                      p.status === 'uncollected' ||
-                      p.status === 'unpaid' ||
-                      p.status === 'غير مسدد' ||
-                      p.status === 'لم يسدد' ||
-                      p.status === 'معلق';
-                    const isCancelled = 
-                      p.status === 'cancelled' || 
-                      p.status === 'لاغي' || 
-                      p.status === 'VOID' || 
-                      p.status === 'ملغي' || 
-                      p.status === 'مرفوض';
-                    const isAttention = isUncollected || isCancelled;
-                    const isZeroAmount = p.amount === 0;
+                    const { cardClass, amountClass, unitBadgeClass, isCancelled, isExempt, isUncollected } = getPaymentStatusStyles(p, isSelected);
 
                     return (
                       <div 
                         key={p.id} 
                         onClick={() => setSelectedItemId(isSelected ? null : p.id)}
-                        className={`rounded-2xl px-3.5 py-2.5 border shadow-sm flex flex-col justify-between transition duration-200 cursor-pointer ${
-                          isSelected 
-                            ? 'bg-yellow-200 border-2 border-yellow-400 shadow-md ring-2 ring-yellow-400 text-slate-900' 
-                            : isZeroAmount
-                              ? 'bg-slate-100 border-slate-300 hover:border-slate-400 hover:bg-slate-200/70 text-slate-700 shadow-xs'
-                              : isAttention
-                                ? 'bg-red-100 border-red-300 hover:border-red-400 hover:bg-red-200/70 shadow-xs'
-                                : 'bg-white border-slate-100 hover:border-blue-100'
-                        }`}
+                        className={`rounded-2xl px-3.5 py-2.5 border shadow-sm flex flex-col justify-between transition duration-200 cursor-pointer ${cardClass}`}
                       >
                       <div>
                         <div className="flex items-center justify-between mb-2">
-                          <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black ${
-                            isZeroAmount
-                              ? 'bg-slate-200 text-slate-700 border border-slate-300'
-                              : isAttention 
-                                ? 'bg-red-200/90 text-red-950 border border-red-300' 
-                                : 'bg-blue-50 text-blue-700'
-                          }`}>
+                          <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black ${unitBadgeClass}`}>
                             وحدة {p.flatNumber}
                           </span>
                           <div className="flex items-center gap-1">
@@ -2326,18 +2556,21 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                         <div className="flex items-center justify-between border-t border-slate-100/80 pt-2 mb-2">
                           <span className="text-[11px] text-slate-400 font-bold">المبلغ المستلم</span>
                           <div className="text-left">
-                            <span className={`text-sm font-black ${
-                              isCancelled ? 'line-through text-rose-500' : isUncollected ? 'text-amber-600' : 'text-emerald-600'
-                            }`}>
-                              {Math.round(p.amount)} ج.م
+                            <span className={`text-sm font-black ${amountClass}`}>
+                              {Math.round(getEffectiveDisplayAmount(p))} ج.م
                             </span>
-                            {isUncollected && (
-                              <span className="block text-[9.5px] font-black text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded mt-0.5">
+                            {isExempt && (
+                              <span className="block text-[9.5px] font-black text-slate-800 bg-slate-300 border border-slate-400 px-1.5 py-0.5 rounded mt-0.5">
+                                ⚪ معفي
+                              </span>
+                            )}
+                            {isUncollected && !isExempt && (
+                              <span className="block text-[9.5px] font-black text-orange-950 bg-orange-100 border border-orange-300 px-1.5 py-0.5 rounded mt-0.5">
                                 ⏳ لم يتم التحصيل
                               </span>
                             )}
                             {isCancelled && (
-                              <span className="block text-[9.5px] font-black text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded mt-0.5">
+                              <span className="block text-[9.5px] font-black text-red-950 bg-red-200 border border-red-400 px-1.5 py-0.5 rounded mt-0.5">
                                 🚫 إيصال لاغي
                               </span>
                             )}
@@ -2478,7 +2711,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                 {!selectedPayment && (role === 'ADMIN' || role === 'MANAGER') && (
                   <button
                     type="button"
-                    onClick={handleOpenGenerateMonthlyDuesModal}
+                    onClick={() => handleOpenGenerateMonthlyDuesModal()}
                     className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-200 rounded-xl text-xs font-black transition active:scale-95 cursor-pointer shadow-3xs"
                     title={`توليد دفعات اشتراك شهر ${monthNamesArabic[parseInt(month, 10) - 1]} ${currentYear} لجميع الوحدات المستحقة بحالة "لم يتم التحصيل"`}
                   >
@@ -2607,9 +2840,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                         const targetYearNum = Number(currentYear) || new Date().getFullYear();
                         const targetMonthNum = parseInt(newM, 10) || 1;
                         const prescribed = getPrescribedFeeForMonth(selectedRes, targetYearNum, targetMonthNum, payments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods, customUnitFeePeriods);
-                        const fee = targetActivityType !== selectedRes.activityType
-                          ? getActivityDefaultFee(targetActivityType, `${targetYearNum}-${String(targetMonthNum).padStart(2, '0')}`)
-                          : prescribed.monthlyFee;
+                        const fee = prescribed.monthlyFee;
                         const totalMonthsCount = (isAggregatedCollection && coveredMonths.length > 0) ? coveredMonths.length : 1;
                         const calcDue = fee * totalMonthsCount;
                         setDueAmount(calcDue);
@@ -2869,84 +3100,55 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                 </p>
               </div>
 
-              {/* Amounts and Receipt Number Row */}
-              {(!paymentType || paymentType === 'اشتراك شهري' || isMonthlySubscriptionType(paymentType)) ? (
-                <div className="grid grid-cols-3 gap-2 sm:gap-2.5">
-                  {/* 1. المبلغ المستحق */}
-                  <div className="space-y-1">
-                    <label className="text-[11px] font-bold text-slate-500 block truncate" title="المبلغ المستحق المسجل بسجل الوحدة أو الرسوم المقررة">
-                      المبلغ المستحق
-                    </label>
-                    <input
-                      type="number"
-                      placeholder="المستحق"
-                      value={dueAmount === '' || isNaN(Number(dueAmount)) ? '' : dueAmount}
-                      onChange={(e) => setDueAmount(e.target.value !== '' ? Number(e.target.value) : '')}
-                      disabled={role === 'ASSISTANT' && !!selectedPayment}
-                      className="w-full px-2 sm:px-3 py-2 bg-slate-50 border border-slate-200 focus:bg-white rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-500/10 outline-none text-right font-bold transition disabled:opacity-60 disabled:cursor-not-allowed text-blue-950"
-                      title="قيمة الاشتراك المستحق من سجل الوحدة أو الرسوم المقررة (يمكن تعديلها يدوياً)"
-                    />
-                  </div>
-
-                  {/* 2. المبلغ المستلم */}
-                  <div className="space-y-1">
-                    <label className="text-[11px] font-bold text-slate-500 block truncate">
-                      المبلغ المستلم <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="number"
-                      placeholder="المستلم"
-                      value={amount === '' || isNaN(Number(amount)) ? '' : amount}
-                      onChange={(e) => setAmount(e.target.value !== '' ? Number(e.target.value) : '')}
-                      disabled={role === 'ASSISTANT' && !!selectedPayment}
-                      className="w-full px-2 sm:px-3 py-2 bg-slate-50 border border-slate-200 focus:bg-white rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-500/10 outline-none text-right font-bold transition disabled:opacity-60 disabled:cursor-not-allowed"
-                      required
-                    />
-                  </div>
-
-                  {/* 3. رقم الإيصال */}
-                  <div className="space-y-1">
-                    <label className="text-[11px] font-bold text-slate-500 block truncate">
-                      رقم الإيصال
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="مثال: 4501"
-                      value={receiptNumber}
-                      onChange={(e) => setReceiptNumber(e.target.value)}
-                      disabled={role === 'ASSISTANT' && !!selectedPayment}
-                      className="w-full px-2 sm:px-3 py-2 bg-slate-50 border border-slate-200 focus:bg-white rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-500/10 outline-none text-right font-bold transition disabled:opacity-60 disabled:cursor-not-allowed"
-                    />
-                  </div>
+              {/* Amounts and Receipt Number Row - Universal 3 Columns */}
+              <div className="grid grid-cols-3 gap-2 sm:gap-2.5">
+                {/* 1. المبلغ المستحق */}
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-500 block truncate" title="المبلغ المستحق من سجل الوحدة ثم من فترة التسعير في إدارة اشتراكات الوحدات">
+                    المبلغ المستحق
+                  </label>
+                  <input
+                    type="number"
+                    placeholder="المستحق"
+                    value={dueAmount === '' || isNaN(Number(dueAmount)) ? '' : dueAmount}
+                    onChange={(e) => setDueAmount(e.target.value !== '' ? Number(e.target.value) : '')}
+                    disabled={role === 'ASSISTANT' && !!selectedPayment}
+                    className="w-full px-2 sm:px-3 py-2 bg-slate-50 border border-slate-200 focus:bg-white rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-500/10 outline-none text-right font-bold transition disabled:opacity-60 disabled:cursor-not-allowed text-blue-950"
+                    title="قيمة الاشتراك المستحق من سجل الوحدة ثم من فترة التسعير في إدارة اشتراكات الوحدات (يمكن تعديلها يدوياً)"
+                  />
                 </div>
-              ) : (
-                <div className="grid grid-cols-2 gap-2.5">
-                  <div className="space-y-1">
-                    <label className="text-[11px] font-bold text-slate-500">المبلغ المستلم بالجنيه <span className="text-red-500">*</span></label>
-                    <input
-                      type="number"
-                      placeholder="مثال: 200"
-                      value={amount === '' || isNaN(Number(amount)) ? '' : amount}
-                      onChange={(e) => setAmount(e.target.value !== '' ? Number(e.target.value) : '')}
-                      disabled={role === 'ASSISTANT' && !!selectedPayment}
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 focus:bg-white rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-500/10 outline-none text-right font-bold transition disabled:opacity-60 disabled:cursor-not-allowed"
-                      required
-                    />
-                  </div>
 
-                  <div className="space-y-1">
-                    <label className="text-[11px] font-bold text-slate-500">رقم الإيصال</label>
-                    <input
-                      type="text"
-                      placeholder="مثال: 4501"
-                      value={receiptNumber}
-                      onChange={(e) => setReceiptNumber(e.target.value)}
-                      disabled={role === 'ASSISTANT' && !!selectedPayment}
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 focus:bg-white rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-500/10 outline-none text-right font-bold transition disabled:opacity-60 disabled:cursor-not-allowed"
-                    />
-                  </div>
+                {/* 2. المبلغ المستلم */}
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-500 block truncate">
+                    المبلغ المستلم <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    placeholder="المستلم"
+                    value={amount === '' || isNaN(Number(amount)) ? '' : amount}
+                    onChange={(e) => setAmount(e.target.value !== '' ? Number(e.target.value) : '')}
+                    disabled={role === 'ASSISTANT' && !!selectedPayment}
+                    className="w-full px-2 sm:px-3 py-2 bg-slate-50 border border-slate-200 focus:bg-white rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-500/10 outline-none text-right font-bold transition disabled:opacity-60 disabled:cursor-not-allowed"
+                    required
+                  />
                 </div>
-              )}
+
+                {/* 3. رقم الإيصال */}
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-500 block truncate">
+                    رقم الإيصال
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="مثال: 4501"
+                    value={receiptNumber}
+                    onChange={(e) => setReceiptNumber(e.target.value)}
+                    disabled={role === 'ASSISTANT' && !!selectedPayment}
+                    className="w-full px-2 sm:px-3 py-2 bg-slate-50 border border-slate-200 focus:bg-white rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-500/10 outline-none text-right font-bold transition disabled:opacity-60 disabled:cursor-not-allowed"
+                  />
+                </div>
+              </div>
 
               {/* 3 Buttons for Payment/Receipt Status */}
               <div className="space-y-1">
@@ -3128,23 +3330,23 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
         </div>
       )}
 
-      {/* Bulk Generate Monthly Dues Confirmation Modal */}
+      {/* Bulk Generate & Manage Monthly Dues Modal */}
       {bulkGenerateModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-xs p-3 sm:p-4 text-right animate-fade-in">
-          <div className="w-full max-w-md bg-white rounded-2xl sm:rounded-3xl p-5 border border-slate-100 shadow-2xl animate-scale-up space-y-4">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-xs p-2.5 sm:p-4 text-right animate-fade-in overflow-y-auto" dir="rtl">
+          <div className="w-full max-w-lg bg-white rounded-3xl p-3.5 sm:p-5 border border-slate-100 shadow-2xl animate-scale-up space-y-2.5 my-auto max-h-[92vh] flex flex-col">
             
             {/* Header */}
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div className="flex items-center gap-2.5">
-                <div className="w-10 h-10 rounded-2xl bg-blue-50 text-blue-900 flex items-center justify-center shrink-0">
-                  <Users className="w-5 h-5" />
+            <div className="flex items-center justify-between border-b border-slate-100 pb-2 shrink-0">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-900 flex items-center justify-center shrink-0 shadow-2xs">
+                  <Users className="w-4 h-4 text-blue-800" />
                 </div>
                 <div>
-                  <h3 className="text-sm sm:text-base font-black text-slate-950">
-                    توليد استحقاقات اشتراك شهري
+                  <h3 className="text-xs sm:text-sm font-black text-slate-950">
+                    توليد وإدارة استحقاقات الاشتراك الشهري
                   </h3>
-                  <p className="text-[11px] text-slate-500 font-bold">
-                    شهر {monthNamesArabic[parseInt(bulkGenerateModal.monthStr, 10) - 1]} {bulkGenerateModal.yearNum}
+                  <p className="text-[10px] text-slate-500 font-bold">
+                    إدارة استحقاقات جميع الوحدات لشهر {monthNamesArabic[bulkTargetMonthNum - 1]} {bulkTargetYearNum}
                   </p>
                 </div>
               </div>
@@ -3159,90 +3361,217 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
               </button>
             </div>
 
-            {bulkGenerateModal.items.length === 0 ? (
-              <div className="py-6 text-center space-y-3">
-                <div className="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto">
-                  <CheckCircle2 className="w-6 h-6" />
-                </div>
-                <div className="space-y-1">
-                  <h4 className="text-sm font-black text-slate-900">
-                    جميع الوحدات مسجلة بالفعل لهذا الشهر!
-                  </h4>
-                  <p className="text-xs text-slate-500 font-bold leading-relaxed px-4">
-                    جميع وحدات العمارة المستحقة لديها بالفعل دفعات اشتراك مسجلة لشهر {monthNamesArabic[parseInt(bulkGenerateModal.monthStr, 10) - 1]} {bulkGenerateModal.yearNum}. لا توجد وحدات جديدة بحاجة للتوليد.
+            {/* Month & Year Selection Bar */}
+            <div className="bg-slate-50/80 p-2 rounded-xl border border-slate-200/80 flex items-center justify-between gap-2 shrink-0">
+              <div className="flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5 text-blue-900 shrink-0" />
+                <span className="text-[11px] font-black text-slate-800">تحديد الشهر:</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <select
+                  value={bulkGenerateModal.monthStr}
+                  onChange={(e) => setBulkGenerateModal(prev => prev ? { ...prev, monthStr: e.target.value } : null)}
+                  className="px-2 py-1 bg-white border border-slate-300 rounded-lg text-[11px] font-black text-blue-950 outline-none cursor-pointer shadow-2xs"
+                >
+                  {monthNamesArabic.map((mName, idx) => {
+                    const mNumStr = String(idx + 1).padStart(2, '0');
+                    return (
+                      <option key={mNumStr} value={mNumStr}>
+                        شهر {idx + 1} - {mName}
+                      </option>
+                    );
+                  })}
+                </select>
+                <span className="text-[11px] font-black font-mono text-slate-700 bg-white px-2 py-1 rounded-lg border border-slate-200 shadow-2xs">
+                  {bulkTargetYearNum}
+                </span>
+              </div>
+            </div>
+
+            {/* Quick Stats Cards */}
+            <div className="grid grid-cols-2 gap-2 text-center text-xs shrink-0">
+              <div className="p-2 bg-emerald-50/90 rounded-xl border border-emerald-200 shadow-2xs">
+                <span className="text-[10px] text-emerald-800 font-bold block mb-0.2">الدفعات المسجلة حالياً</span>
+                <span className="text-sm font-black text-emerald-950 font-mono">{bulkExistingPayments.length} دفعة</span>
+                <span className="text-[9.5px] text-emerald-700 block font-bold font-mono">
+                  ({bulkTotalExistingDue.toLocaleString()} ج.م)
+                </span>
+              </div>
+              <div className="p-2 bg-blue-50/90 rounded-xl border border-blue-200 shadow-2xs">
+                <span className="text-[10px] text-blue-800 font-bold block mb-0.2">الوحدات المتبقية للتوليد</span>
+                <span className="text-sm font-black text-blue-950 font-mono">{bulkPendingItems.length} وحدة</span>
+                <span className="text-[9.5px] text-blue-700 block font-bold font-mono">
+                  ({bulkTotalPendingDue.toLocaleString()} ج.م)
+                </span>
+              </div>
+            </div>
+
+            {/* Main Action Buttons: Update dues, Delete dues, Generate dues */}
+            <div className="space-y-1.5 shrink-0">
+              {/* Operations on Existing Dues */}
+              {bulkExistingPayments.length > 0 && (
+                <div className="p-2 bg-amber-50/90 border border-amber-200 rounded-xl space-y-1.5">
+                  <div className="flex items-center gap-1.5 text-[11px] font-black text-amber-950">
+                    <AlertCircle className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                    <span>إجراءات على دفعات شهر {monthNamesArabic[bulkTargetMonthNum - 1]} المسجلة ({bulkExistingPayments.length} دفعة):</span>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {/* 1. Update Dues Button */}
+                    <button
+                      type="button"
+                      onClick={handleUpdateExistingMonthDues}
+                      disabled={isUpdatingDues}
+                      className="py-1.5 px-2 bg-indigo-700 hover:bg-indigo-800 active:scale-95 text-white rounded-lg text-[11px] font-black transition flex items-center justify-center gap-1 cursor-pointer shadow-xs disabled:opacity-50"
+                      title="تحديث قيمة المبلغ المستحق والمستلم لجميع دفعات هذا الشهر طبقا لسجل الوحدة ثم فترات التسعير"
+                    >
+                      <RefreshCw className={`w-3 h-3 text-indigo-200 shrink-0 ${isUpdatingDues ? 'animate-spin' : ''}`} />
+                      <span>تحديث مبالغ دفعات الشهر</span>
+                    </button>
+
+                    {/* 2. Delete Dues Button */}
+                    <button
+                      type="button"
+                      onClick={handleDeleteExistingMonthDues}
+                      disabled={isDeletingDues}
+                      className="py-1.5 px-2 bg-rose-600 hover:bg-rose-700 active:scale-95 text-white rounded-lg text-[11px] font-black transition flex items-center justify-center gap-1 cursor-pointer shadow-xs disabled:opacity-50"
+                      title="حذف جميع دفعات واشتراكات هذا الشهر بالكامل لتتمكن من إعادة التوليد"
+                    >
+                      <Trash2 className="w-3 h-3 text-rose-200 shrink-0" />
+                      <span>حذف دفعات هذا الشهر</span>
+                    </button>
+                  </div>
+                  <p className="text-[9.5px] text-amber-900 font-bold leading-tight">
+                    * زر التحديث يقوم بمطابقة كل دفعة مع سجل نشاط الوحدة وفترة التسعير السارية بهذا الشهر وتحديث المبالغ تلقائياً.
                   </p>
                 </div>
+              )}
+
+              {/* 3. Confirm Generate Remaining Units Button */}
+              {bulkPendingItems.length > 0 && (
                 <button
                   type="button"
-                  onClick={() => setBulkGenerateModal(null)}
-                  className="px-6 py-2 bg-slate-900 text-white rounded-xl text-xs font-black transition cursor-pointer"
+                  onClick={handleConfirmBulkGenerate}
+                  className="w-full py-1.5 bg-emerald-700 hover:bg-emerald-800 active:scale-95 text-white rounded-xl text-xs font-black shadow-sm transition cursor-pointer flex items-center justify-center gap-1.5"
                 >
-                  حسناً
+                  <Users className="w-3.5 h-3.5 text-emerald-200" />
+                  <span>تأكيد توليد ({bulkPendingItems.length}) دفعات استحقاق متبقية الآن</span>
+                </button>
+              )}
+
+              {bulkPendingItems.length === 0 && bulkExistingPayments.length > 0 && (
+                <div className="p-1.5 bg-emerald-50 border border-emerald-200 rounded-lg text-center text-[10.5px] font-black text-emerald-900 flex items-center justify-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span>جميع وحدات العمارة لديها دفعات اشتراك مسجلة لهذا الشهر! يمكنك تحديثها أو حذفها أعلاه.</span>
+                </div>
+              )}
+            </div>
+
+            {/* Dual Tabs for Preview & List Scrolling */}
+            <div className="flex-1 flex flex-col min-h-0 pt-0.5 border-t border-slate-100">
+              <div className="flex items-center gap-1 border-b border-slate-200 pb-1 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setBulkModalActiveTab('pending')}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-black transition cursor-pointer flex items-center gap-1 ${
+                    bulkModalActiveTab === 'pending'
+                      ? 'bg-blue-900 text-white shadow-2xs'
+                      : 'text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  <span>الوحدات المستحقة للتوليد</span>
+                  <span className="font-mono text-[9.5px] px-1.5 py-0.2 bg-white/20 rounded font-bold">
+                    {bulkPendingItems.length}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setBulkModalActiveTab('existing')}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-black transition cursor-pointer flex items-center gap-1 ${
+                    bulkModalActiveTab === 'existing'
+                      ? 'bg-blue-900 text-white shadow-2xs'
+                      : 'text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  <span>الدفعات المسجلة حالياً</span>
+                  <span className="font-mono text-[9.5px] px-1.5 py-0.2 bg-white/20 rounded font-bold">
+                    {bulkExistingPayments.length}
+                  </span>
                 </button>
               </div>
-            ) : (
-              <div className="space-y-3.5">
-                {/* Stats summary */}
-                <div className="grid grid-cols-2 gap-2 text-center text-xs">
-                  <div className="p-2.5 bg-blue-50/80 rounded-xl border border-blue-100">
-                    <span className="text-[10px] text-slate-500 font-bold block mb-0.5">الوحدات المستحقة للتوليد</span>
-                    <span className="text-base font-black text-blue-950">{bulkGenerateModal.items.length} وحدة</span>
-                  </div>
-                  <div className="p-2.5 bg-emerald-50/80 rounded-xl border border-emerald-100">
-                    <span className="text-[10px] text-slate-500 font-bold block mb-0.5">إجمالي المبلغ المطلوب</span>
-                    <span className="text-base font-black text-emerald-800">{bulkGenerateModal.totalDue.toLocaleString()} ج.م</span>
-                  </div>
-                </div>
 
-                <div className="bg-amber-50 border border-amber-200/70 rounded-xl p-2.5 text-xs text-amber-950 font-bold flex items-start gap-2 leading-relaxed">
-                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                  <div>
-                    سيتم إنشاء دفعة لكل وحدة بحالة <span className="text-rose-700 font-black">"لم يتم التحصيل"</span> بمبلغ اشتراكها، لتتمكن من متابعتها وتغيير حالة السداد بمجرد استلام الدفع.
-                    {bulkGenerateModal.alreadyExistCount > 0 && (
-                      <span className="block mt-1 text-[11px] text-amber-800">
-                        * تم استثناء {bulkGenerateModal.alreadyExistCount} وحدة لوجود اشتراك مسجل لها مسبقاً منعاً للتكرار.
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Preview list */}
-                <div className="space-y-1">
-                  <span className="text-[11px] font-black text-slate-700 block">معاينة الوحدات التي سيتم توليد استحقاقاتها:</span>
-                  <div className="max-h-40 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-xl bg-slate-50/50 p-1 text-xs">
-                    {bulkGenerateModal.items.map((p, idx) => (
-                      <div key={p.id || idx} className="py-1 px-2 flex items-center justify-between">
-                        <div className="flex items-center gap-1.5 truncate">
-                          <span className="font-mono text-[10px] text-slate-400 w-4">{idx + 1}.</span>
-                          <span className="font-black text-slate-900">شقة {p.flatNumber}</span>
-                          <span className="text-[11px] text-slate-500 truncate">- {p.residentName}</span>
+              {/* Tab Content with dedicated scroll area */}
+              <div className="flex-1 overflow-y-auto mt-1.5 pr-0.5 min-h-[180px] max-h-[360px] scrollbar-thin">
+                {bulkModalActiveTab === 'pending' ? (
+                  bulkPendingItems.length === 0 ? (
+                    <div className="py-6 text-center text-xs text-slate-400 font-bold">
+                      لا توجد وحدات مستحقة جديدة بحاجة للتوليد لشهر {monthNamesArabic[bulkTargetMonthNum - 1]} {bulkTargetYearNum}.
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl bg-slate-50/50 p-1 text-xs">
+                      {bulkPendingItems.map((p, idx) => (
+                        <div key={p.id || idx} className="py-1 px-2 flex items-center justify-between hover:bg-white rounded-lg transition">
+                          <div className="flex items-center gap-2 truncate">
+                            <span className="font-mono text-[10px] text-slate-400 w-4">{idx + 1}.</span>
+                            <span className="font-black text-slate-900">شقة {p.flatNumber}</span>
+                            <span className="text-[11px] text-slate-500 truncate">- {p.residentName}</span>
+                          </div>
+                          <span className="font-black font-mono text-blue-900 shrink-0">{p.amount.toLocaleString()} ج.م</span>
                         </div>
-                        <span className="font-black font-mono text-blue-900 shrink-0">{p.amount.toLocaleString()} ج.م</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                      ))}
+                    </div>
+                  )
+                ) : (
+                  bulkExistingWithRecalc.length === 0 ? (
+                    <div className="py-6 text-center text-xs text-slate-400 font-bold">
+                      لا توجد دفعات اشتراك مسجلة حتى الآن لهذا الشهر.
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl bg-slate-50/50 p-1 text-xs">
+                      {bulkExistingWithRecalc.map(({ payment: p, prescribedFee, currentFee, isDifferent, displayOwner }, idx) => (
+                        <div key={p.id || idx} className="py-1 px-2 flex items-center justify-between hover:bg-white rounded-lg transition">
+                          <div className="flex items-center gap-2 truncate">
+                            <span className="font-mono text-[10px] text-slate-400 w-4">{idx + 1}.</span>
+                            <span className="font-black text-slate-900">شقة {p.flatNumber}</span>
+                            <span className="text-[11px] text-slate-500 truncate">- {displayOwner}</span>
+                            <span className={`text-[8.5px] font-black px-1 py-0.2 rounded ${
+                              p.status === 'pending' || p.status === 'لم يتم التحصيل'
+                                ? 'bg-orange-100 text-orange-900'
+                                : 'bg-emerald-100 text-emerald-900'
+                            }`}>
+                              {p.status === 'pending' || p.status === 'لم يتم التحصيل' ? 'معلق' : 'مسدد'}
+                            </span>
+                          </div>
 
-                {/* Actions */}
-                <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
-                  <button
-                    type="button"
-                    onClick={() => setBulkGenerateModal(null)}
-                    className="flex-1 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer"
-                  >
-                    تراجع وإلغاء
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleConfirmBulkGenerate}
-                    className="flex-2 py-2.5 bg-blue-900 hover:bg-blue-950 text-white rounded-xl text-xs font-black shadow-xs hover:shadow-md transition active:scale-95 cursor-pointer flex items-center justify-center gap-1.5"
-                  >
-                    <Users className="w-4 h-4 text-amber-300" />
-                    <span>تأكيد توليد ({bulkGenerateModal.items.length}) دفعات الآن</span>
-                  </button>
-                </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <div className="text-left font-mono">
+                              <span className="font-black text-slate-900">{currentFee.toLocaleString()} ج.م</span>
+                              {isDifferent && (
+                                <span className="block text-[9px] text-indigo-700 font-bold">
+                                  ← أحدث تسعير: {prescribedFee.toLocaleString()} ج.م
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                )}
               </div>
-            )}
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end pt-1.5 border-t border-slate-100 shrink-0">
+              <button
+                type="button"
+                onClick={() => setBulkGenerateModal(null)}
+                className="px-4 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-black transition cursor-pointer"
+              >
+                إغلاق
+              </button>
+            </div>
 
           </div>
         </div>
@@ -3256,10 +3585,12 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
               <AlertCircle className="w-10 h-10 stroke-[1.5]" />
             </div>
             <h3 className="text-xs font-black text-slate-900 text-center mb-2">
-              {confirmData.type === 'delete' ? 'تأكيد عملية الحذف' : 'تأكيد حفظ البيانات والعمليات'}
+              {confirmData.type === 'delete' || confirmData.type === 'deleteMonthDues' ? 'تأكيد عملية الحذف' : 'تأكيد حفظ البيانات والعمليات'}
             </h3>
-            <p className="text-[11px] text-slate-600 text-center font-bold leading-relaxed mb-4">
-              {confirmData.type === 'delete' 
+            <p className="text-[11px] text-slate-600 text-center font-bold leading-relaxed mb-4 whitespace-pre-line">
+              {confirmData.type === 'deleteMonthDues'
+                ? `هل أنت متأكد من حذف جميع دفعات واشتراكات شهر ${confirmData.monthName} ${confirmData.year}؟\nسيتم مسح (${confirmData.count}) دفعة لهذا الشهر بشكل نهائي.`
+                : confirmData.type === 'delete' 
                 ? 'هل أنت متأكد من حذف هذه العملية؟ سيؤدي هذا إلى مسح سجل التحصيل المحدد بالكامل ولا يمكن التراجع عن هذا الإجراء.'
                 : confirmData.multiplePayments && confirmData.multiplePayments.length > 0
                 ? `أنت على وشك ${confirmData.type === 'edit' ? 'حفظ تعديل' : 'تسجيل'} سداد مجمع للوحدة ${confirmData.multiplePayments[0]?.flatNumber} وتوزيع القيمة بالتساوي بقيمة (${confirmData.multiplePayments[0]?.amount} ج.م لكل شهر) على ${confirmData.multiplePayments.length} شهور (${confirmData.multiplePayments.map(p => monthNamesArabic[parseInt(p.month, 10) - 1]).join('، ')}).${confirmData.residentToUpdate ? ` (مع حفظ نشاط الوحدة الجديد: ${confirmData.residentToUpdate.activityType})` : ''} هل تود التأكيد؟`
@@ -3280,7 +3611,15 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                     onEditResident(confirmData.residentToUpdate);
                   }
 
-                  if (confirmData.type === 'delete' && confirmData.deleteId) {
+                  if (confirmData.type === 'deleteMonthDues' && confirmData.deleteIds) {
+                    if (onDeleteBatchPayments) {
+                      onDeleteBatchPayments(confirmData.deleteIds);
+                    } else {
+                      confirmData.deleteIds.forEach(id => onDelete(id));
+                    }
+                    setToastMsg(`تم بنجاح حذف (${confirmData.deleteIds.length}) دفعات اشتراك لشهر ${confirmData.monthName} ${confirmData.year}.`);
+                    setBulkModalActiveTab('pending');
+                  } else if (confirmData.type === 'delete' && confirmData.deleteId) {
                     onDelete(confirmData.deleteId);
                   } else if (confirmData.multiplePayments && confirmData.multiplePayments.length > 0) {
                     if (confirmData.type === 'edit') {
@@ -3334,9 +3673,9 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                   }
                   setConfirmData(null);
                 }}
-                className={`flex-1 py-2 text-[10px] font-bold text-white rounded-lg transition ${confirmData.type === 'delete' ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-900 hover:bg-blue-950'}`}
+                className={`flex-1 py-2 text-[10px] font-bold text-white rounded-lg transition ${confirmData.type === 'delete' || confirmData.type === 'deleteMonthDues' ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-900 hover:bg-blue-950'}`}
               >
-                {confirmData.type === 'delete' ? 'نعم، حذف' : 'نعم، حفظ وتأكيد'}
+                {confirmData.type === 'delete' || confirmData.type === 'deleteMonthDues' ? 'نعم، حذف' : 'نعم، حفظ وتأكيد'}
               </button>
             </div>
           </div>
@@ -3412,8 +3751,8 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
           const uncollectedPayments = sortedFilteredPayments.filter(p => isUncollected(p));
           const cancelledPayments = sortedFilteredPayments.filter(p => isCancelled(p));
 
-          const totalCollectedAmt = validCollectedPayments.reduce((sum, p) => sum + p.amount, 0);
-          const totalUncollectedAmt = uncollectedPayments.reduce((sum, p) => sum + p.amount, 0);
+          const totalCollectedAmt = validCollectedPayments.reduce((sum, p) => sum + getEffectiveDisplayAmount(p), 0);
+          const totalUncollectedAmt = uncollectedPayments.reduce((sum, p) => sum + getEffectiveDisplayAmount(p), 0);
 
           // Calculate average monthly collection = (Sum of monthly collections for all registered months) / (number of registered months)
           const validPaymentsInScope = payments.filter(p => p.year === currentYear && !isUncollected(p) && !isCancelled(p));
@@ -3538,7 +3877,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                               ? 'text-amber-800'
                               : 'text-emerald-700'
                           }`}>
-                            {Math.round(p.amount).toLocaleString()} ج.م
+                            {Math.round(getEffectiveDisplayAmount(p)).toLocaleString()} ج.م
                           </td>
                           <td className="border border-slate-300 p-2 text-center font-mono font-bold text-xs">
                             {isCancelled ? (
@@ -3570,8 +3909,8 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
             const validCollected = sortedFilteredPayments.filter(p => !isUncollected(p) && !isCancelled(p));
             const uncollectedList = sortedFilteredPayments.filter(p => isUncollected(p));
 
-            const totalCollected = validCollected.reduce((sum, p) => sum + p.amount, 0);
-            const totalUncollected = uncollectedList.reduce((sum, p) => sum + p.amount, 0);
+            const totalCollected = validCollected.reduce((sum, p) => sum + getEffectiveDisplayAmount(p), 0);
+            const totalUncollected = uncollectedList.reduce((sum, p) => sum + getEffectiveDisplayAmount(p), 0);
 
             return (
               <tfoot>

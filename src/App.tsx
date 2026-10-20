@@ -300,6 +300,9 @@ export default function App() {
           activityFeePeriods: (Array.isArray(localConfig.activityFeePeriods) && localConfig.activityFeePeriods.length > 0)
             ? localConfig.activityFeePeriods
             : baseConfig.activityFeePeriods,
+          customUnitFeePeriods: (Array.isArray(localConfig.customUnitFeePeriods) && localConfig.customUnitFeePeriods.length > 0)
+            ? localConfig.customUnitFeePeriods
+            : (baseConfig.customUnitFeePeriods || []),
           activePeriodId: localConfig.activePeriodId || 'ALL',
           adminResidentProfile: localConfig.adminResidentProfile || baseConfig.adminResidentProfile,
         };
@@ -733,6 +736,9 @@ export default function App() {
         activityFeePeriods: (Array.isArray(localConfig.activityFeePeriods) && localConfig.activityFeePeriods.length > 0)
           ? localConfig.activityFeePeriods
           : prev.activityFeePeriods,
+        customUnitFeePeriods: (Array.isArray(localConfig.customUnitFeePeriods) && localConfig.customUnitFeePeriods.length > 0)
+          ? localConfig.customUnitFeePeriods
+          : prev.customUnitFeePeriods,
         activityTypes: localConfig.activityTypes && localConfig.activityTypes.length > 0 
           ? Array.from(new Set([...localConfig.activityTypes, 'سكني', 'سكني مغلق', 'مفروش', 'إداري', 'تجاري', 'بدون تشطيب']))
           : ['سكني', 'سكني مغلق', 'مفروش', 'إداري', 'تجاري', 'بدون تشطيب'],
@@ -1699,6 +1705,44 @@ export default function App() {
     );
   };
 
+  const deleteBatchPayments = async (ids: string[]) => {
+    if (!ids || ids.length === 0) return;
+    const cleanIds = ids.map(id => String(id));
+    const idSet = new Set(cleanIds);
+    cleanIds.forEach(id => {
+      registerDeletedPaymentIds(id);
+      offlineSync.purgeEntityFromQueue(id);
+    });
+
+    const updatedPayments = filterAndDeduplicatePayments(payments.filter(p => !idSet.has(String(p.id))));
+    setPayments(updatedPayments);
+    offlineSync.saveCachedData('payments', updatedPayments);
+
+    try {
+      await firestoreService.deleteBatchPaymentsFromFirestore(cleanIds);
+      addNotification('حذف دفعات الشهر', `تم حذف ${cleanIds.length} دفعات بنجاح.`, 'info', 'services');
+    } catch (err) {
+      logError(err, 'deleteBatchPayments');
+      cleanIds.forEach(id => offlineSync.enqueueAction('DELETE_PAYMENT', { id }));
+    }
+  };
+
+  const updateBatchPayments = async (updatedList: Payment[]) => {
+    if (!updatedList || updatedList.length === 0) return;
+    const updateMap = new Map(updatedList.map(p => [String(p.id), p]));
+    const updatedPayments = filterAndDeduplicatePayments(payments.map(p => updateMap.get(String(p.id)) || p));
+    setPayments(updatedPayments);
+    offlineSync.saveCachedData('payments', updatedPayments);
+
+    try {
+      await firestoreService.saveBatchPaymentsToFirestore(updatedList);
+      addNotification('تحديث دفعات الشهر', `تم تحديث ${updatedList.length} دفعات استحقاق بنجاح وفقاً لأحدث تسعير.`, 'success', 'services');
+    } catch (err) {
+      logError(err, 'updateBatchPayments');
+      updatedList.forEach(p => offlineSync.enqueueAction('EDIT_PAYMENT', p));
+    }
+  };
+
   const deletePayment = async (id: string) => {
     const cleanId = String(id);
     const target = payments.find(p => String(p.id) === cleanId);
@@ -2326,6 +2370,15 @@ export default function App() {
     
     firestoreService.saveConfigToFirestore(updatedConfig)
       .catch(() => offlineSync.enqueueAction('UPDATE_CONFIG', updatedConfig));
+  };
+
+  const handleUpdateConfig = (newConfig: AppConfig) => {
+    setConfig(newConfig);
+    offlineSync.saveCachedData('config', newConfig);
+    firestoreService.saveConfigToFirestore(newConfig).catch(err => {
+      logError(err, 'handleUpdateConfig');
+      offlineSync.enqueueAction('UPDATE_CONFIG', newConfig);
+    });
   };
 
   // User identity display helpers across role views
@@ -3193,7 +3246,7 @@ export default function App() {
             onDelete={deleteResident}
             floorConfigs={buildingLayout}
             onSetFloorConfigs={updateBuildingLayout}
-            onUpdateConfig={(newConfig) => setConfig(newConfig)}
+            onUpdateConfig={handleUpdateConfig}
           />
         )}
 
@@ -3230,6 +3283,8 @@ export default function App() {
             onEditResident={editResident}
             onDistributePayment={distributePayment}
             onAddBatchPayments={addBatchPayments}
+            onDeleteBatchPayments={deleteBatchPayments}
+            onUpdateBatchPayments={updateBatchPayments}
           />
         )}
 

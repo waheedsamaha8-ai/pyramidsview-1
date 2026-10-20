@@ -1,7 +1,8 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Resident, UserRole, FloorConfig, Payment, AppConfig, JoinRequest, CustomUnitFeePeriod } from '../types';
 import { Search, Phone, Edit, Trash2, Home, AlertCircle, LayoutGrid, List, Settings2, Plus, X, Building2, Save, User, KeyRound, Wallet, ArrowDownRight, ArrowUpRight, CheckCircle2, UserCheck, UserX, Clock, Share2, RefreshCw, ShieldCheck, SlidersHorizontal, Contact, History, DollarSign } from 'lucide-react';
 import { deriveFloorConfigsFromResidents, floorTypeLabels, getFloorName, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber, parseFlatNumber, getLatestOccupantFromHistory, getLatestActivityFromHistory } from '../utils/buildingStructure';
+import { getActiveAccountingPeriod } from '../utils/periodUtils';
 import * as googleApi from '../services/googleApi';
 import { 
   fetchAllJoinRequests, 
@@ -68,6 +69,87 @@ const DEFAULT_VISIBLE_COLUMNS: Record<string, boolean> = {
   actions: true,
   unitHistory: true,
   membership: true,
+};
+
+interface UnitPeriodFeeInputProps {
+  periodId: string;
+  flatNumber: string | number;
+  currentFee: number | undefined;
+  defaultFee: number;
+  periodTitle: string;
+  onUpdate: (periodId: string, flatNumber: string | number, fee: number | undefined) => void;
+}
+
+const UnitPeriodFeeInput: React.FC<UnitPeriodFeeInputProps> = ({
+  periodId,
+  flatNumber,
+  currentFee,
+  defaultFee,
+  periodTitle,
+  onUpdate,
+}) => {
+  const [val, setVal] = useState<string>(currentFee !== undefined ? String(currentFee) : '');
+  const [isSaved, setIsSaved] = useState(false);
+  const debounceRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    setVal(currentFee !== undefined ? String(currentFee) : '');
+  }, [currentFee]);
+
+  const commitSave = (newValStr: string) => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    const parsed = newValStr === '' ? undefined : parseFloat(newValStr);
+    if (parsed !== currentFee) {
+      onUpdate(periodId, flatNumber, parsed);
+      setIsSaved(true);
+      setTimeout(() => setIsSaved(false), 2000);
+    }
+  };
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const nextVal = e.target.value;
+    setVal(nextVal);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      commitSave(nextVal);
+    }, 350);
+  };
+
+  const handleBlur = () => {
+    commitSave(val);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      commitSave(val);
+      (e.target as HTMLInputElement).blur();
+    }
+  };
+
+  return (
+    <div className="flex items-center justify-center gap-1 relative">
+      <input
+        type="number"
+        min="0"
+        step="10"
+        value={val}
+        placeholder={String(defaultFee)}
+        onChange={handleChange}
+        onBlur={handleBlur}
+        onKeyDown={handleKeyDown}
+        className={`w-14 sm:w-16 px-1 py-0.5 text-center bg-white border rounded-lg font-black text-xs text-blue-900 focus:ring-2 focus:ring-blue-500 outline-none transition ${
+          isSaved ? 'border-emerald-500 ring-2 ring-emerald-300 bg-emerald-50/40' : 'border-slate-300 hover:border-blue-400'
+        }`}
+        title={`قيمة اشتراك الوحدة ${flatNumber} في فترة ${periodTitle} (حفظ فوري وتلقائي بمجرد التعديل)`}
+      />
+      <span className="text-[9px] text-slate-400 font-bold">ج.م</span>
+      {isSaved && (
+        <span className="absolute -top-3.5 left-0 text-[8px] font-black text-emerald-800 bg-emerald-100 px-1 py-0.2 rounded shadow-2xs border border-emerald-300 animate-fade-in pointer-events-none z-10 whitespace-nowrap">
+          ✓ تم الحفظ
+        </span>
+      )}
+    </div>
+  );
 };
 
 export const ResidentsList: React.FC<ResidentsListProps> = ({
@@ -166,6 +248,34 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
     }
     return raw;
   }, [config?.customUnitFeePeriods, residents]);
+
+  const activeAccountingPeriod = useMemo(() => getActiveAccountingPeriod(config), [config]);
+
+  const autoSavePeriodChange = (updatedFields: Partial<CustomUnitFeePeriod>) => {
+    if (!editingPeriodId) return;
+    const currentPeriods = effectiveCustomFeePeriods;
+    const updatedPeriods = currentPeriods.map(p => {
+      if (p.id === editingPeriodId) {
+        return {
+          ...p,
+          ...updatedFields,
+        };
+      }
+      if (updatedFields.isCurrent && p.isCurrent) {
+        return { ...p, isCurrent: false };
+      }
+      return p;
+    });
+
+    const updatedConfig: AppConfig = {
+      ...(config || { expenseTypes: [], paymentTypes: [], activityTypes: [], admins: [], managers: [] }),
+      customUnitFeePeriods: updatedPeriods,
+    };
+    if (onUpdateConfig) {
+      onUpdateConfig(updatedConfig);
+    }
+    setToastMsg('تم الحفظ التلقائي الفوري لتعديل الفترة ✓');
+  };
 
   const handleOpenAddPeriod = () => {
     setEditingPeriodId(null);
@@ -619,7 +729,9 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                     const isSurplus = fin.netBalance > 0;
 
                     const isSelected = selectedItemId === res.id;
-                    const occ = res.history && res.history.length > 0 ? getLatestOccupantFromHistory(res) : null;
+                    const occ = res.history && res.history.length > 0 
+                      ? getLatestOccupantFromHistory(res, activeAccountingPeriod) 
+                      : getLatestOccupantFromHistory(res);
                     const displayOwnerName = occ ? (occ.ownerName || res.name) : res.name;
                     const displayOwnerPhone = occ ? occ.ownerPhone : res.phone;
                     const displayTenantName = occ ? occ.tenantName : (res.ownershipType === 'إيجار' ? res.tenantName : undefined);
@@ -892,7 +1004,9 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                         const isSelected = selectedItemId === res.id;
                         const status = res.accountStatus || 'ACTIVE';
 
-                        const occ = res.history && res.history.length > 0 ? getLatestOccupantFromHistory(res) : null;
+                        const occ = res.history && res.history.length > 0 
+                          ? getLatestOccupantFromHistory(res, activeAccountingPeriod) 
+                          : getLatestOccupantFromHistory(res);
                         const displayOwnerName = occ ? (occ.ownerName || res.name) : res.name;
                         const displayOwnerPhone = occ ? occ.ownerPhone : res.phone;
                         const displayTenantName = occ ? occ.tenantName : (res.ownershipType === 'إيجار' ? res.tenantName : undefined);
@@ -1538,7 +1652,9 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                           ) : (
                             group.residents.map((res) => {
                               const activityDefault = getDefaultFeeForActivity(res.activityType || 'سكني');
-                              const occ = res.history && res.history.length > 0 ? getLatestOccupantFromHistory(res) : null;
+                              const occ = res.history && res.history.length > 0 
+                                ? getLatestOccupantFromHistory(res, activeAccountingPeriod) 
+                                : getLatestOccupantFromHistory(res);
                               const displayOwnerName = occ ? (occ.ownerName || res.name) : res.name;
                               const displayTenantName = occ ? occ.tenantName : (res.ownershipType === 'إيجار' ? res.tenantName : undefined);
                               const hasTenant = Boolean(displayTenantName && displayTenantName.trim());
@@ -1603,22 +1719,14 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                                         className="w-28 sm:w-32 min-w-[100px] max-w-[130px] px-1 py-1 text-center border-r border-slate-100 whitespace-nowrap"
                                         onClick={(e) => e.stopPropagation()}
                                       >
-                                        <div className="flex items-center justify-center gap-1">
-                                          <input
-                                            type="number"
-                                            min="0"
-                                            step="10"
-                                            defaultValue={unitFeeVal !== undefined ? unitFeeVal : ''}
-                                            placeholder={String(activityDefault)}
-                                            onBlur={(e) => {
-                                              const val = e.target.value === '' ? undefined : parseFloat(e.target.value);
-                                              handleUpdateUnitPeriodFee(p.id, res.flatNumber, val);
-                                            }}
-                                            className="w-14 sm:w-16 px-1 py-0.5 text-center bg-white border border-slate-300 rounded-lg font-black text-xs text-blue-900 focus:ring-1 focus:ring-blue-500 outline-none"
-                                            title={`قيمة اشتراك الوحدة ${res.flatNumber} في فترة ${p.title}`}
-                                          />
-                                          <span className="text-[9px] text-slate-400 font-bold">ج.م</span>
-                                        </div>
+                                        <UnitPeriodFeeInput
+                                          periodId={p.id}
+                                          flatNumber={res.flatNumber}
+                                          currentFee={unitFeeVal}
+                                          defaultFee={activityDefault}
+                                          periodTitle={p.title}
+                                          onUpdate={handleUpdateUnitPeriodFee}
+                                        />
                                       </td>
                                     );
                                   })}
@@ -1652,12 +1760,23 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                 </div>
                 
                 <div className="space-y-3.5">
+                  {editingPeriodId && (
+                    <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-900 text-xs font-black flex items-center gap-1.5 animate-fade-in shadow-2xs">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>حفظ فوري وتلقائي: أي تعديل على تواريخ أو بيانات الفترة يتم حفظه تلقائياً ومباشرة.</span>
+                    </div>
+                  )}
+
                   <div>
                     <label className="block text-xs font-black text-slate-700 mb-1">عنوان الفترة / اسم العمود</label>
                     <input
                       type="text"
                       value={periodFormTitle}
-                      onChange={(e) => setPeriodFormTitle(e.target.value)}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setPeriodFormTitle(val);
+                        if (editingPeriodId && val.trim()) autoSavePeriodChange({ title: val.trim() });
+                      }}
                       placeholder="مثال: الحالي أو فترة 2024-2025"
                       className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold focus:ring-2 focus:ring-blue-500/20 outline-none"
                     />
@@ -1666,13 +1785,33 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                   {/* Is Current Period Checkbox */}
                   <div 
                     className="p-3 bg-blue-50/70 border border-blue-200/70 rounded-xl flex items-start gap-2.5 cursor-pointer" 
-                    onClick={() => setPeriodFormIsCurrent(!periodFormIsCurrent)}
+                    onClick={() => {
+                      const next = !periodFormIsCurrent;
+                      setPeriodFormIsCurrent(next);
+                      if (editingPeriodId) {
+                        autoSavePeriodChange({
+                          isCurrent: next,
+                          endYear: next ? undefined : Number(periodFormEndYear),
+                          endMonth: next ? undefined : Number(periodFormEndMonth),
+                        });
+                      }
+                    }}
                   >
                     <input
                       type="checkbox"
                       id="periodIsCurrentCheck"
                       checked={periodFormIsCurrent}
-                      onChange={(e) => setPeriodFormIsCurrent(e.target.checked)}
+                      onChange={(e) => {
+                        const next = e.target.checked;
+                        setPeriodFormIsCurrent(next);
+                        if (editingPeriodId) {
+                          autoSavePeriodChange({
+                            isCurrent: next,
+                            endYear: next ? undefined : Number(periodFormEndYear),
+                            endMonth: next ? undefined : Number(periodFormEndMonth),
+                          });
+                        }
+                      }}
                       onClick={(e) => e.stopPropagation()}
                       className="w-4 h-4 mt-0.5 text-blue-900 rounded cursor-pointer"
                     />
@@ -1694,7 +1833,11 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                         <span className="text-[10px] text-slate-500 font-bold block mb-1">الشهر:</span>
                         <select
                           value={periodFormStartMonth}
-                          onChange={(e) => setPeriodFormStartMonth(parseInt(e.target.value, 10))}
+                          onChange={(e) => {
+                            const m = parseInt(e.target.value, 10);
+                            setPeriodFormStartMonth(m);
+                            if (editingPeriodId) autoSavePeriodChange({ startMonth: m });
+                          }}
                           className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-bold bg-white outline-none cursor-pointer"
                         >
                           {monthNamesArabic.map((m, idx) => (
@@ -1707,7 +1850,23 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                         <input
                           type="number"
                           value={periodFormStartYear}
-                          onChange={(e) => setPeriodFormStartYear(parseInt(e.target.value, 10) || 2026)}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            if (raw === '') {
+                              setPeriodFormStartYear('' as any);
+                              return;
+                            }
+                            const y = parseInt(raw, 10);
+                            setPeriodFormStartYear(isNaN(y) ? ('' as any) : y);
+                            if (!isNaN(y) && y >= 1990 && y <= 2100 && editingPeriodId) {
+                              autoSavePeriodChange({ startYear: y });
+                            }
+                          }}
+                          onBlur={() => {
+                            const y = Number(periodFormStartYear) || 2026;
+                            setPeriodFormStartYear(y);
+                            if (editingPeriodId) autoSavePeriodChange({ startYear: y });
+                          }}
                           className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-bold outline-none text-center font-mono"
                         />
                       </div>
@@ -1723,7 +1882,11 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                           <span className="text-[10px] text-slate-500 font-bold block mb-1">الشهر:</span>
                           <select
                             value={periodFormEndMonth}
-                            onChange={(e) => setPeriodFormEndMonth(parseInt(e.target.value, 10))}
+                            onChange={(e) => {
+                              const m = parseInt(e.target.value, 10);
+                              setPeriodFormEndMonth(m);
+                              if (editingPeriodId) autoSavePeriodChange({ endMonth: m });
+                            }}
                             className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-bold bg-white outline-none cursor-pointer"
                           >
                             {monthNamesArabic.map((m, idx) => (
@@ -1736,7 +1899,23 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                           <input
                             type="number"
                             value={periodFormEndYear}
-                            onChange={(e) => setPeriodFormEndYear(parseInt(e.target.value, 10) || 2026)}
+                            onChange={(e) => {
+                              const raw = e.target.value;
+                              if (raw === '') {
+                                setPeriodFormEndYear('' as any);
+                                return;
+                              }
+                              const y = parseInt(raw, 10);
+                              setPeriodFormEndYear(isNaN(y) ? ('' as any) : y);
+                              if (!isNaN(y) && y >= 1990 && y <= 2100 && editingPeriodId) {
+                                autoSavePeriodChange({ endYear: y });
+                              }
+                            }}
+                            onBlur={() => {
+                              const y = Number(periodFormEndYear) || 2026;
+                              setPeriodFormEndYear(y);
+                              if (editingPeriodId) autoSavePeriodChange({ endYear: y });
+                            }}
                             className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-bold outline-none text-center font-mono"
                           />
                         </div>

@@ -542,8 +542,10 @@ export const Summaries: React.FC<SummariesProps> = ({
       const remainder = parsedAmount - basePerMonth * count;
 
       const sortedMonths = [...selectedMonths].sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
-      // Anchor master to the original master payment month if included, or first month
-      const masterMonth = sortedMonths.includes(masterPay.month) ? masterPay.month : sortedMonths[0];
+      // Anchor master to the clicked cell month if included in selection, otherwise original master month or first month
+      const masterMonth = (selectedCell && sortedMonths.includes(selectedCell.month))
+        ? selectedCell.month
+        : (sortedMonths.includes(masterPay.month) ? masterPay.month : sortedMonths[0]);
 
       const childIds: string[] = [];
       const distributedPayments: Payment[] = sortedMonths.map((m, idx) => {
@@ -580,6 +582,9 @@ export const Summaries: React.FC<SummariesProps> = ({
               : `سداد مجمع عن شهور: ${sortedMonths.map(x => monthNamesArabic[parseInt(x, 10) - 1]).join('، ')} (القيمة الموزعة للشهر: ${allocatedAmount.toLocaleString()} ج.م)`)
           : `تم السداد في شهر ${primaryMonthName} ${currentYear} بإيصال رقم ${recNum || '—'} (القيمة الموزعة للشهر: ${allocatedAmount.toLocaleString()} ج.م)${cleanCustomNote ? ` (${cleanCustomNote})` : ''}`;
 
+        // Distributed payments represent actual collections across months, so status must be 'collected'
+        const paymentStatusToUse = (editPaymentStatus === 'pending' || editPaymentStatus === 'لم يتم التحصيل') ? 'collected' : (editPaymentStatus || 'collected');
+
         return {
           id: newId,
           year: currentYear,
@@ -595,7 +600,7 @@ export const Summaries: React.FC<SummariesProps> = ({
           fileUrl: masterPay.fileUrl || '',
           date: masterPay.date || new Date().toISOString().split('T')[0],
           isManuallyPaid: true,
-          status: (editPaymentStatus as any) || 'collected',
+          status: paymentStatusToUse as any,
           isAggregatedCollection: isMaster,
           isDistributed: isMaster,
           distributedPaymentIds: isMaster ? childIds : undefined,
