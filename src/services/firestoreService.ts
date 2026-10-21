@@ -512,6 +512,92 @@ export async function deleteBatchPaymentsFromFirestore(ids: string[]): Promise<v
   }
 }
 
+export async function executeBatchPaymentsAtomic(params: {
+  toSave?: Payment[];
+  toDeleteIds?: string[];
+}): Promise<void> {
+  const { toSave = [], toDeleteIds = [] } = params;
+  if (toSave.length === 0 && toDeleteIds.length === 0) return;
+
+  const activeId = getActiveBuildingId();
+  const cacheKey = getBuildingCacheKey('payments');
+  const cleanDeleteIds = toDeleteIds.map(id => String(id));
+
+  if (cleanDeleteIds.length > 0) {
+    registerDeletedPaymentIds(cleanDeleteIds);
+    cleanDeleteIds.forEach(id => offlineSync.purgeEntityFromQueue(id));
+  }
+
+  const preparedPayments = toSave.map(payment => {
+    const cleanId = String(payment.id || `pay_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`);
+    return {
+      ...payment,
+      id: cleanId,
+      amount: Number(payment.amount) || 0,
+      buildingId: (payment as any).buildingId || activeId
+    };
+  });
+
+  // Synchronously update local cache so the UI updates instantly
+  let list = offlineSync.getCachedData<Payment[]>(cacheKey) || [];
+  if (cleanDeleteIds.length > 0) {
+    list = list.filter(p => !cleanDeleteIds.includes(String(p.id)));
+  }
+  preparedPayments.forEach(payload => {
+    const idx = list.findIndex(p => String(p.id) === payload.id);
+    if (idx >= 0) {
+      list[idx] = payload;
+    } else {
+      list.push(payload);
+    }
+  });
+  const cleanList = filterAndDeduplicatePayments(list);
+  offlineSync.saveCachedData(cacheKey, cleanList);
+
+  // Firestore Atomic writeBatch (both deletes and sets committed together)
+  try {
+    const CHUNK_SIZE = 250;
+    // Process deletes and saves in unified chunks
+    const allOperations: Array<{ type: 'delete'; id: string } | { type: 'set'; data: Payment }> = [
+      ...cleanDeleteIds.map(id => ({ type: 'delete' as const, id })),
+      ...preparedPayments.map(data => ({ type: 'set' as const, data }))
+    ];
+
+    for (let i = 0; i < allOperations.length; i += CHUNK_SIZE) {
+      const batch = writeBatch(db);
+      const chunk = allOperations.slice(i, i + CHUNK_SIZE);
+      chunk.forEach(op => {
+        if (op.type === 'delete') {
+          const docRef = getBuildingDocRef('payments', op.id);
+          batch.delete(docRef);
+          if (activeId && activeId !== DEFAULT_BUILDING_ID) {
+            try {
+              const subDocRef = doc(db, 'buildings', activeId, 'payments', op.id);
+              batch.delete(subDocRef);
+            } catch {}
+          }
+        } else {
+          const docRef = getBuildingDocRef('payments', op.data.id);
+          batch.set(docRef, sanitizeForFirestore(op.data), { merge: true });
+          if (activeId && activeId !== DEFAULT_BUILDING_ID) {
+            try {
+              const subDocRef = doc(db, 'buildings', activeId, 'payments', op.data.id);
+              batch.set(subDocRef, sanitizeForFirestore(op.data), { merge: true });
+            } catch {}
+          }
+        }
+      });
+      await batch.commit();
+    }
+  } catch (error) {
+    handleFirestoreError(error, {
+      operation: OperationType.UPDATE,
+      path: 'payments'
+    });
+    throw error;
+  }
+}
+
 export async function deletePaymentFromFirestore(id: string): Promise<void> {
   const cleanId = String(id);
   registerDeletedPaymentIds(cleanId);
@@ -1385,6 +1471,7 @@ export function subscribeToFirestoreCollection<T>(
   try {
     const rootItemsMap = new Map<string, T>();
     const subItemsMap = new Map<string, T>();
+    let debounceTimer: any = null;
 
     const emitMerged = () => {
       const mergedMap = new Map<string, T>();
@@ -1411,6 +1498,13 @@ export function subscribeToFirestoreCollection<T>(
       onUpdate(items);
     };
 
+    const scheduleEmitMerged = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        emitMerged();
+      }, 35);
+    };
+
     const colRef = getBuildingColRef(collectionName);
     const unsubRoot = onSnapshot(colRef, (snapshot) => {
       rootItemsMap.clear();
@@ -1419,7 +1513,7 @@ export function subscribeToFirestoreCollection<T>(
         const id = (data as any)?.id || docSnap.id;
         rootItemsMap.set(String(id), data);
       });
-      emitMerged();
+      scheduleEmitMerged();
     }, (error) => {
       console.warn(`[Firestore root listener notice for ${collectionName}]:`, error.message);
     });
@@ -1436,7 +1530,7 @@ export function subscribeToFirestoreCollection<T>(
             const id = (data as any)?.id || docSnap.id;
             subItemsMap.set(String(id), data);
           });
-          emitMerged();
+          scheduleEmitMerged();
         }, (error) => {
           console.warn(`[Firestore subcollection listener notice for ${collectionName}]:`, error.message);
         });
@@ -1444,6 +1538,7 @@ export function subscribeToFirestoreCollection<T>(
     }
 
     return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
       unsubRoot();
       unsubSub();
     };

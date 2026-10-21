@@ -179,41 +179,38 @@ export function getPrescribedFeeForMonth(
   const mStr = String(month).padStart(2, '0');
   const periodStr = `${year}-${mStr}`;
 
-  // 1. أولاً: من سجل الوحدة (Unit Record: سواء من تسلسل النشاط والاستخدام activityHistory أو الاشتراك المحدد بالوحدة resident.monthlyFee)
+  // 1. أولاً: من سجل الوحدة الشامل وتسلسل النشاط والاستخدام (resident.activityHistory)
+  // البحث عن السجل الذي تغطي فترته الزمنية شهر وسنة التحصيل
   if (resident.activityHistory && Array.isArray(resident.activityHistory) && resident.activityHistory.length > 0) {
     const historyList = sortActivityRecordsChronologically(resident.activityHistory);
     const parsedTarget = parseToStandardDate(periodStr);
     if (parsedTarget) {
       const explicitMatch = historyList.find(rec =>
-        rec.activityType && rec.activityType.trim() && isPeriodMatchingTarget(parsedTarget, rec.fromDate, rec.toDate)
+        isPeriodMatchingTarget(parsedTarget, rec.fromDate, rec.toDate)
       );
-      if (explicitMatch && explicitMatch.monthlyFee !== undefined && !isNaN(explicitMatch.monthlyFee) && explicitMatch.monthlyFee >= 0) {
-        return {
-          monthlyFee: explicitMatch.monthlyFee,
-          activityType: explicitMatch.activityType.trim(),
-        };
+      if (explicitMatch) {
+        const matchAct = (explicitMatch.activityType || resident.activityType || 'سكني').trim();
+        if (matchAct === 'بدون تشطيب' || matchAct === 'بدون تحصيل' || matchAct.includes('بدون تشطيب') || matchAct.includes('بدون تحصيل')) {
+          return { monthlyFee: 0, activityType: matchAct };
+        }
+        if (explicitMatch.monthlyFee !== undefined && !isNaN(explicitMatch.monthlyFee) && explicitMatch.monthlyFee >= 0) {
+          return {
+            monthlyFee: explicitMatch.monthlyFee,
+            activityType: matchAct,
+          };
+        }
       }
     }
   }
 
-  // إذا كانت هناك قيمة اشتراك شهري محددة في سجل الوحدة
-  if (resident.monthlyFee !== undefined && !isNaN(resident.monthlyFee) && resident.monthlyFee > 0) {
-    return {
-      monthlyFee: resident.monthlyFee,
-      activityType: resident.activityType || 'سكني',
-    };
-  }
-
-  // 2. ثانياً: في حالة عدم وجود بيانات بسجل الوحدة، يتم جلب الاشتراك الشهري من إدارة اشتراكات الوحدات عن فترة التسعير التي ينتمي إليها شهر التحصيل
+  // 2. ثانياً: إذا كانت الفترة الزمنية التي ينتمي إليها هذا الشهر غير موجودة في تسلسل النشاط والاستخدام،
+  // يتم الرجوع مباشرة إلى إدارة اشتراكات الوحدات (عمود فترة التسعير للفترة التي ينتمي إليها شهر التحصيل)
   if (customUnitFeePeriods && customUnitFeePeriods.length > 0) {
     const flatKey = String(resident.flatNumber).trim();
     const targetTotal = year * 12 + month;
 
-    const boundedPeriods = customUnitFeePeriods.filter(p => !p.isCurrent && p.startYear !== undefined && p.startMonth !== undefined);
-    const currentPeriods = customUnitFeePeriods.filter(p => p.isCurrent || p.endYear === undefined || p.endMonth === undefined);
-
     const matchesPeriod = (p: CustomUnitFeePeriod) => {
-      const startTotal = p.startYear * 12 + p.startMonth;
+      const startTotal = (p.startYear ?? 0) * 12 + (p.startMonth ?? 1);
       const endTotal = (p.endYear ?? 9999) * 12 + (p.endMonth ?? 12);
       return targetTotal >= startTotal && targetTotal <= endTotal;
     };
@@ -223,6 +220,9 @@ export function getPrescribedFeeForMonth(
       if (p.unitFees[flatKey] !== undefined && !isNaN(p.unitFees[flatKey]) && p.unitFees[flatKey] >= 0) {
         return p.unitFees[flatKey];
       }
+      if (resident.id && p.unitFees[resident.id] !== undefined && !isNaN(p.unitFees[resident.id]) && p.unitFees[resident.id] >= 0) {
+        return p.unitFees[resident.id];
+      }
       const matchedKey = Object.keys(p.unitFees).find(k => isSameFlatNumber(k, flatKey));
       if (matchedKey && p.unitFees[matchedKey] !== undefined && !isNaN(p.unitFees[matchedKey]) && p.unitFees[matchedKey] >= 0) {
         return p.unitFees[matchedKey];
@@ -231,6 +231,7 @@ export function getPrescribedFeeForMonth(
     };
 
     // أ. فترات التسعير المحصورة بالتاريخ أولاً (مثل من 1/2022 إلى 12/2022)
+    const boundedPeriods = customUnitFeePeriods.filter(p => !p.isCurrent && p.startYear !== undefined && p.startMonth !== undefined);
     for (const p of boundedPeriods) {
       if (matchesPeriod(p)) {
         const fee = getFeeFromPeriod(p);
@@ -243,13 +244,11 @@ export function getPrescribedFeeForMonth(
       }
     }
 
-    // ب. فترة التسعير الحالية (حتى تاريخه)
+    // ب. فترة التسعير الحالية (المستمرة حتى تاريخه)
+    const currentPeriods = customUnitFeePeriods.filter(p => p.isCurrent || p.endYear === undefined || p.endMonth === undefined);
     for (const p of currentPeriods) {
-      const startTotal = p.startYear * 12 + p.startMonth;
-      const isMatch = p.isCurrent
-        ? (targetTotal >= startTotal)
-        : matchesPeriod(p);
-
+      const startTotal = (p.startYear ?? 0) * 12 + (p.startMonth ?? 1);
+      const isMatch = p.isCurrent ? (targetTotal >= startTotal) : matchesPeriod(p);
       if (isMatch) {
         const fee = getFeeFromPeriod(p);
         if (fee !== undefined) {
@@ -260,6 +259,14 @@ export function getPrescribedFeeForMonth(
         }
       }
     }
+  }
+
+  // 3. ثالثاً: كخيار أخير فقط في حال عدم وجود أي سجل بالنشاط أو فترة تسعير مطابقة للشهر
+  if (resident.monthlyFee !== undefined && !isNaN(resident.monthlyFee) && resident.monthlyFee > 0) {
+    return {
+      monthlyFee: resident.monthlyFee,
+      activityType: resident.activityType || 'سكني',
+    };
   }
 
   // 3. في حال عدم توفر أي بيانات في سجل الوحدة أو فترة التسعير

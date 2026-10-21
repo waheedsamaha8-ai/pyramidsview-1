@@ -324,18 +324,33 @@ export const Summaries: React.FC<SummariesProps> = ({
     const monthList = paymentsByResidentAndMonth.get(`${residentId}_${month}`) || [];
     const matchingPayments = monthList.filter((p) => matchesPaymentType(p.paymentType, filterType));
 
+    const cancelledPayments = matchingPayments.filter(
+      (p) => p.status === 'cancelled' || p.status === 'لاغي' || p.status === 'VOID' || p.status === 'ملغي' || p.status === 'مرفوض'
+    );
+
+    const isUncollectedPayment = (p: Payment) =>
+      p.status === 'pending' || p.status === 'لم يتم التحصيل' || p.status === 'uncollected' || p.status === 'unpaid' || p.status === 'غير مسدد' || p.status === 'معلق';
+
     const validCollectedPayments = matchingPayments.filter(
-      (p) => p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل'
+      (p) => !cancelledPayments.includes(p) && !isUncollectedPayment(p)
     );
 
     const pendingPayments = matchingPayments.filter(
-      (p) => p.status === 'pending' || p.status === 'لم يتم التحصيل'
+      (p) => !cancelledPayments.includes(p) && isUncollectedPayment(p)
     );
 
     const totalAmount = validCollectedPayments.reduce((sum, p) => sum + p.amount, 0);
-    const isPaid = totalAmount > 0 || validCollectedPayments.some(p => p.isManuallyPaid);
+    const isPaid = totalAmount > 0 || validCollectedPayments.some(p => p.isManuallyPaid || p.status === 'collected' || p.status === 'paid' || p.status === 'تم التحصيل');
     const isPending = !isPaid && pendingPayments.length > 0;
     const pendingAmount = pendingPayments.reduce((sum, p) => sum + p.amount, 0);
+
+    const isBulkGeneratedPending = isPending && pendingPayments.some(p =>
+      p.isManuallyPaid !== true && ((p.isManuallyPaid === false) || (p.notes && (p.notes.includes('استحقاق اشتراك شهر') || p.notes.includes('توليد تلقائي'))))
+    );
+
+    const isOnlyCancelled = !isPaid && !isPending && cancelledPayments.length > 0;
+
+    const hasNoPayments = matchingPayments.length === 0;
 
     const isAggregated = matchingPayments.some(p => 
       p.status !== 'cancelled' && p.status !== 'لاغي' && (isOriginalAggregatedPayment(p) || Boolean(p.isAggregatedCollection))
@@ -345,9 +360,12 @@ export const Summaries: React.FC<SummariesProps> = ({
     );
 
     return {
+      hasNoPayments,
       paid: isPaid,
       pending: isPending,
+      isBulkGeneratedPending,
       pendingAmount: pendingAmount,
+      isCancelled: isOnlyCancelled,
       amount: totalAmount,
       paymentsList: matchingPayments,
       isAggregated,
@@ -510,7 +528,6 @@ export const Summaries: React.FC<SummariesProps> = ({
 
   const selectUnpaidMonths = (residentId: string, currentPayMonth: string) => {
     const unpaid = months.filter((m) => {
-      if (m === currentPayMonth) return true;
       const status = getSubscriptionStatus(residentId, m);
       return !status.paid;
     });
@@ -536,16 +553,18 @@ export const Summaries: React.FC<SummariesProps> = ({
     );
     const existingChildIds = existingChildPayments.map((p) => String(p.id));
 
-    if (isDistributing && selectedMonths.length > 1) {
+    if (isDistributing && (selectedMonths.length > 1 || (selectedMonths.length === 1 && selectedMonths[0] !== pay.month))) {
       const count = selectedMonths.length;
       const basePerMonth = Math.floor(parsedAmount / count);
       const remainder = parsedAmount - basePerMonth * count;
 
       const sortedMonths = [...selectedMonths].sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
-      // Anchor master to the clicked cell month if included in selection, otherwise original master month or first month
+      // Anchor master to the clicked cell month if included in selection, otherwise original master month if included, otherwise first month in sorted selection
       const masterMonth = (selectedCell && sortedMonths.includes(selectedCell.month))
         ? selectedCell.month
         : (sortedMonths.includes(masterPay.month) ? masterPay.month : sortedMonths[0]);
+
+      const otherMonths = sortedMonths.filter(m => m !== masterMonth);
 
       const childIds: string[] = [];
       const distributedPayments: Payment[] = sortedMonths.map((m, idx) => {
@@ -572,14 +591,18 @@ export const Summaries: React.FC<SummariesProps> = ({
         }
 
         const cleanCustomNote = (editNotes || '').trim();
-        const primaryMonthName = monthNamesArabic[parseInt(masterMonth, 10) - 1];
+        const primaryMonthName = monthNamesArabic[parseInt(pay.month || masterPay.month, 10) - 1];
         const recNum = (editReceiptNumber || masterPay.receiptNumber || '').trim();
         const allocatedAmount = isMaster ? (basePerMonth + remainder) : basePerMonth;
 
         const noteText = isMaster
-          ? (cleanCustomNote
-              ? `${cleanCustomNote} (سداد مجمع عن شهور: ${sortedMonths.map(x => monthNamesArabic[parseInt(x, 10) - 1]).join('، ')} - القيمة الموزعة للشهر: ${allocatedAmount.toLocaleString()} ج.م)`
-              : `سداد مجمع عن شهور: ${sortedMonths.map(x => monthNamesArabic[parseInt(x, 10) - 1]).join('، ')} (القيمة الموزعة للشهر: ${allocatedAmount.toLocaleString()} ج.م)`)
+          ? (sortedMonths.length === 1
+              ? (cleanCustomNote
+                  ? `${cleanCustomNote} (سداد عن شهر ${monthNamesArabic[parseInt(masterMonth, 10) - 1]}${masterMonth !== pay.month ? ` - تم التحصيل في شهر ${primaryMonthName} ${currentYear}` : ''})`
+                  : `سداد عن شهر ${monthNamesArabic[parseInt(masterMonth, 10) - 1]}${masterMonth !== pay.month ? ` (تم التحصيل في شهر ${primaryMonthName} ${currentYear})` : ''}`)
+              : (cleanCustomNote
+                  ? `${cleanCustomNote} (سداد مجمع عن شهور: ${sortedMonths.map(x => monthNamesArabic[parseInt(x, 10) - 1]).join('، ')}${!sortedMonths.includes(pay.month) ? ` - تم التحصيل في شهر ${primaryMonthName} ${currentYear}` : ''} - القيمة الموزعة للشهر: ${allocatedAmount.toLocaleString()} ج.م)`
+                  : `سداد مجمع عن شهور: ${sortedMonths.map(x => monthNamesArabic[parseInt(x, 10) - 1]).join('، ')}${!sortedMonths.includes(pay.month) ? ` (تم التحصيل في شهر ${primaryMonthName} ${currentYear})` : ''} (القيمة الموزعة للشهر: ${allocatedAmount.toLocaleString()} ج.م)`))
           : `تم السداد في شهر ${primaryMonthName} ${currentYear} بإيصال رقم ${recNum || '—'} (القيمة الموزعة للشهر: ${allocatedAmount.toLocaleString()} ج.م)${cleanCustomNote ? ` (${cleanCustomNote})` : ''}`;
 
         // Distributed payments represent actual collections across months, so status must be 'collected'
@@ -602,8 +625,8 @@ export const Summaries: React.FC<SummariesProps> = ({
           isManuallyPaid: true,
           status: paymentStatusToUse as any,
           isAggregatedCollection: isMaster,
-          isDistributed: isMaster,
-          distributedPaymentIds: isMaster ? childIds : undefined,
+          isDistributed: isMaster && otherMonths.length > 0,
+          distributedPaymentIds: (isMaster && otherMonths.length > 0) ? childIds : undefined,
           distributionSourceId: isMaster ? undefined : masterPay.id,
           originalAmountBeforeDistribution: isMaster ? parsedAmount : undefined,
         };
@@ -1009,21 +1032,27 @@ export const Summaries: React.FC<SummariesProps> = ({
           </div>
         </div>
 
-        {/* Status Legend Bar - Compact with richer, darker colors */}
+        {/* Status Legend Bar - Matches PaymentsList row colors */}
         <div className="px-1 sm:px-3 py-1 bg-slate-100/90 border-b border-slate-200 overflow-x-auto scrollbar-none flex items-center justify-between sm:justify-start gap-1 sm:gap-2 text-[7.5px] min-[360px]:text-[8px] min-[400px]:text-[9px] sm:text-[10.5px] font-black whitespace-nowrap">
           <span className="text-slate-600 font-extrabold shrink-0 hidden md:inline ml-1">دليل الألوان:</span>
           <div className="flex items-center justify-between sm:justify-start gap-0.5 sm:gap-1.5 w-full sm:w-auto">
             <span className="inline-flex items-center gap-0.5 px-1 sm:px-2 py-0.5 rounded bg-emerald-200 text-emerald-950 border border-emerald-400 shadow-2xs shrink-0 font-black">
-              <Check className="w-2 h-2 sm:w-2.5 sm:h-2.5 stroke-[3.5] text-emerald-800" /> مسدد (أخضر)
+              <Check className="w-2 h-2 sm:w-2.5 sm:h-2.5 stroke-[3.5] text-emerald-800" /> مسدد
             </span>
-            <span className="inline-flex items-center gap-0.5 px-1 sm:px-2 py-0.5 rounded bg-amber-200 text-amber-950 border border-amber-400 shadow-2xs shrink-0 font-black">
-              <Clock className="w-2 h-2 sm:w-2.5 sm:h-2.5 stroke-[2.5] text-amber-800" /> لم يحصل (أصفر)
+            <span className="inline-flex items-center gap-0.5 px-1 sm:px-2 py-0.5 rounded bg-rose-200 text-rose-950 border border-rose-400 shadow-2xs shrink-0 font-black">
+              <Clock className="w-2 h-2 sm:w-2.5 sm:h-2.5 stroke-[2.5] text-rose-800" /> استحقاق معلق
             </span>
-            <span className="inline-flex items-center gap-0.5 px-1 sm:px-2 py-0.5 rounded bg-slate-300 text-slate-900 border border-slate-400 shadow-2xs shrink-0 font-black">
-              <Minus className="w-2 h-2 sm:w-2.5 sm:h-2.5 stroke-[3] text-slate-700" /> غير مطالبة (رمادي)
+            <span className="inline-flex items-center gap-0.5 px-1 sm:px-2 py-0.5 rounded bg-blue-200 text-blue-950 border border-blue-400 shadow-2xs shrink-0 font-black">
+              <Clock className="w-2 h-2 sm:w-2.5 sm:h-2.5 stroke-[2.5] text-blue-800" /> معلق يدوي
             </span>
-            <span className="inline-flex items-center gap-0.5 px-1 sm:px-2 py-0.5 rounded bg-red-200 text-red-950 border border-red-400 shadow-2xs shrink-0 font-black">
-              <AlertCircle className="w-2 h-2 sm:w-2.5 sm:h-2.5 stroke-[2.5] text-red-700" /> غير مسدد (أحمر)
+            <span className="inline-flex items-center gap-0.5 px-1 sm:px-2 py-0.5 rounded bg-slate-200 text-slate-800 border border-slate-300 shadow-2xs shrink-0 font-black">
+              <Minus className="w-2 h-2 sm:w-2.5 sm:h-2.5 stroke-[3] text-slate-700" /> معفي
+            </span>
+            <span className="inline-flex items-center gap-0.5 px-1 sm:px-2 py-0.5 rounded bg-slate-400 text-slate-950 border border-slate-600 shadow-2xs shrink-0 font-black">
+              <X className="w-2 h-2 sm:w-2.5 sm:h-2.5 stroke-[3] text-slate-950" /> لاغي
+            </span>
+            <span className="inline-flex items-center gap-0.5 px-1 sm:px-2 py-0.5 rounded bg-white text-slate-500 border border-slate-300 shadow-2xs shrink-0 font-black">
+              بدون دفعات مسجلة
             </span>
           </div>
         </div>
@@ -1113,13 +1142,22 @@ export const Summaries: React.FC<SummariesProps> = ({
                             (histAct.monthlyFee === 0)
                           );
 
-                          let cellBgClass = 'bg-red-200 text-red-950 hover:bg-red-300 border-red-300 shadow-2xs font-black';
-                          if (isNoFeeActivity || histAct.monthlyFee === 0) {
-                            cellBgClass = 'bg-slate-300 text-slate-900 hover:bg-slate-400 border-slate-400 shadow-2xs font-black';
-                          } else if (status.paid) {
-                            cellBgClass = 'bg-emerald-200 text-emerald-950 hover:bg-emerald-300 border-emerald-300 shadow-2xs font-black';
+                          let cellBgClass = 'bg-white hover:bg-slate-100/70 text-slate-300 border border-slate-200';
+                          if (status.paid) {
+                            cellBgClass = 'bg-emerald-200/90 text-emerald-950 hover:bg-emerald-300/90 border border-emerald-400 shadow-2xs font-black';
                           } else if (status.pending) {
-                            cellBgClass = 'bg-amber-200 text-amber-950 hover:bg-amber-300 border-amber-400 shadow-2xs font-black';
+                            if (status.isBulkGeneratedPending) {
+                              cellBgClass = 'bg-rose-200/90 text-rose-950 hover:bg-rose-300/90 border border-rose-400 shadow-2xs font-black';
+                            } else {
+                              cellBgClass = 'bg-blue-200/90 text-blue-950 hover:bg-blue-300/90 border border-blue-400 shadow-2xs font-black';
+                            }
+                          } else if (status.isCancelled) {
+                            cellBgClass = 'bg-slate-400/80 text-slate-950 hover:bg-slate-400 border border-slate-600 shadow-2xs font-black';
+                          } else if (isNoFeeActivity || histAct.monthlyFee === 0) {
+                            cellBgClass = 'bg-slate-200/90 text-slate-800 hover:bg-slate-200 border border-slate-300 shadow-2xs font-black';
+                          } else {
+                            // الخانة التي ليس لها دفعات مسجلة: تكون باللون الأبيض مع حذف كلمة غير مسدد
+                            cellBgClass = 'bg-white hover:bg-slate-100/70 text-slate-300 border border-slate-200 font-bold';
                           }
 
                           return (
@@ -1143,7 +1181,7 @@ export const Summaries: React.FC<SummariesProps> = ({
                                   payments: status.paymentsList,
                                 });
                               }}
-                              className={`px-0.5 py-1 text-center border-x border-slate-50 ${
+                              className={`px-0.5 py-1 text-center border-x border-slate-100 ${
                                 isQuarterEnd ? 'border-l-2 border-l-slate-300' : ''
                               } cursor-pointer ${cellBgClass} transition font-bold`}
                             >
@@ -1175,7 +1213,7 @@ export const Summaries: React.FC<SummariesProps> = ({
                                 ) : status.pending ? (
                                   <>
                                     <div className="flex items-center gap-0.5">
-                                      <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-800 stroke-[2.5]" />
+                                      <Clock className={`w-3 h-3 sm:w-3.5 sm:h-3.5 stroke-[2.5] ${status.isBulkGeneratedPending ? 'text-rose-800' : 'text-blue-800'}`} />
                                       {status.isDistributed && (
                                         <span className="w-2 h-2 rounded-full bg-amber-600 ring-2 ring-amber-300 animate-pulse" title="تم التوزيع من هذه الدفعة" />
                                       )}
@@ -1185,32 +1223,39 @@ export const Summaries: React.FC<SummariesProps> = ({
                                         </span>
                                       )}
                                       {isMulti && (
-                                        <span className="text-[7.5px] sm:text-[9px] font-black px-0.5 py-0.2 bg-blue-300 text-blue-900 rounded-xs">
+                                        <span className={`text-[7.5px] sm:text-[9px] font-black px-0.5 py-0.2 rounded-xs ${status.isBulkGeneratedPending ? 'bg-rose-300 text-rose-950' : 'bg-blue-300 text-blue-900'}`}>
                                           {status.paymentsList.length}
                                         </span>
                                       )}
                                     </div>
-                                    <span className="text-[8.5px] sm:text-[10px] font-black text-amber-950 whitespace-nowrap leading-none">لم يحصل</span>
+                                    <span className={`text-[8.5px] sm:text-[10px] font-black whitespace-nowrap leading-none ${status.isBulkGeneratedPending ? 'text-rose-950' : 'text-blue-950'}`}>
+                                      {status.isBulkGeneratedPending ? 'استحقاق' : 'معلق'}
+                                    </span>
                                     {status.pendingAmount > 0 && (
-                                      <span className="text-[9px] sm:text-[11px] font-black text-amber-950 leading-none">
+                                      <span className={`text-[9px] sm:text-[11px] font-black leading-none ${status.isBulkGeneratedPending ? 'text-rose-950' : 'text-blue-950'}`}>
                                         {Math.round(status.pendingAmount).toLocaleString()}
                                       </span>
                                     )}
                                   </>
-                                ) : isNoFeeActivity ? (
+                                ) : status.isCancelled ? (
+                                  <>
+                                    <div className="flex items-center gap-0.5">
+                                      <X className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-slate-900 stroke-[3]" />
+                                    </div>
+                                    <span className="text-[8.5px] sm:text-[10px] font-black text-slate-950 whitespace-nowrap leading-none line-through">
+                                      لاغي
+                                    </span>
+                                  </>
+                                ) : (isNoFeeActivity || histAct.monthlyFee === 0) ? (
                                   <>
                                     <Minus className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-slate-700 stroke-[3]" />
-                                    <span className="text-[9px] sm:text-[11px] font-black text-slate-900 whitespace-nowrap leading-none">
+                                    <span className="text-[9px] sm:text-[11px] font-black text-slate-800 whitespace-nowrap leading-none">
                                       معفي
                                     </span>
                                   </>
                                 ) : (
-                                  <>
-                                    <AlertCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-red-700 stroke-[2.5]" />
-                                    <span className="text-[9px] sm:text-[11px] font-black text-red-950 leading-none whitespace-nowrap">
-                                      غير مسدد
-                                    </span>
-                                  </>
+                                  /* الخانة التي ليس لها دفعات مسجلة: باللون الأبيض مع حذف كلمة غير مسدد */
+                                  <span className="text-slate-300 font-bold text-xs select-none">—</span>
                                 )}
                               </div>
                             </td>
@@ -1620,7 +1665,7 @@ export const Summaries: React.FC<SummariesProps> = ({
                                 >
                                   <Save className="w-3 h-3 shrink-0" />
                                   <span className="truncate">
-                                    {isDistributing && selectedMonths.length > 1
+                                    {isDistributing && (selectedMonths.length > 1 || (selectedMonths.length === 1 && selectedMonths[0] !== pay.month))
                                       ? `تطبيق وتوزيع (${selectedMonths.length}) شهور 💾`
                                       : 'حفظ التعديل'}
                                   </span>

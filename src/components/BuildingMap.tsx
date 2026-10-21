@@ -285,12 +285,7 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
           } else if (st === 'paid') {
             paidCount++;
           } else {
-            const isFinishing = Boolean(histAct.activityType === 'تحت التشطيب' || histAct.activityType.includes('تشطيب'));
-            if (isFinishing) {
-              finishingUnpaidCount++;
-            } else {
-              unpaidCount++;
-            }
+            unpaidCount++;
           }
         }
       });
@@ -818,10 +813,6 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
             <span className="text-slate-800 font-bold">متأخر ({stats.unpaidCount})</span>
           </div>
           <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
-            <div className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 bg-amber-500 rounded-sm sm:rounded-md shadow-2xs border border-amber-600 shrink-0"></div>
-            <span className="text-slate-800 font-bold">تحت التشطيب غير مسدد ({stats.finishingUnpaidCount})</span>
-          </div>
-          <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
             <div className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 bg-slate-700 rounded-sm sm:rounded-md shadow-2xs border border-slate-800 shrink-0"></div>
             <span className="text-slate-800 font-bold">بدون تحصيل ({stats.rawNoFeeCount})</span>
           </div>
@@ -867,8 +858,8 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
                       // مسدد -> أخضر
                       btnBgClass = 'bg-emerald-600 border-emerald-700 text-white hover:bg-emerald-700';
                     } else if (isFinishing) {
-                      // تحت التشطيب غير مسدد -> برتقالي
-                      btnBgClass = 'bg-amber-500 border-amber-600 text-white hover:bg-amber-600';
+                      // تحت التشطيب غير مسدد -> أحمر
+                      btnBgClass = 'bg-rose-600 border-rose-700 text-white hover:bg-rose-700';
                     } else {
                       // أنشطة سكنية/تجارية غير مسددة -> أحمر
                       btnBgClass = 'bg-rose-600 border-rose-700 text-white hover:bg-rose-700';

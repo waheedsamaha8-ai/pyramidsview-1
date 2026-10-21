@@ -615,26 +615,29 @@ export function isPeriodMatchingTarget(
   fromDateRaw?: string,
   toDateRaw?: string
 ): boolean {
-  const fromNorm = parseToStandardDate(fromDateRaw);
-  const toNorm = parseToStandardDate(toDateRaw);
-
-  if (fromNorm) {
-    if (targetNorm.dateStr.length === 10 && fromNorm.dateStr.length === 10) {
-      if (targetNorm.dateStr < fromNorm.dateStr) return false;
-    } else if (targetNorm.month && fromNorm.month && targetNorm.month.length === 7 && fromNorm.month.length === 7) {
-      if (targetNorm.month < fromNorm.month) return false;
-    } else if (targetNorm.year && fromNorm.year) {
-      if (targetNorm.year < fromNorm.year) return false;
+  if (fromDateRaw) {
+    const fromNorm = parseToStandardDate(fromDateRaw);
+    if (fromNorm) {
+      if (targetNorm.dateStr.length === 10 && fromNorm.dateStr.length === 10) {
+        if (targetNorm.dateStr < fromNorm.dateStr) return false;
+      } else if (targetNorm.month && fromNorm.month && targetNorm.month.length === 7 && fromNorm.month.length === 7) {
+        if (targetNorm.month < fromNorm.month) return false;
+      } else if (targetNorm.year && fromNorm.year) {
+        if (targetNorm.year < fromNorm.year) return false;
+      }
     }
   }
 
-  if (toNorm) {
-    if (targetNorm.dateStr.length === 10 && toNorm.dateStr.length === 10) {
-      if (targetNorm.dateStr > toNorm.dateStr) return false;
-    } else if (targetNorm.month && toNorm.month && targetNorm.month.length === 7 && toNorm.month.length === 7) {
-      if (targetNorm.month > toNorm.month) return false;
-    } else if (targetNorm.year && toNorm.year) {
-      if (targetNorm.year > toNorm.year) return false;
+  if (toDateRaw && !isOngoingOrCurrentDate(toDateRaw)) {
+    const toNorm = parseToStandardDate(toDateRaw);
+    if (toNorm) {
+      if (targetNorm.dateStr.length === 10 && toNorm.dateStr.length === 10) {
+        if (targetNorm.dateStr > toNorm.dateStr) return false;
+      } else if (targetNorm.month && toNorm.month && targetNorm.month.length === 7 && toNorm.month.length === 7) {
+        if (targetNorm.month > toNorm.month) return false;
+      } else if (targetNorm.year && toNorm.year) {
+        if (targetNorm.year > toNorm.year) return false;
+      }
     }
   }
 

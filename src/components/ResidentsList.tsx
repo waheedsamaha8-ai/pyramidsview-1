@@ -1782,48 +1782,6 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                     />
                   </div>
 
-                  {/* Is Current Period Checkbox */}
-                  <div 
-                    className="p-3 bg-blue-50/70 border border-blue-200/70 rounded-xl flex items-start gap-2.5 cursor-pointer" 
-                    onClick={() => {
-                      const next = !periodFormIsCurrent;
-                      setPeriodFormIsCurrent(next);
-                      if (editingPeriodId) {
-                        autoSavePeriodChange({
-                          isCurrent: next,
-                          endYear: next ? undefined : Number(periodFormEndYear),
-                          endMonth: next ? undefined : Number(periodFormEndMonth),
-                        });
-                      }
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      id="periodIsCurrentCheck"
-                      checked={periodFormIsCurrent}
-                      onChange={(e) => {
-                        const next = e.target.checked;
-                        setPeriodFormIsCurrent(next);
-                        if (editingPeriodId) {
-                          autoSavePeriodChange({
-                            isCurrent: next,
-                            endYear: next ? undefined : Number(periodFormEndYear),
-                            endMonth: next ? undefined : Number(periodFormEndMonth),
-                          });
-                        }
-                      }}
-                      onClick={(e) => e.stopPropagation()}
-                      className="w-4 h-4 mt-0.5 text-blue-900 rounded cursor-pointer"
-                    />
-                    <div>
-                      <label htmlFor="periodIsCurrentCheck" className="text-xs font-black text-blue-950 cursor-pointer select-none block">
-                        فترة التسعير الحالية (حتى تاريخه)
-                      </label>
-                      <p className="text-[10px] text-blue-800 font-bold mt-0.5 leading-relaxed">
-                        عند تفعيل هذا الخيار، تصبح هذه الفترة هي السارية حالياً حتى تاريخه، وتنعكس أسعارها تلقائياً على عمود الرسوم في صفحة كشف الوحدات.
-                      </p>
-                    </div>
-                  </div>
 
                   {/* Start Date */}
                   <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">

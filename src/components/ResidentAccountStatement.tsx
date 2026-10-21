@@ -33,7 +33,8 @@ import {
   Send,
   X,
   ExternalLink,
-  AlertCircle
+  AlertCircle,
+  Minus
 } from 'lucide-react';
 
 export const getPaymentStatusDisplay = (status?: string) => {
@@ -46,6 +47,16 @@ export const getPaymentStatusDisplay = (status?: string) => {
       textClass: 'text-rose-600',
       amountClass: 'line-through text-rose-500 font-bold',
       icon: X,
+    };
+  }
+  if (s === 'exempt' || s === 'معفي' || s === 'معفاه' || s === 'معفاة') {
+    return {
+      type: 'exempt' as const,
+      label: 'معفي',
+      badgeClass: 'bg-slate-200 text-slate-800 border-slate-300 font-black',
+      textClass: 'text-slate-800',
+      amountClass: 'text-slate-600 font-bold',
+      icon: Minus,
     };
   }
   if (s === 'pending' || s === 'لم يتم التحصيل' || s === 'uncollected' || s === 'معلق' || s === 'غير محصل' || s === 'غير مسدد') {
@@ -104,7 +115,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
   onPreviewImage,
   onOpenResidentsList,
 }) => {
-  const [monthFilter, setMonthFilter] = useState<'all' | 'paid' | 'unpaid'>('all');
+  const [monthFilter, setMonthFilter] = useState<'all' | 'paid' | 'unpaid' | 'exempt'>('all');
   const [selectedLocalId, setSelectedLocalId] = useState<string>(resident?.id || '');
 
   // Synchronized horizontal scrolling refs between monthly breakdown and payments log tables
@@ -264,24 +275,6 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
     const s = new Date(effectiveStartDate);
     return isNaN(s.getFullYear()) ? 2026 : s.getFullYear();
   }, [effectiveStartDate]);
-
-  // Compute carried forward previous balance automatically for multi-year accounting continuity
-  const effectiveCarriedBalance = useMemo(() => {
-    if (!activeResident) return 0;
-    if (activePeriod) {
-      // In active period mode, outside previous debt is not mixed into this period
-      return 0;
-    }
-    return getCarriedPreviousBalance(
-      activeResident,
-      currentYear,
-      payments,
-      accountingStartDate,
-      defaultMonthlyFee,
-      activityDefaultFees,
-      activityFeePeriods
-    );
-  }, [activeResident, currentYear, payments, accountingStartDate, defaultMonthlyFee, activityDefaultFees, activityFeePeriods, activePeriod]);
 
   // Calculate high-level financials matching Debts page logic & synchronized with monthsTimeline
   const rawFinancials = useMemo(() => {
@@ -499,6 +492,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
       fee: number;
       activityType?: string;
       isPaid: boolean;
+      isExempt?: boolean;
       paidAmount: number;
       matchingPayments: Payment[];
       isFuture: boolean;
@@ -528,7 +522,19 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
       const effectiveFee = prescribed.monthlyFee;
       const effectiveActivityType = prescribed.activityType;
       const hasValidPaidPayment = validPaidSubsMatching.some(p => ((p.amount || 0) > 0 || p.isManuallyPaid));
-      const isPaid = pendingSubsMatching.length === 0 && hasValidPaidPayment;
+
+      const act = (effectiveActivityType || activeResident.activityType || '').trim();
+      const isExempt = 
+        Boolean(activeResident.isExempt) ||
+        act.includes('تشطيب') || 
+        act.includes('مغلق') || 
+        act.includes('مغلقة') || 
+        act.includes('معفي') || 
+        act.includes('معفاه') || 
+        act.includes('معفاة') ||
+        effectiveFee === 0;
+
+      const isPaid = !isExempt && pendingSubsMatching.length === 0 && hasValidPaidPayment;
 
       timeline.push({
         monthNum,
@@ -538,6 +544,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
         fee: effectiveFee,
         activityType: effectiveActivityType,
         isPaid,
+        isExempt,
         paidAmount: paidSubAmount,
         matchingPayments: matching,
         isFuture: false,
@@ -555,7 +562,8 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
   }, [activeResident, activePeriod, accountingStartDate, currentYear, currentMonth, viewMode, unitPayments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods, config?.customUnitFeePeriods]);
 
   const paidMonthsList = useMemo(() => monthsTimeline.filter(m => m.isPaid), [monthsTimeline]);
-  const unpaidMonthsList = useMemo(() => monthsTimeline.filter(m => !m.isPaid && !m.isFuture), [monthsTimeline]);
+  const unpaidMonthsList = useMemo(() => monthsTimeline.filter(m => !m.isPaid && !m.isExempt && !m.isFuture), [monthsTimeline]);
+  const exemptMonthsList = useMemo(() => monthsTimeline.filter(m => m.isExempt), [monthsTimeline]);
 
   // Unit prescribed fee and activity type for the target period/year
   const unitPrescribedInfo = useMemo(() => {
@@ -587,6 +595,72 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
       config?.customUnitFeePeriods
     );
   }, [activeResident, currentYear, viewMode, currentMonth, monthsTimeline, unitPayments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods, config?.customUnitFeePeriods]);
+
+  // 📋 بيان وتفصيل المبالغ المستحقة على الوحدة (6 أجزاء كاملة تماماً كما هي في صفحة بيانات وإيصال الوحدة)
+  const targetClaimYear = currentYear;
+  const targetClaimMonth = (viewMode === 'month' && currentMonth !== undefined)
+    ? (currentMonth + 1)
+    : (monthsTimeline.length > 0 ? monthsTimeline[monthsTimeline.length - 1].monthNum : (new Date().getMonth() + 1));
+
+  const claimBreakdown = useMemo(() => {
+    if (!activeResident) return null;
+    return calculateUnitClaimBreakdown(
+      activeResident,
+      payments,
+      targetClaimYear,
+      targetClaimMonth,
+      calculatedStartDate,
+      unitPrescribedInfo.monthlyFee || defaultMonthlyFee,
+      activityDefaultFees,
+      null,
+      config?.customUnitFeePeriods,
+      activityFeePeriods
+    );
+  }, [activeResident, payments, targetClaimYear, targetClaimMonth, calculatedStartDate, unitPrescribedInfo, defaultMonthlyFee, activityDefaultFees, config?.customUnitFeePeriods, activityFeePeriods]);
+
+  // Compute carried forward previous balance automatically for multi-year accounting continuity
+  const effectiveCarriedBalance = useMemo(() => {
+    if (!activeResident) return 0;
+
+    // 1. If claimBreakdown has calculated previous debt/surplus
+    if (claimBreakdown?.previousDebtAmount && claimBreakdown.previousDebtAmount > 0) {
+      return -claimBreakdown.previousDebtAmount;
+    }
+    if (claimBreakdown?.previousSurplusAmount && claimBreakdown.previousSurplusAmount > 0) {
+      return claimBreakdown.previousSurplusAmount;
+    }
+
+    // 2. Check explicit exportedYearBalances for currentYear
+    if (activeResident.exportedYearBalances && (activeResident.exportedYearBalances[currentYear] !== undefined || activeResident.exportedYearBalances[String(currentYear)] !== undefined)) {
+      const val = activeResident.exportedYearBalances[currentYear] ?? activeResident.exportedYearBalances[String(currentYear)];
+      if (val !== undefined && !isNaN(val)) return val;
+    }
+
+    // 3. If rawFinancials has carriedPreviousBalance
+    if (rawFinancials?.carriedPreviousBalance !== undefined && rawFinancials.carriedPreviousBalance !== 0) {
+      return rawFinancials.carriedPreviousBalance;
+    }
+
+    // 4. Calculate carried balance using calculatedStartDate or accountingStartDate
+    const bal = getCarriedPreviousBalance(
+      activeResident,
+      currentYear,
+      payments,
+      calculatedStartDate || accountingStartDate,
+      defaultMonthlyFee,
+      activityDefaultFees,
+      activityFeePeriods,
+      config?.customUnitFeePeriods
+    );
+    if (bal !== 0) return bal;
+
+    // 5. Fallback to resident.initialBalance
+    if (activeResident.initialBalance) {
+      return activeResident.initialBalance;
+    }
+
+    return 0;
+  }, [activeResident, currentYear, payments, calculatedStartDate, accountingStartDate, defaultMonthlyFee, activityDefaultFees, activityFeePeriods, config?.customUnitFeePeriods, claimBreakdown?.previousDebtAmount, claimBreakdown?.previousSurplusAmount, rawFinancials?.carriedPreviousBalance]);
 
   // Synchronize top-level summary financials with monthsTimeline
   const financials = useMemo(() => {
@@ -623,33 +697,12 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
     };
   }, [rawFinancials, monthsTimeline, unpaidMonthsList, effectiveCarriedBalance, unitPrescribedInfo]);
 
-  // 📋 بيان وتفصيل المبالغ المستحقة على الوحدة (6 أجزاء كاملة تماماً كما هي في صفحة بيانات وإيصال الوحدة)
-  const targetClaimYear = currentYear;
-  const targetClaimMonth = (viewMode === 'month' && currentMonth !== undefined)
-    ? (currentMonth + 1)
-    : (monthsTimeline.length > 0 ? monthsTimeline[monthsTimeline.length - 1].monthNum : (new Date().getMonth() + 1));
-
-  const claimBreakdown = useMemo(() => {
-    if (!activeResident) return null;
-    return calculateUnitClaimBreakdown(
-      activeResident,
-      payments,
-      targetClaimYear,
-      targetClaimMonth,
-      calculatedStartDate,
-      unitPrescribedInfo.monthlyFee || defaultMonthlyFee,
-      activityDefaultFees,
-      null,
-      config?.customUnitFeePeriods,
-      activityFeePeriods
-    );
-  }, [activeResident, payments, targetClaimYear, targetClaimMonth, calculatedStartDate, unitPrescribedInfo, defaultMonthlyFee, activityDefaultFees, config?.customUnitFeePeriods, activityFeePeriods]);
-
   const displayedMonths = useMemo(() => {
     if (monthFilter === 'paid') return paidMonthsList;
     if (monthFilter === 'unpaid') return unpaidMonthsList;
+    if (monthFilter === 'exempt') return exemptMonthsList;
     return monthsTimeline;
-  }, [monthFilter, paidMonthsList, unpaidMonthsList, monthsTimeline]);
+  }, [monthFilter, paidMonthsList, unpaidMonthsList, exemptMonthsList, monthsTimeline]);
 
   // Image generation & sharing states
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
@@ -1470,11 +1523,11 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
 
           {/* Filter Tabs (Full Width & Equal Button Sizes) */}
           {!isResidentOnly && (
-            <div className="w-full bg-slate-100 p-1.5 rounded-2xl grid grid-cols-3 gap-1.5 text-xs font-black border border-slate-200/60 shadow-2xs">
+            <div className={`w-full bg-slate-100 p-1.5 rounded-2xl grid ${exemptMonthsList.length > 0 ? 'grid-cols-4' : 'grid-cols-3'} gap-1.5 text-xs font-black border border-slate-200/60 shadow-2xs`}>
               <button
                 type="button"
                 onClick={() => setMonthFilter('all')}
-                className={`w-full py-2 px-2 rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 text-center ${
+                className={`w-full py-2 px-1.5 rounded-xl transition cursor-pointer flex items-center justify-center gap-1 text-center ${
                   monthFilter === 'all' 
                     ? 'bg-white text-blue-950 shadow-xs font-black border border-slate-200/80' 
                     : 'text-slate-600 hover:text-slate-900 font-bold'
@@ -1491,7 +1544,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
               <button
                 type="button"
                 onClick={() => setMonthFilter('paid')}
-                className={`w-full py-2 px-2 rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 text-center ${
+                className={`w-full py-2 px-1.5 rounded-xl transition cursor-pointer flex items-center justify-center gap-1 text-center ${
                   monthFilter === 'paid' 
                     ? 'bg-emerald-600 text-white shadow-xs font-black' 
                     : 'text-emerald-800 hover:text-emerald-900 bg-emerald-50/70 font-bold border border-emerald-100/80'
@@ -1505,10 +1558,29 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                 </span>
               </button>
 
+              {exemptMonthsList.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setMonthFilter('exempt')}
+                  className={`w-full py-2 px-1.5 rounded-xl transition cursor-pointer flex items-center justify-center gap-1 text-center ${
+                    monthFilter === 'exempt' 
+                      ? 'bg-slate-700 text-white shadow-xs font-black' 
+                      : 'text-slate-800 hover:text-slate-900 bg-slate-200/80 font-bold border border-slate-300'
+                  }`}
+                >
+                  <span>معفي</span>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-extrabold ${
+                    monthFilter === 'exempt' ? 'bg-slate-800 text-white' : 'bg-slate-300 text-slate-800'
+                  }`}>
+                    {exemptMonthsList.length}
+                  </span>
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={() => setMonthFilter('unpaid')}
-                className={`w-full py-2 px-2 rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 text-center ${
+                className={`w-full py-2 px-1.5 rounded-xl transition cursor-pointer flex items-center justify-center gap-1 text-center ${
                   monthFilter === 'unpaid' 
                     ? 'bg-rose-600 text-white shadow-xs font-black' 
                     : 'text-rose-800 hover:text-rose-900 bg-rose-50/70 font-bold border border-rose-100/80'
@@ -1555,7 +1627,13 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                 <tbody className="divide-y divide-slate-100 text-xs font-bold text-slate-800">
                   {/* Row for Old Debt / Previous Balance in all cases (negative, positive, or 0) */}
                   {(() => {
-                    const initBal = effectiveCarriedBalance;
+                    const initBal = effectiveCarriedBalance !== 0 
+                      ? effectiveCarriedBalance 
+                      : (claimBreakdown?.previousDebtAmount && claimBreakdown.previousDebtAmount > 0)
+                        ? -claimBreakdown.previousDebtAmount
+                        : (claimBreakdown?.previousSurplusAmount && claimBreakdown.previousSurplusAmount > 0)
+                          ? claimBreakdown.previousSurplusAmount
+                          : (activeResident?.initialBalance || 0);
                     const isNeg = initBal < 0;
                     const isPos = initBal > 0;
                     const isCarried = currentYear > startYear;
@@ -1622,7 +1700,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                   ) : (
                     displayedMonths.map((m, idx) => {
                       const monthlySubPayments = m.matchingPayments.filter(p =>
-                        isMonthlySubscriptionType(p.paymentType) || !p.paymentType || p.paymentType === 'اشتراك شهري'
+                        isMonthlySubscriptionType(p.paymentType) || !p.paymentType || p.paymentType === 'اشتрак شهري'
                       );
                       const otherCollectionPayments = m.matchingPayments.filter(p =>
                         !isMonthlySubscriptionType(p.paymentType) && p.paymentType && p.paymentType !== 'اشتراك شهري'
@@ -1637,9 +1715,29 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                       const isMonthlySubPaid = validMonthlySubPayments.length > 0 && (monthlySubPaidAmount >= m.fee || validMonthlySubPayments.some(p => p.isManuallyPaid));
                       const isMonthlySubPartial = monthlySubPaidAmount > 0 && monthlySubPaidAmount < m.fee && !validMonthlySubPayments.some(p => p.isManuallyPaid);
 
+                      const act = (m.activityType || activeResident.activityType || '').trim();
+                      const isMonthExempt = m.isExempt || 
+                        Boolean(activeResident.isExempt) || 
+                        act.includes('تشطيب') || 
+                        act.includes('مغلق') || 
+                        act.includes('مغلقة') || 
+                        act.includes('معفي') || 
+                        act.includes('معفاه') || 
+                        act.includes('معفاة') || 
+                        (m.fee === 0 && !isMonthlySubPaid && monthlySubPaidAmount === 0);
+
                       let subStatusInfo;
                       if (isMonthlySubPaid) {
                         subStatusInfo = getPaymentStatusDisplay('collected');
+                      } else if (isMonthExempt) {
+                        subStatusInfo = {
+                          type: 'exempt' as const,
+                          label: 'معفي',
+                          badgeClass: 'bg-slate-200 text-slate-800 border-slate-300 font-black',
+                          textClass: 'text-slate-800',
+                          amountClass: 'text-slate-600 font-bold',
+                          icon: Minus,
+                        };
                       } else if (isMonthlySubPartial) {
                         subStatusInfo = {
                           type: 'pending' as const,
@@ -1667,10 +1765,10 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                       return (
                         <React.Fragment key={`sub-${m.year}-${m.monthNum}-${idx}`}>
                           {/* Main Row: Monthly Subscription (Present for every month) */}
-                          <tr className={`group hover:bg-slate-50/70 transition ${!isMonthlySubPaid ? 'bg-rose-50/20' : ''} ${totalSubRows === 1 ? 'border-b border-slate-100' : ''}`}>
+                          <tr className={`group hover:bg-slate-50/70 transition ${isMonthExempt ? 'bg-slate-50/40' : !isMonthlySubPaid ? 'bg-rose-50/20' : ''} ${totalSubRows === 1 ? 'border-b border-slate-100' : ''}`}>
                             <td
                               rowSpan={totalSubRows}
-                              className={`sticky right-0 z-10 ${!isMonthlySubPaid ? 'bg-[#fef8f8] group-hover:bg-[#fcf2f2]' : 'bg-white group-hover:bg-slate-50'} px-1 py-1 whitespace-nowrap leading-tight border-l border-slate-200/80 shadow-[-2px_0_4px_rgba(0,0,0,0.03)] text-center align-middle`}
+                              className={`sticky right-0 z-10 ${isMonthExempt ? 'bg-slate-50/70 group-hover:bg-slate-100/80' : !isMonthlySubPaid ? 'bg-[#fef8f8] group-hover:bg-[#fcf2f2]' : 'bg-white group-hover:bg-slate-50'} px-1 py-1 whitespace-nowrap leading-tight border-l border-slate-200/80 shadow-[-2px_0_4px_rgba(0,0,0,0.03)] text-center align-middle`}
                             >
                               <div className="font-bold text-slate-900 text-[11px] sm:text-xs">
                                 {monthNamesArabic[m.monthNum - 1]}
@@ -2427,7 +2525,13 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
             <tbody>
               {/* Row for Carried Previous Balance */}
               {(() => {
-                const initBal = effectiveCarriedBalance;
+                const initBal = effectiveCarriedBalance !== 0 
+                  ? effectiveCarriedBalance 
+                  : (claimBreakdown?.previousDebtAmount && claimBreakdown.previousDebtAmount > 0)
+                    ? -claimBreakdown.previousDebtAmount
+                    : (claimBreakdown?.previousSurplusAmount && claimBreakdown.previousSurplusAmount > 0)
+                      ? claimBreakdown.previousSurplusAmount
+                      : (activeResident?.initialBalance || 0);
                 const isNeg = initBal < 0;
                 const isPos = initBal > 0;
                 const isCarried = currentYear > startYear;
@@ -2480,9 +2584,29 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                 const isMonthlySubPaid = validMonthlySubPayments.length > 0 && (monthlySubPaidAmount >= m.fee || validMonthlySubPayments.some(p => p.isManuallyPaid));
                 const isMonthlySubPartial = monthlySubPaidAmount > 0 && monthlySubPaidAmount < m.fee && !validMonthlySubPayments.some(p => p.isManuallyPaid);
 
+                const act = (m.activityType || activeResident.activityType || '').trim();
+                const isMonthExempt = m.isExempt || 
+                  Boolean(activeResident.isExempt) || 
+                  act.includes('تشطيب') || 
+                  act.includes('مغلق') || 
+                  act.includes('مغلقة') || 
+                  act.includes('معفي') || 
+                  act.includes('معفاه') || 
+                  act.includes('معفاة') || 
+                  (m.fee === 0 && !isMonthlySubPaid && monthlySubPaidAmount === 0);
+
                 let subStatusInfo;
                 if (isMonthlySubPaid) {
                   subStatusInfo = getPaymentStatusDisplay('collected');
+                } else if (isMonthExempt) {
+                  subStatusInfo = {
+                    type: 'exempt' as const,
+                    label: 'معفي',
+                    badgeClass: 'bg-slate-200 text-slate-800 border-slate-300 font-black',
+                    textClass: 'text-slate-800',
+                    amountClass: 'text-slate-600 font-bold',
+                    icon: Minus,
+                  };
                 } else if (isMonthlySubPartial) {
                   subStatusInfo = {
                     type: 'pending' as const,
@@ -2509,7 +2633,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
 
                 return (
                   <React.Fragment key={`print-${m.year}-${m.monthNum}-${idx}`}>
-                    <tr className={`border-b border-slate-300 ${!isMonthlySubPaid ? 'bg-rose-50/40' : ''}`}>
+                    <tr className={`border-b border-slate-300 ${isMonthExempt ? 'bg-slate-50' : !isMonthlySubPaid ? 'bg-rose-50/40' : ''}`}>
                       <td rowSpan={totalSubRows} className="border border-slate-300 p-2 text-center font-black text-slate-800 align-middle">
                         {m.monthLabel}
                       </td>

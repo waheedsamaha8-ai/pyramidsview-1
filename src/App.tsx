@@ -1271,7 +1271,14 @@ export default function App() {
         firestoreService.subscribeToPayments((newPayments) => {
           if (newPayments && Array.isArray(newPayments)) {
             const clean = filterAndDeduplicatePayments(newPayments);
-            setPayments(clean);
+            setPayments(prev => {
+              if (prev.length === clean.length) {
+                const prevMap = new Map(prev.map(p => [String(p.id), `${p.amount}_${p.month}_${p.year}_${p.status}`]));
+                const isIdentical = clean.every(p => prevMap.get(String(p.id)) === `${p.amount}_${p.month}_${p.year}_${p.status}`);
+                if (isIdentical) return prev;
+              }
+              return clean;
+            });
             offlineSync.saveCachedData('payments', clean);
           }
         })
@@ -1652,10 +1659,6 @@ export default function App() {
     if (idsToDelete.length > 0) {
       registerDeletedPaymentIds(idsToDelete);
       idsToDelete.forEach(id => offlineSync.purgeEntityFromQueue(id));
-      firestoreService.deleteBatchPaymentsFromFirestore(idsToDelete).catch(err => {
-        logError(err, 'distributePayment:deleteBatch');
-        idsToDelete.forEach(id => offlineSync.enqueueAction('DELETE_PAYMENT', { id }));
-      });
     }
 
     // Save image to IndexedDB once for master payment if present
@@ -1670,9 +1673,13 @@ export default function App() {
     setPayments(updatedPayments);
     offlineSync.saveCachedData('payments', updatedPayments);
 
-    // 2. Batch write all distributed payments to Firestore in a single request
-    firestoreService.saveBatchPaymentsToFirestore(distributedPayments).catch(err => {
-      logError(err, 'distributePayment:saveBatch');
+    // 2. Batch write and delete atomically in a single Firestore transaction
+    firestoreService.executeBatchPaymentsAtomic({
+      toSave: distributedPayments,
+      toDeleteIds: idsToDelete
+    }).catch(err => {
+      logError(err, 'distributePayment:atomicBatch');
+      idsToDelete.forEach(id => offlineSync.enqueueAction('DELETE_PAYMENT', { id }));
       distributedPayments.forEach(p => offlineSync.enqueueAction('ADD_PAYMENT', p));
     });
 

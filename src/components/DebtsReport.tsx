@@ -1159,27 +1159,27 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                             onClick={() => setSelectedItemId(isSelected ? null : resident.id)}
                             className={`group transition cursor-pointer ${
                               isSelected 
-                                ? 'bg-amber-200 hover:bg-amber-200/90 border-y-2 border-amber-400 font-semibold text-slate-900' 
+                                ? 'bg-amber-200 hover:bg-amber-300/90 border-y-2 border-amber-500 font-black text-amber-950' 
                                 : isHasDebt
-                                ? 'bg-rose-50/90 hover:bg-rose-100/90 border-y border-rose-200/80 text-slate-900'
+                                ? 'bg-rose-100/95 hover:bg-rose-200/90 border-y border-rose-300 text-rose-950 font-bold'
                                 : isSurplus
-                                ? 'bg-emerald-50/90 hover:bg-emerald-100/90 border-y border-emerald-200/80 text-slate-900'
+                                ? 'bg-emerald-100/95 hover:bg-emerald-200/90 border-y border-emerald-300 text-emerald-950 font-bold'
                                 : isExempt
-                                ? 'bg-purple-50/90 hover:bg-purple-100/90 border-y border-purple-200/80 text-slate-900'
-                                : 'bg-sky-50/90 hover:bg-sky-100/90 border-y border-sky-200/80 text-slate-900'
+                                ? 'bg-slate-400/80 hover:bg-slate-400 border-y border-slate-600 text-slate-950 font-bold'
+                                : 'bg-sky-100/95 hover:bg-sky-200/90 border-y border-sky-300 text-sky-950 font-bold'
                             }`}
                           >
                             {/* Unit Number - Sticky */}
-                            <td className={`w-12 sm:w-14 px-1 py-1.5 font-black whitespace-nowrap sticky right-0 z-5 border-l border-slate-100 shadow-xs text-center transition ${
+                            <td className={`w-12 sm:w-14 px-1 py-1.5 font-black whitespace-nowrap sticky right-0 z-5 border-l shadow-xs text-center transition ${
                               isSelected 
-                                ? 'bg-amber-200 text-amber-950 font-black' 
+                                ? 'bg-amber-300 text-amber-950 font-black border-amber-500' 
                                 : isHasDebt
-                                ? 'bg-rose-100/90 text-rose-950 font-black'
+                                ? 'bg-rose-200 text-rose-950 font-black border-rose-300'
                                 : isSurplus
-                                ? 'bg-emerald-100/90 text-emerald-950 font-black'
+                                ? 'bg-emerald-200 text-emerald-950 font-black border-emerald-300'
                                 : isExempt
-                                ? 'bg-purple-100/90 text-purple-950 font-black'
-                                : 'bg-sky-100/90 text-sky-950 font-black'
+                                ? 'bg-slate-400/90 text-slate-950 font-black border-slate-600'
+                                : 'bg-sky-200 text-sky-950 font-black border-sky-300'
                             }`}>
                               <span className="text-[10px] sm:text-xs">وحدة {resident.flatNumber}</span>
                             </td>
@@ -1203,7 +1203,7 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                             <td className="w-14 sm:w-16 px-1 py-1.5 text-center whitespace-nowrap">
                               <span className={`px-1.5 py-0.2 rounded text-[8.5px] font-extrabold border ${
                                 isExempt 
-                                  ? 'bg-purple-100 text-purple-900 border-purple-200'
+                                  ? 'bg-slate-300 text-slate-900 border-slate-500'
                                   : 'bg-slate-50 text-slate-700 border-slate-200'
                               }`}>
                                 {histAct.activityType || resident.activityType}
@@ -1271,19 +1271,19 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                             {/* صافي الدين */}
                             <td className={`w-20 sm:w-22 px-1 py-1.5 text-center font-black transition-all text-xs whitespace-nowrap border-x ${
                               isSelected 
-                                ? 'bg-amber-300/60 border-amber-400 text-slate-950' 
+                                ? 'bg-amber-300 border-amber-500 text-amber-950' 
                                 : isHasDebt
-                                ? 'text-rose-700 bg-rose-100/90 group-hover:bg-rose-200/90 border-rose-200'
+                                ? 'text-rose-950 bg-rose-200 group-hover:bg-rose-300/90 border-rose-300'
                                 : isSurplus
-                                ? 'text-emerald-700 bg-emerald-100/90 group-hover:bg-emerald-200/90 border-emerald-200'
+                                ? 'text-emerald-950 bg-emerald-200 group-hover:bg-emerald-300/90 border-emerald-300'
                                 : isExempt
-                                ? 'text-purple-700 bg-purple-100/90 group-hover:bg-purple-200/90 border-purple-200'
-                                : 'text-sky-700 bg-sky-100/90 group-hover:bg-sky-200/90 border-sky-200'
+                                ? 'text-slate-950 bg-slate-400/80 group-hover:bg-slate-400 border-slate-500'
+                                : 'text-sky-950 bg-sky-200 group-hover:bg-sky-300/90 border-sky-300'
                             }`}>
                               {isSurplus ? (
                                 <span dir="ltr">+{surplusAmount.toLocaleString()} ج.م</span>
                               ) : isExempt ? (
-                                <span className="text-purple-800 font-black">0 ج.م (معفي)</span>
+                                <span className="text-slate-950 font-black">0 ج.م (معفي)</span>
                               ) : isZeroDebt ? (
                                 <span className="text-sky-700 font-black">0 ج.م</span>
                               ) : (
@@ -1484,12 +1484,22 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                     const isSurplus = calculatedNetDebt < 0 || (financials.monthlyPaid > financials.periodExpectedDues && financials.otherCollectionsDebt === 0 && cBal >= 0);
                     const debtAmount = Math.max(0, Math.round(calculatedNetDebt));
                     const surplusAmount = Math.max(0, Math.round(-calculatedNetDebt));
+                    const histAct = getHistoricalActivityForDate(resident, selectedYearFilter === 'all' ? currentYear : selectedYearFilter, config?.defaultMonthlyFee, config?.activityDefaultFees, config?.activityFeePeriods);
+                    const act = (histAct.activityType || resident.activityType || '').trim();
+                    const isExemptActivity = 
+                      act.includes('تشطيب') || 
+                      act.includes('مغلق') || 
+                      act.includes('مغلقة') || 
+                      act.includes('معفي') || 
+                      act.includes('معفاه') || 
+                      act.includes('معفاة') ||
+                      (financials.periodExpectedDues === 0 && financials.monthlyFee === 0);
 
-                    const isZeroDebt = debtAmount === 0 && !isSurplus;
+                    const isExempt = isExemptActivity && debtAmount <= 0;
+                    const isZeroDebt = debtAmount === 0 && !isSurplus && !isExempt;
                     const isHasDebt = debtAmount > 0;
 
                     const displayNotes = (resident.notes || '').includes('توليد تلقائي') ? '' : (resident.notes || '');
-                    const histAct = getHistoricalActivityForDate(resident, selectedYearFilter === 'all' ? currentYear : selectedYearFilter, config?.defaultMonthlyFee, config?.activityDefaultFees, config?.activityFeePeriods);
                     const isSelected = selectedItemId === resident.id;
 
                     return (
@@ -1498,12 +1508,14 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                         onClick={() => setSelectedItemId(isSelected ? null : resident.id)}
                         className={`rounded-2xl p-4 shadow-xs space-y-3 transition flex flex-col justify-between cursor-pointer ${
                           isSelected 
-                            ? 'bg-yellow-200 border-2 border-yellow-400 shadow-md ring-2 ring-yellow-400 text-slate-900' 
+                            ? 'bg-amber-100 border-2 border-amber-500 shadow-md ring-2 ring-amber-400 text-slate-900' 
                             : isHasDebt
-                            ? 'bg-white border-2 border-red-100 hover:border-red-200'
+                            ? 'bg-rose-50/90 border-2 border-rose-300 hover:border-rose-400 text-slate-900'
+                            : isExempt
+                            ? 'bg-slate-400/80 border-2 border-slate-600 hover:border-slate-700 text-slate-950 shadow-xs'
                             : isZeroDebt
-                            ? 'bg-white border-2 border-sky-200 hover:border-sky-300'
-                            : 'bg-white border-2 border-emerald-200 hover:border-emerald-300'
+                            ? 'bg-sky-50/90 border-2 border-sky-300 hover:border-sky-400 text-slate-900'
+                            : 'bg-emerald-50/90 border-2 border-emerald-300 hover:border-emerald-400 text-slate-900'
                         }`}
                       >
                         <div className="space-y-2.5">
@@ -1583,13 +1595,17 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
 
                             {/* Net Debt Highlight */}
                             <div className="flex items-center justify-between pt-1.5 border-t border-slate-200/80">
-                              <span className={isSurplus ? "text-emerald-950 font-black text-xs" : isZeroDebt ? "text-sky-950 font-black text-xs" : "text-rose-950 font-black text-xs"}>
-                                {isSurplus ? 'صافي الرصيد (فائض):' : isZeroDebt ? 'حالة الرصيد (خالص):' : 'صافي المديونية:'}
+                              <span className={isSurplus ? "text-emerald-950 font-black text-xs" : isExempt ? "text-slate-950 font-black text-xs" : isZeroDebt ? "text-sky-950 font-black text-xs" : "text-rose-950 font-black text-xs"}>
+                                {isSurplus ? 'صافي الرصيد (فائض):' : isExempt ? 'حالة الوحدة:' : isZeroDebt ? 'حالة الرصيد (خالص):' : 'صافي المديونية:'}
                               </span>
                               {isSurplus ? (
                                 <span className="inline-flex items-center gap-0.5 px-2.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md font-black text-xs" dir="ltr">
                                   <ArrowUpRight className="w-3.5 h-3.5" />
                                   <span>+{surplusAmount.toLocaleString()} ج.م</span>
+                                </span>
+                              ) : isExempt ? (
+                                <span className="inline-flex items-center gap-0.5 px-2.5 py-0.5 bg-slate-300 text-slate-950 border border-slate-500 rounded-md font-black text-xs">
+                                  <span>0 ج.م (معفي)</span>
                                 </span>
                               ) : isZeroDebt ? (
                                 <span className="inline-flex items-center gap-0.5 px-2.5 py-0.5 bg-sky-50 text-sky-700 border border-sky-200 rounded-md font-black text-xs">
