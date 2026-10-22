@@ -1121,6 +1121,14 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
                         (p.amount > 0 || p.isManuallyPaid)
                       );
 
+                      const pendingPaymentWithReceipt = allUnitPayments.find(p => 
+                        Number(p.year) === Number(currentYear) &&
+                        parseInt(p.month, 10) === monthNum &&
+                        p.status !== 'cancelled' && p.status !== 'لاغي' &&
+                        (p.status === 'pending' || p.status === 'لم يتم التحصيل' || p.status === 'uncollected' || p.status === 'غير مسدد' || p.status === 'معلق') &&
+                        Boolean(p.receiptNumber && p.receiptNumber.trim() !== '')
+                      );
+
                       const collectedAmount = monthPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
                       const dueAmount = isExempt ? 0 : prescribed.monthlyFee;
 
@@ -1147,7 +1155,9 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
                         dueAmount,
                         collectedAmount,
                         receiptNumber: firstPay?.receiptNumber,
-                        paymentDate: firstPay?.date
+                        paymentDate: firstPay?.date,
+                        hasPendingReceipt: Boolean(pendingPaymentWithReceipt),
+                        pendingReceiptNumber: pendingPaymentWithReceipt?.receiptNumber,
                       };
                     });
 
@@ -1181,7 +1191,14 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
                             let badgeLabel = '';
                             let badgeClass = '';
 
-                            if (m.status === 'paid') {
+                            if (m.hasPendingReceipt && m.status !== 'paid') {
+                              // دفعة معلقة مع وجود رقم إيصال: باللون الأحمر الغامق
+                              cardColorClass = isSelected 
+                                ? 'bg-red-950 text-amber-300 border-2 border-amber-400 ring-2 ring-red-500 shadow-md font-black' 
+                                : 'bg-red-900 text-white border-2 border-red-950 hover:bg-red-950 shadow-sm font-bold';
+                              badgeLabel = `إيصال #${m.pendingReceiptNumber}`;
+                              badgeClass = 'bg-red-950 text-amber-300 border-red-700 font-black';
+                            } else if (m.status === 'paid') {
                               cardColorClass = isSelected 
                                 ? 'bg-emerald-600 text-white border-2 border-emerald-800 ring-2 ring-emerald-400 shadow-md' 
                                 : 'bg-emerald-50 text-emerald-950 border-2 border-emerald-400 hover:bg-emerald-100 shadow-xs';
@@ -1232,7 +1249,9 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
 
                                 {/* Receipt / Status Detail */}
                                 <div className="text-[7.5px] min-[360px]:text-[8px] sm:text-[9px] font-bold opacity-90 truncate leading-tight">
-                                  {m.status === 'paid' ? (
+                                  {m.hasPendingReceipt && m.status !== 'paid' ? (
+                                    <span className="text-amber-300 font-extrabold font-mono">إيصال: #{m.pendingReceiptNumber} (غير مسدد)</span>
+                                  ) : m.status === 'paid' ? (
                                     <span>#{m.receiptNumber || `REC-${m.monthNum}`} ({m.paymentDate || 'مسدد'})</span>
                                   ) : m.status === 'partial' ? (
                                     <span>متبقي: {(m.dueAmount - m.collectedAmount).toLocaleString()} ج.م</span>

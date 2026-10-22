@@ -2167,6 +2167,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
         isUncollected,
         isCancelled,
         isExempt,
+        isDarkRed: false,
       };
     }
 
@@ -2182,6 +2183,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
         isUncollected,
         isCancelled,
         isExempt,
+        isDarkRed: false,
       };
     }
 
@@ -2197,37 +2199,41 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
         isUncollected,
         isCancelled,
         isExempt,
+        isDarkRed: false,
       };
     }
 
     if (isUncollected) {
-      const isBulkGenerated = p.isManuallyPaid !== true && ((p.isManuallyPaid === false) || (p.notes && (p.notes.includes('استحقاق اشتراك شهر') || p.notes.includes('توليد تلقائي'))));
-      if (isBulkGenerated) {
-        // توليد استحقاقات الشهرية للكل: باللون الأحمر (بدلاً من البنفسجي سابقاً)
+      const hasReceiptNumber = Boolean(p.receiptNumber && p.receiptNumber.trim() !== '');
+
+      if (hasReceiptNumber) {
+        // أي دفعة معلقة (لم يتم التحصيل) تم تعديلها بكتابة رقم إيصال: تكون باللون الأحمر الغامق المميز
         return {
-          rowClass: 'bg-rose-200/90 hover:bg-rose-300/90 border-y border-rose-400 text-rose-950 font-bold',
-          stickyCellClass: 'bg-rose-200/95 text-rose-950 group-hover:bg-rose-300/90 border-l border-rose-400',
-          unitBadgeClass: 'bg-rose-300 text-rose-950 border border-rose-500 font-black',
-          amountClass: 'text-rose-900 font-black',
-          cardClass: 'bg-rose-200/90 border-rose-400 hover:border-rose-500 text-rose-950 shadow-xs',
+          rowClass: 'bg-red-900 text-white hover:bg-red-950 border-y border-red-950 font-bold',
+          stickyCellClass: 'bg-red-900 text-white group-hover:bg-red-950 border-l border-red-950',
+          unitBadgeClass: 'bg-red-950 text-amber-300 border border-red-700 font-black',
+          amountClass: 'text-amber-200 font-black',
+          cardClass: 'bg-red-900 border-2 border-red-950 text-white shadow-sm',
           isPaid,
           isUncollected,
           isCancelled,
           isExempt,
+          isDarkRed: true,
         };
       }
 
-      // تحصيل جديد بشكل يدوي لوحدة معينة بحالة لم يتم التحصيل: باللون الأزرق
+      // أي استحقاق أو تحصيل معلق آخر بدون رقم إيصال: باللون الأحمر (rose) مع الغاء اللون الأزرق تماماً
       return {
-        rowClass: 'bg-blue-200/90 hover:bg-blue-300/90 border-y border-blue-400 text-blue-950 font-bold',
-        stickyCellClass: 'bg-blue-200/95 text-blue-950 group-hover:bg-blue-300/90 border-l border-blue-400',
-        unitBadgeClass: 'bg-blue-300 text-blue-950 border border-blue-500 font-black',
-        amountClass: 'text-blue-900 font-black',
-        cardClass: 'bg-blue-200/90 border-blue-400 hover:border-blue-500 text-blue-950 shadow-xs',
+        rowClass: 'bg-rose-200/90 hover:bg-rose-300/90 border-y border-rose-400 text-rose-950 font-bold',
+        stickyCellClass: 'bg-rose-200/95 text-rose-950 group-hover:bg-rose-300/90 border-l border-rose-400',
+        unitBadgeClass: 'bg-rose-300 text-rose-950 border border-rose-500 font-black',
+        amountClass: 'text-rose-900 font-black',
+        cardClass: 'bg-rose-200/90 border-rose-400 hover:border-rose-500 text-rose-950 shadow-xs',
         isPaid,
         isUncollected,
         isCancelled,
         isExempt,
+        isDarkRed: false,
       };
     }
 
@@ -2242,6 +2248,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       isUncollected,
       isCancelled,
       isExempt,
+      isDarkRed: false,
     };
   };
 
@@ -2479,7 +2486,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                     const tenantName = historical.tenantName !== undefined ? historical.tenantName : (resObj?.ownershipType === 'إيجار' ? resObj?.tenantName : '');
                     const hasTenant = Boolean(tenantName && tenantName.trim());
 
-                    const { rowClass, stickyCellClass, unitBadgeClass, amountClass, isCancelled, isExempt, isUncollected } = getPaymentStatusStyles(p, isSelected);
+                    const { rowClass, stickyCellClass, unitBadgeClass, amountClass, isCancelled, isExempt, isUncollected, isDarkRed } = getPaymentStatusStyles(p, isSelected);
 
                     return (
                       <tr 
@@ -2497,14 +2504,14 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                         <td className="min-w-[95px] max-w-[130px] px-1 py-1.5 whitespace-nowrap">
                           <div className="flex flex-col gap-0.5 justify-center">
                             <div className="flex items-center gap-1">
-                              <span className="font-bold text-slate-900 text-xs truncate max-w-[110px]">{ownerName}</span>
+                              <span className={`font-bold text-xs truncate max-w-[110px] ${isDarkRed ? 'text-amber-300 font-black' : 'text-slate-900'}`}>{ownerName}</span>
                               {hasTenant && (
-                                <span className="text-[8px] font-bold text-slate-500 bg-slate-100 px-1 py-0.2 rounded">مالك</span>
+                                <span className={`text-[8px] font-bold px-1 py-0.2 rounded ${isDarkRed ? 'text-white bg-red-950 border border-red-700 font-extrabold' : 'text-slate-500 bg-slate-100'}`}>مالك</span>
                               )}
                             </div>
                             {hasTenant && (
-                              <div className="flex items-center gap-1 text-amber-950 font-black text-[9.5px] pt-0.5 border-t border-slate-100">
-                                <span className="text-[7.5px] font-extrabold bg-amber-100 text-amber-900 px-1 py-0.2 rounded border border-amber-200/80">مستأجر</span>
+                              <div className={`flex items-center gap-1 font-black text-[9.5px] pt-0.5 border-t ${isDarkRed ? 'text-amber-200 border-red-800' : 'text-amber-950 border-slate-100'}`}>
+                                <span className={`text-[7.5px] font-extrabold px-1 py-0.2 rounded border ${isDarkRed ? 'bg-amber-400 text-amber-950 border-amber-300 font-black' : 'bg-amber-100 text-amber-900 border-amber-200/80'}`}>مستأجر</span>
                                 <span className="truncate max-w-[95px]">{tenantName}</span>
                               </div>
                             )}
@@ -2523,7 +2530,9 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                               </span>
                             )}
                             {isUncollected && !isExempt && (
-                              <span className="inline-flex items-center gap-0.5 px-1 py-0.2 bg-orange-100 text-orange-900 border border-orange-300 rounded text-[8px] font-black w-fit mt-0.5">
+                              <span className={`inline-flex items-center gap-0.5 px-1 py-0.2 border rounded text-[8px] font-black w-fit mt-0.5 ${
+                                isDarkRed ? 'bg-red-950 text-amber-300 border-red-700' : 'bg-orange-100 text-orange-900 border-orange-300'
+                              }`}>
                                 ⏳ معلق
                               </span>
                             )}
@@ -2538,20 +2547,28 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                         {/* Type & Month combined */}
                         <td className="w-20 sm:w-22 px-1 py-1.5 whitespace-nowrap text-center">
                           <div className="flex flex-col gap-0.5 items-center justify-center">
-                            <span className="px-1 py-0.2 border border-slate-100 bg-slate-50 text-slate-700 rounded text-[9px] font-extrabold w-fit truncate max-w-[90px]">
+                            <span className={`px-1 py-0.2 rounded text-[9px] font-extrabold w-fit truncate max-w-[90px] ${
+                              isDarkRed 
+                                ? 'bg-red-950 text-amber-300 border border-red-700 font-black' 
+                                : 'border border-slate-100 bg-slate-50 text-slate-700'
+                            }`}>
                               {p.paymentType}
                             </span>
-                            <span className="text-[9.5px] text-slate-500 font-bold">
+                            <span className={`text-[9.5px] font-bold ${isDarkRed ? 'text-red-100 font-extrabold' : 'text-slate-500'}`}>
                               {monthNamesArabic[parseInt(p.month, 10) - 1]} {p.year}
                             </span>
                           </div>
                         </td>
 
                         {/* Receipt Number */}
-                        <td className="w-14 sm:w-16 px-1 py-1.5 text-slate-500 font-mono whitespace-nowrap text-center text-xs">{p.receiptNumber || '—'}</td>
+                        <td className={`w-14 sm:w-16 px-1 py-1.5 font-mono whitespace-nowrap text-center text-xs ${
+                          isDarkRed ? 'text-amber-300 font-black' : 'text-slate-500 font-semibold'
+                        }`}>{p.receiptNumber || '—'}</td>
 
                         {/* Notes */}
-                        <td className="min-w-[70px] max-w-[100px] px-1 py-1.5 text-slate-500 font-semibold text-[10.5px] truncate" title={p.notes || ''}>
+                        <td className={`min-w-[70px] max-w-[100px] px-1 py-1.5 text-[10.5px] truncate ${
+                          isDarkRed ? 'text-red-100 font-bold' : 'text-slate-500 font-semibold'
+                        }`} title={p.notes || ''}>
                           {p.notes || '—'}
                         </td>
 
@@ -2561,7 +2578,11 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                             <div className="flex items-center justify-center gap-1 sm:gap-1.5">
                               <button
                                 onClick={(e) => { e.stopPropagation(); openEditModal(p); }}
-                                className="p-1.5 text-slate-600 hover:text-blue-900 hover:bg-blue-50 border border-slate-200/80 rounded-lg transition transform hover:scale-110 active:scale-95 cursor-pointer shadow-2xs"
+                                className={`p-1.5 border rounded-lg transition transform hover:scale-110 active:scale-95 cursor-pointer shadow-2xs ${
+                                  isDarkRed 
+                                    ? 'text-amber-300 hover:text-white hover:bg-red-800 border-red-700' 
+                                    : 'text-slate-600 hover:text-blue-900 hover:bg-blue-50 border-slate-200/80'
+                                }`}
                                 title={role === 'ASSISTANT' ? 'تعديل الملاحظات' : 'تعديل'}
                               >
                                 <Edit className="w-4 h-4" />
@@ -2569,7 +2590,11 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                               {role !== 'ASSISTANT' && (
                                 <button
                                   onClick={(e) => { e.stopPropagation(); handleDelete(p.id); }}
-                                  className="p-1.5 text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-rose-200 rounded-lg transition transform hover:scale-110 active:scale-95 cursor-pointer shadow-2xs"
+                                  className={`p-1.5 border rounded-lg transition transform hover:scale-110 active:scale-95 cursor-pointer shadow-2xs ${
+                                    isDarkRed 
+                                      ? 'text-rose-300 hover:text-white hover:bg-rose-900 border-rose-800' 
+                                      : 'text-rose-600 hover:text-rose-700 hover:bg-rose-50 border-rose-200'
+                                  }`}
                                   title="حذف"
                                 >
                                   <Trash2 className="w-4 h-4" />
@@ -2583,7 +2608,11 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                                     const targetRes = resObj || residents.find(r => isSameFlatNumber(r.flatNumber, p.flatNumber));
                                     if (targetRes) setHistoryModalResident(targetRes);
                                   }}
-                                  className="p-1.5 text-purple-700 hover:text-purple-900 hover:bg-purple-50 border border-purple-200 rounded-lg transition transform hover:scale-110 active:scale-95 cursor-pointer shadow-2xs"
+                                  className={`p-1.5 border rounded-lg transition transform hover:scale-110 active:scale-95 cursor-pointer shadow-2xs ${
+                                    isDarkRed 
+                                      ? 'text-amber-200 hover:text-white hover:bg-red-800 border-red-700' 
+                                      : 'text-purple-700 hover:text-purple-900 hover:bg-purple-50 border-purple-200'
+                                  }`}
                                   title="سجل الوحدة"
                                 >
                                   <History className="w-4 h-4" />
@@ -2600,19 +2629,25 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                               type="button"
                               onClick={(e) => { e.stopPropagation(); handleGenerateSinglePaymentReceipt(p); }}
                               className={`p-1 px-1.5 rounded-lg transition inline-flex items-center gap-0.5 text-[9px] cursor-pointer font-black border ${
-                                p.status === 'pending' || p.status === 'لم يتم التحصيل'
-                                  ? 'text-rose-800 hover:bg-rose-100 border-rose-300 bg-rose-50/90'
-                                  : 'text-emerald-800 hover:bg-emerald-100 border-emerald-200 bg-emerald-50/70'
+                                isDarkRed
+                                  ? 'text-amber-300 hover:bg-red-800 border-red-700 bg-red-950'
+                                  : (p.status === 'pending' || p.status === 'لم يتم التحصيل'
+                                      ? 'text-rose-800 hover:bg-rose-100 border-rose-300 bg-rose-50/90'
+                                      : 'text-emerald-800 hover:bg-emerald-100 border-emerald-200 bg-emerald-50/70')
                               }`}
                               title={p.status === 'pending' || p.status === 'لم يتم التحصيل' ? 'توليد إشعار مطالبة شهرية ومشاركتها مباشرة لواتساب الوحدة' : 'توليد صورة إيصال سداد ومشاركتها مباشرة لواتساب الوحدة'}
                             >
-                              <Share2 className={`w-3 h-3 ${p.status === 'pending' || p.status === 'لم يتم التحصيل' ? 'text-rose-600' : 'text-emerald-600'}`} />
+                              <Share2 className={`w-3 h-3 ${isDarkRed ? 'text-amber-300' : (p.status === 'pending' || p.status === 'لم يتم التحصيل' ? 'text-rose-600' : 'text-emerald-600')}`} />
                               <span>{p.status === 'pending' || p.status === 'لم يتم التحصيل' ? 'مطالبة' : 'إيصال'}</span>
                             </button>
                             {p.fileUrl && (
                               <button
                                 onClick={(e) => { e.stopPropagation(); onPreviewImage(p.fileUrl!); }}
-                                className="p-1 px-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition inline-flex items-center gap-0.5 text-[9px] cursor-pointer font-bold border border-blue-100"
+                                className={`p-1 px-1.5 rounded-lg transition inline-flex items-center gap-0.5 text-[9px] cursor-pointer font-bold border ${
+                                  isDarkRed
+                                    ? 'text-amber-200 hover:bg-red-800 border-red-700'
+                                    : 'text-blue-600 hover:bg-blue-50 border-blue-100'
+                                }`}
                                 title="معاينة المرفق"
                               >
                                 <Eye className="w-3 h-3" />
@@ -2656,7 +2691,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                         const tenantName = historical.tenantName !== undefined ? historical.tenantName : (resObj?.ownershipType === 'إيجار' ? resObj?.tenantName : '');
                         const hasTenant = Boolean(tenantName && tenantName.trim());
 
-                        const { rowClass, stickyCellClass, unitBadgeClass, amountClass, isCancelled, isExempt, isUncollected } = getPaymentStatusStyles(p, isSelected);
+                        const { rowClass, stickyCellClass, unitBadgeClass, amountClass, isCancelled, isExempt, isUncollected, isDarkRed } = getPaymentStatusStyles(p, isSelected);
 
                         return (
                           <tr 
@@ -2674,14 +2709,14 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                             <td className="min-w-[95px] max-w-[130px] px-1 py-1.5 whitespace-nowrap">
                               <div className="flex flex-col gap-0.5 justify-center">
                                 <div className="flex items-center gap-1">
-                                  <span className="font-bold text-slate-900 text-xs truncate max-w-[110px]">{ownerName}</span>
+                                  <span className={`font-bold text-xs truncate max-w-[110px] ${isDarkRed ? 'text-amber-300 font-black' : 'text-slate-900'}`}>{ownerName}</span>
                                   {hasTenant && (
-                                    <span className="text-[8px] font-bold text-slate-500 bg-slate-100 px-1 py-0.2 rounded">مالك</span>
+                                    <span className={`text-[8px] font-bold px-1 py-0.2 rounded ${isDarkRed ? 'text-white bg-red-950 border border-red-700 font-extrabold' : 'text-slate-500 bg-slate-100'}`}>مالك</span>
                                   )}
                                 </div>
                                 {hasTenant && (
-                                  <div className="flex items-center gap-1 text-amber-950 font-black text-[9.5px] pt-0.5 border-t border-slate-100">
-                                    <span className="text-[7.5px] font-extrabold bg-amber-100 text-amber-900 px-1 py-0.2 rounded border border-amber-200/80">مستأجر</span>
+                                  <div className={`flex items-center gap-1 font-black text-[9.5px] pt-0.5 border-t ${isDarkRed ? 'text-amber-200 border-red-800' : 'text-amber-950 border-slate-100'}`}>
+                                    <span className={`text-[7.5px] font-extrabold px-1 py-0.2 rounded border ${isDarkRed ? 'bg-amber-400 text-amber-950 border-amber-300 font-black' : 'bg-amber-100 text-amber-900 border-amber-200/80'}`}>مستأجر</span>
                                     <span className="truncate max-w-[95px]">{tenantName}</span>
                                   </div>
                                 )}
@@ -2700,7 +2735,9 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                                   </span>
                                 )}
                                 {isUncollected && !isExempt && (
-                                  <span className="inline-flex items-center gap-0.5 px-1 py-0.2 bg-orange-100 text-orange-900 border border-orange-300 rounded text-[8px] font-black w-fit mt-0.5">
+                                  <span className={`inline-flex items-center gap-0.5 px-1 py-0.2 border rounded text-[8px] font-black w-fit mt-0.5 ${
+                                    isDarkRed ? 'bg-red-950 text-amber-300 border-red-700' : 'bg-orange-100 text-orange-900 border-orange-300'
+                                  }`}>
                                     ⏳ معلق
                                   </span>
                                 )}
@@ -2715,25 +2752,37 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                             {/* Type & Month combined */}
                             <td className="w-20 sm:w-22 px-1 py-1.5 whitespace-nowrap text-center">
                               <div className="flex flex-col gap-0.5 items-center justify-center">
-                                <span className="px-1 py-0.2 border border-slate-100 bg-slate-50 text-slate-700 rounded text-[9px] font-extrabold w-fit truncate max-w-[90px]">
+                                <span className={`px-1 py-0.2 rounded text-[9px] font-extrabold w-fit truncate max-w-[90px] ${
+                                  isDarkRed 
+                                    ? 'bg-red-950 text-amber-300 border border-red-700 font-black' 
+                                    : 'border border-slate-100 bg-slate-50 text-slate-700'
+                                }`}>
                                   {p.paymentType}
                                 </span>
                                 {Boolean(p.isAggregatedCollection || p.isDistributed || p.distributionSourceId) && (
-                                  <span className="text-[7.5px] font-black text-emerald-800 bg-emerald-50 px-1 py-0.2 rounded border border-emerald-200/80 leading-none">
+                                  <span className={`text-[7.5px] font-black px-1 py-0.2 rounded border leading-none ${
+                                    isDarkRed 
+                                      ? 'bg-red-950 text-emerald-300 border-emerald-500/80' 
+                                      : 'text-emerald-800 bg-emerald-50 border-emerald-200/80'
+                                  }`}>
                                     تحصيل مجمع
                                   </span>
                                 )}
-                                <span className="text-[9.5px] text-slate-500 font-bold">
+                                <span className={`text-[9.5px] font-bold ${isDarkRed ? 'text-red-100 font-extrabold' : 'text-slate-500'}`}>
                                   {monthNamesArabic[parseInt(p.month, 10) - 1]} {p.year}
                                 </span>
                               </div>
                             </td>
 
                             {/* Receipt Number */}
-                            <td className="w-14 sm:w-16 px-1 py-1.5 text-slate-500 font-mono whitespace-nowrap text-center text-xs">{p.receiptNumber || '—'}</td>
+                            <td className={`w-14 sm:w-16 px-1 py-1.5 font-mono whitespace-nowrap text-center text-xs ${
+                              isDarkRed ? 'text-amber-300 font-black' : 'text-slate-500 font-semibold'
+                            }`}>{p.receiptNumber || '—'}</td>
 
                             {/* Notes */}
-                            <td className="min-w-[70px] max-w-[100px] px-1 py-1.5 text-slate-500 font-semibold text-[10.5px] truncate" title={p.notes || ''}>
+                            <td className={`min-w-[70px] max-w-[100px] px-1 py-1.5 text-[10.5px] truncate ${
+                              isDarkRed ? 'text-red-100 font-bold' : 'text-slate-500 font-semibold'
+                            }`} title={p.notes || ''}>
                               {p.notes || '—'}
                             </td>
 
@@ -2743,7 +2792,11 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                                 <div className="flex items-center justify-center gap-1 sm:gap-1.5">
                                   <button
                                     onClick={(e) => { e.stopPropagation(); openEditModal(p); }}
-                                    className="p-1.5 text-slate-600 hover:text-blue-900 hover:bg-blue-50 border border-slate-200/80 rounded-lg transition transform hover:scale-110 active:scale-95 cursor-pointer shadow-2xs"
+                                    className={`p-1.5 border rounded-lg transition transform hover:scale-110 active:scale-95 cursor-pointer shadow-2xs ${
+                                      isDarkRed 
+                                        ? 'text-amber-300 hover:text-white hover:bg-red-800 border-red-700' 
+                                        : 'text-slate-600 hover:text-blue-900 hover:bg-blue-50 border-slate-200/80'
+                                    }`}
                                     title={role === 'ASSISTANT' ? 'تعديل الملاحظات' : 'تعديل'}
                                   >
                                     <Edit className="w-4 h-4" />
@@ -2751,7 +2804,11 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                                   {role !== 'ASSISTANT' && (
                                     <button
                                       onClick={(e) => { e.stopPropagation(); handleDelete(p.id); }}
-                                      className="p-1.5 text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-rose-200 rounded-lg transition transform hover:scale-110 active:scale-95 cursor-pointer shadow-2xs"
+                                      className={`p-1.5 border rounded-lg transition transform hover:scale-110 active:scale-95 cursor-pointer shadow-2xs ${
+                                        isDarkRed 
+                                          ? 'text-rose-300 hover:text-white hover:bg-rose-900 border-rose-800' 
+                                          : 'text-rose-600 hover:text-rose-700 hover:bg-rose-50 border-rose-200'
+                                      }`}
                                       title="حذف"
                                     >
                                       <Trash2 className="w-4 h-4" />
@@ -2765,7 +2822,11 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                                         const targetRes = resObj || residents.find(r => isSameFlatNumber(r.flatNumber, p.flatNumber));
                                         if (targetRes) setHistoryModalResident(targetRes);
                                       }}
-                                      className="p-1.5 text-purple-700 hover:text-purple-900 hover:bg-purple-50 border border-purple-200 rounded-lg transition transform hover:scale-110 active:scale-95 cursor-pointer shadow-2xs"
+                                      className={`p-1.5 border rounded-lg transition transform hover:scale-110 active:scale-95 cursor-pointer shadow-2xs ${
+                                        isDarkRed 
+                                          ? 'text-amber-200 hover:text-white hover:bg-red-800 border-red-700' 
+                                          : 'text-purple-700 hover:text-purple-900 hover:bg-purple-50 border-purple-200'
+                                      }`}
                                       title="سجل الوحدة"
                                     >
                                       <History className="w-4 h-4" />
@@ -2782,19 +2843,25 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                                   type="button"
                                   onClick={(e) => { e.stopPropagation(); handleGenerateSinglePaymentReceipt(p); }}
                                   className={`p-1 px-1.5 rounded-lg transition inline-flex items-center gap-0.5 text-[9px] cursor-pointer font-black border ${
-                                    p.status === 'pending' || p.status === 'لم يتم التحصيل'
-                                      ? 'text-rose-800 hover:bg-rose-100 border-rose-300 bg-rose-50/90'
-                                      : 'text-emerald-800 hover:bg-emerald-100 border-emerald-200 bg-emerald-50/70'
+                                    isDarkRed
+                                      ? 'text-amber-300 hover:bg-red-800 border-red-700 bg-red-950'
+                                      : (p.status === 'pending' || p.status === 'لم يتم التحصيل'
+                                          ? 'text-rose-800 hover:bg-rose-100 border-rose-300 bg-rose-50/90'
+                                          : 'text-emerald-800 hover:bg-emerald-100 border-emerald-200 bg-emerald-50/70')
                                   }`}
                                   title={p.status === 'pending' || p.status === 'لم يتم التحصيل' ? 'توليد إشعار مطالبة شهرية ومشاركتها مباشرة لواتساب الوحدة' : 'توليد صورة إيصال سداد ومشاركتها مباشرة لواتساب الوحدة'}
                                 >
-                                  <Share2 className={`w-3 h-3 ${p.status === 'pending' || p.status === 'لم يتم التحصيل' ? 'text-rose-600' : 'text-emerald-600'}`} />
+                                  <Share2 className={`w-3 h-3 ${isDarkRed ? 'text-amber-300' : (p.status === 'pending' || p.status === 'لم يتم التحصيل' ? 'text-rose-600' : 'text-emerald-600')}`} />
                                   <span>{p.status === 'pending' || p.status === 'لم يتم التحصيل' ? 'مطالبة' : 'إيصال'}</span>
                                 </button>
                                 {p.fileUrl && (
                                   <button
                                     onClick={(e) => { e.stopPropagation(); onPreviewImage(p.fileUrl!); }}
-                                    className="p-1 px-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition inline-flex items-center gap-0.5 text-[9px] cursor-pointer font-bold border border-blue-100"
+                                    className={`p-1 px-1.5 rounded-lg transition inline-flex items-center gap-0.5 text-[9px] cursor-pointer font-bold border ${
+                                      isDarkRed
+                                        ? 'text-amber-200 hover:bg-red-800 border-red-700'
+                                        : 'text-blue-600 hover:bg-blue-50 border-blue-100'
+                                    }`}
                                     title="معاينة المرفق"
                                   >
                                     <Eye className="w-3 h-3" />
@@ -2869,7 +2936,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                     const tenantName = historical.tenantName !== undefined ? historical.tenantName : (resObj?.ownershipType === 'إيجار' ? resObj?.tenantName : '');
                     const hasTenant = Boolean(tenantName && tenantName.trim());
 
-                    const { cardClass, amountClass, unitBadgeClass, isCancelled, isExempt, isUncollected } = getPaymentStatusStyles(p, isSelected);
+                    const { cardClass, amountClass, unitBadgeClass, isCancelled, isExempt, isUncollected, isDarkRed } = getPaymentStatusStyles(p, isSelected);
 
                     return (
                       <div 
@@ -2884,32 +2951,40 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                           </span>
                           <div className="flex items-center gap-1">
                             {Boolean(p.isAggregatedCollection || p.isDistributed || p.distributionSourceId) && (
-                              <span className="px-1.5 py-0.5 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-md text-[9px] font-black">
+                              <span className={`px-1.5 py-0.5 rounded-md text-[9px] font-black border ${
+                                isDarkRed 
+                                  ? 'bg-red-950 text-emerald-300 border-emerald-500/80' 
+                                  : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                              }`}>
                                 تحصيل مجمع
                               </span>
                             )}
-                            <span className="px-2 py-0.5 bg-slate-50 text-slate-600 border border-slate-100 rounded-md text-[10px] font-extrabold">
+                            <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold border ${
+                              isDarkRed 
+                                ? 'bg-red-950 text-amber-300 border-red-700 font-black' 
+                                : 'bg-slate-50 text-slate-600 border-slate-100'
+                            }`}>
                               {p.paymentType}
                             </span>
                           </div>
                         </div>
                         
                         <div className="mb-1.5">
-                          <h4 className="text-xs font-black text-slate-900">{ownerName}</h4>
+                          <h4 className={`text-xs font-black ${isDarkRed ? 'text-amber-300' : 'text-slate-900'}`}>{ownerName}</h4>
                           {hasTenant && (
-                            <div className="text-[10px] text-amber-900 font-extrabold flex items-center gap-1 mt-0.5">
-                              <span className="text-[8.5px] bg-amber-100 text-amber-900 px-1 py-0.2 rounded font-black">مستأجر</span>
+                            <div className={`text-[10px] font-extrabold flex items-center gap-1 mt-0.5 ${isDarkRed ? 'text-amber-200' : 'text-amber-900'}`}>
+                              <span className={`text-[8.5px] px-1 py-0.2 rounded font-black ${isDarkRed ? 'bg-amber-400 text-amber-950' : 'bg-amber-100 text-amber-900'}`}>مستأجر</span>
                               <span>{tenantName}</span>
                             </div>
                           )}
                         </div>
 
-                        <div className="text-[11px] text-slate-500 font-bold mb-2">
+                        <div className={`text-[11px] font-bold mb-2 ${isDarkRed ? 'text-red-100 font-extrabold' : 'text-slate-500'}`}>
                           شهر: {monthNamesArabic[parseInt(p.month, 10) - 1]} {p.year}
                         </div>
                         
-                        <div className="flex items-center justify-between border-t border-slate-100/80 pt-2 mb-2">
-                          <span className="text-[11px] text-slate-400 font-bold">المبلغ المستلم</span>
+                        <div className={`flex items-center justify-between border-t pt-2 mb-2 ${isDarkRed ? 'border-red-800' : 'border-slate-100/80'}`}>
+                          <span className={`text-[11px] font-bold ${isDarkRed ? 'text-red-200 font-black' : 'text-slate-400'}`}>المبلغ المستلم</span>
                           <div className="text-left">
                             <span className={`text-sm font-black ${amountClass}`}>
                               {Math.round(getEffectiveDisplayAmount(p))} ج.م
@@ -2920,7 +2995,9 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                               </span>
                             )}
                             {isUncollected && !isExempt && (
-                              <span className="block text-[9.5px] font-black text-orange-950 bg-orange-100 border border-orange-300 px-1.5 py-0.5 rounded mt-0.5">
+                              <span className={`block text-[9.5px] font-black border px-1.5 py-0.5 rounded mt-0.5 ${
+                                isDarkRed ? 'text-amber-300 bg-red-950 border-red-700' : 'text-orange-950 bg-orange-100 border-orange-300'
+                              }`}>
                                 ⏳ لم يتم التحصيل
                               </span>
                             )}
@@ -2933,8 +3010,8 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                         </div>
 
                         {p.receiptNumber && (
-                          <div className="text-[10px] text-slate-400 font-semibold mb-1">
-                            رقم الإيصال: <span className="font-mono text-slate-600">{p.receiptNumber}</span>
+                          <div className={`text-[10px] font-semibold mb-1 ${isDarkRed ? 'text-red-200' : 'text-slate-400'}`}>
+                            رقم الإيصال: <span className={`font-mono ${isDarkRed ? 'text-amber-300 font-black' : 'text-slate-600'}`}>{p.receiptNumber}</span>
                           </div>
                         )}
                         
@@ -3508,8 +3585,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                     placeholder="المستحق"
                     value={dueAmount === '' || isNaN(Number(dueAmount)) ? '' : dueAmount}
                     onChange={(e) => setDueAmount(e.target.value !== '' ? Number(e.target.value) : '')}
-                    disabled={role === 'ASSISTANT' && !!selectedPayment}
-                    className="w-full px-2 sm:px-3 py-2 bg-slate-50 border border-slate-200 focus:bg-white rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-500/10 outline-none text-right font-bold transition disabled:opacity-60 disabled:cursor-not-allowed text-blue-950"
+                    className="w-full px-2 sm:px-3 py-2 bg-slate-50 border border-slate-200 focus:bg-white rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-blue-500/10 outline-none text-right font-bold transition text-blue-950"
                     title="قيمة الاشتراك المستحق من سجل الوحدة ثم من فترة التسعير في إدارة اشتراكات الوحدات (يمكن تعديلها يدوياً)"
                   />
                 </div>

@@ -401,6 +401,7 @@ export const Summaries: React.FC<SummariesProps> = ({
       hasNoPayments: boolean;
       paid: boolean;
       pending: boolean;
+      hasPendingWithReceipt: boolean;
       isBulkGeneratedPending: boolean;
       pendingAmount: number;
       isCancelled: boolean;
@@ -451,6 +452,8 @@ export const Summaries: React.FC<SummariesProps> = ({
         const isPending = !isPaid && pendingPayments.length > 0;
         const pendingAmount = pendingPayments.reduce((sum, p) => sum + p.amount, 0);
 
+        const hasPendingWithReceipt = isPending && pendingPayments.some(p => Boolean(p.receiptNumber && p.receiptNumber.trim() !== ''));
+
         const isBulkGeneratedPending = isPending && pendingPayments.some(p =>
           p.isManuallyPaid !== true && ((p.isManuallyPaid === false) || (p.notes && (p.notes.includes('استحقاق اشتراك شهر') || p.notes.includes('توليد تلقائي'))))
         );
@@ -477,6 +480,7 @@ export const Summaries: React.FC<SummariesProps> = ({
           hasNoPayments,
           paid: isPaid,
           pending: isPending,
+          hasPendingWithReceipt,
           isBulkGeneratedPending,
           pendingAmount,
           isCancelled: isOnlyCancelled,
@@ -500,12 +504,15 @@ export const Summaries: React.FC<SummariesProps> = ({
     const monthList = precomputedData.paymentsByResidentAndMonth.get(`${residentId}_${month}`) || [];
     const matchingPayments = monthList.filter((p) => matchesPaymentType(p.paymentType, filterType));
     const totalAmount = matchingPayments.filter(p => p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل').reduce((sum, p) => sum + p.amount, 0);
+    const pendingList = matchingPayments.filter(p => p.status === 'pending' || p.status === 'لم يتم التحصيل');
+    const hasPendingWithReceipt = pendingList.some(p => Boolean(p.receiptNumber && p.receiptNumber.trim() !== ''));
     return {
       hasNoPayments: matchingPayments.length === 0,
       paid: totalAmount > 0,
-      pending: false,
-      isBulkGeneratedPending: false,
-      pendingAmount: 0,
+      pending: pendingList.length > 0,
+      hasPendingWithReceipt,
+      isBulkGeneratedPending: pendingList.length > 0,
+      pendingAmount: pendingList.reduce((sum, p) => sum + p.amount, 0),
       isCancelled: false,
       amount: totalAmount,
       paymentsList: matchingPayments,
@@ -1214,8 +1221,8 @@ export const Summaries: React.FC<SummariesProps> = ({
             <span className="inline-flex items-center gap-0.5 px-1 sm:px-2 py-0.5 rounded bg-rose-200 text-rose-950 border border-rose-400 shadow-2xs shrink-0 font-black">
               <Clock className="w-2 h-2 sm:w-2.5 sm:h-2.5 stroke-[2.5] text-rose-800" /> استحقاق معلق
             </span>
-            <span className="inline-flex items-center gap-0.5 px-1 sm:px-2 py-0.5 rounded bg-blue-200 text-blue-950 border border-blue-400 shadow-2xs shrink-0 font-black">
-              <Clock className="w-2 h-2 sm:w-2.5 sm:h-2.5 stroke-[2.5] text-blue-800" /> معلق يدوي
+            <span className="inline-flex items-center gap-0.5 px-1 sm:px-2 py-0.5 rounded bg-red-900 text-white border border-red-950 shadow-2xs shrink-0 font-black">
+              <Clock className="w-2 h-2 sm:w-2.5 sm:h-2.5 stroke-[2.5] text-amber-300" /> معلق برقم إيصال
             </span>
             <span className="inline-flex items-center gap-0.5 px-1 sm:px-2 py-0.5 rounded bg-slate-200 text-slate-800 border border-slate-300 shadow-2xs shrink-0 font-black">
               <Minus className="w-2 h-2 sm:w-2.5 sm:h-2.5 stroke-[3] text-slate-700" /> معفي
@@ -1320,10 +1327,10 @@ export const Summaries: React.FC<SummariesProps> = ({
                           if (status.paid) {
                             cellBgClass = 'bg-emerald-200/90 text-emerald-950 hover:bg-emerald-300/90 border border-emerald-400 shadow-2xs font-black';
                           } else if (status.pending) {
-                            if (status.isBulkGeneratedPending) {
-                              cellBgClass = 'bg-rose-200/90 text-rose-950 hover:bg-rose-300/90 border border-rose-400 shadow-2xs font-black';
+                            if (status.hasPendingWithReceipt) {
+                              cellBgClass = 'bg-red-900 text-white hover:bg-red-950 border border-red-950 shadow-2xs font-black';
                             } else {
-                              cellBgClass = 'bg-blue-200/90 text-blue-950 hover:bg-blue-300/90 border border-blue-400 shadow-2xs font-black';
+                              cellBgClass = 'bg-rose-200/90 text-rose-950 hover:bg-rose-300/90 border border-rose-400 shadow-2xs font-black';
                             }
                           } else if (status.isCancelled) {
                             cellBgClass = 'bg-slate-400/80 text-slate-950 hover:bg-slate-400 border border-slate-600 shadow-2xs font-black';
@@ -1389,26 +1396,26 @@ export const Summaries: React.FC<SummariesProps> = ({
                                 ) : status.pending ? (
                                   <>
                                     <div className="flex items-center gap-0.5">
-                                      <Clock className={`w-3 h-3 sm:w-3.5 sm:h-3.5 stroke-[2.5] ${status.isBulkGeneratedPending ? 'text-rose-800' : 'text-blue-800'}`} />
+                                      <Clock className={`w-3 h-3 sm:w-3.5 sm:h-3.5 stroke-[2.5] ${status.hasPendingWithReceipt ? 'text-amber-300' : 'text-rose-800'}`} />
                                       {status.isDistributed && (
-                                        <span className="w-2 h-2 rounded-full bg-amber-600 ring-2 ring-amber-300 animate-pulse" title="تم التوزيع من هذه الدفعة" />
+                                        <span className="w-2 h-2 rounded-full bg-amber-500 ring-2 ring-amber-300 animate-pulse" title="تم التوزيع من هذه الدفعة" />
                                       )}
                                       {!status.isDistributed && status.isAggregated && (
                                         <span className="text-[7px] sm:text-[7.5px] font-black px-1 py-0.2 bg-amber-300 text-amber-950 rounded-xs" title="تحصيل مجمع">
-                                          مجمع ⚡
+                                          مجمع
                                         </span>
                                       )}
                                       {isMulti && (
-                                        <span className={`text-[7.5px] sm:text-[9px] font-black px-0.5 py-0.2 rounded-xs ${status.isBulkGeneratedPending ? 'bg-rose-300 text-rose-950' : 'bg-blue-300 text-blue-900'}`}>
+                                        <span className={`text-[7.5px] sm:text-[9px] font-black px-0.5 py-0.2 rounded-xs ${status.hasPendingWithReceipt ? 'bg-red-950 text-amber-200' : 'bg-rose-300 text-rose-950'}`}>
                                           {status.paymentsList.length}
                                         </span>
                                       )}
                                     </div>
-                                    <span className={`text-[8.5px] sm:text-[10px] font-black whitespace-nowrap leading-none ${status.isBulkGeneratedPending ? 'text-rose-950' : 'text-blue-950'}`}>
-                                      {status.isBulkGeneratedPending ? 'استحقاق' : 'معلق'}
+                                    <span className={`text-[8.5px] sm:text-[10px] font-black whitespace-nowrap leading-none ${status.hasPendingWithReceipt ? 'text-white' : 'text-rose-950'}`}>
+                                      {status.hasPendingWithReceipt ? 'إيصال معلق' : 'استحقاق'}
                                     </span>
                                     {status.pendingAmount > 0 && (
-                                      <span className={`text-[9px] sm:text-[11px] font-black leading-none ${status.isBulkGeneratedPending ? 'text-rose-950' : 'text-blue-950'}`}>
+                                      <span className={`text-[9px] sm:text-[11px] font-black leading-none ${status.hasPendingWithReceipt ? 'text-amber-200' : 'text-rose-950'}`}>
                                         {Math.round(status.pendingAmount).toLocaleString()}
                                       </span>
                                     )}
