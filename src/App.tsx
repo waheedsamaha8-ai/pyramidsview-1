@@ -294,17 +294,6 @@ export default function App() {
         return {
           ...baseConfig,
           ...localConfig,
-          accountingPeriods: (Array.isArray(localConfig.accountingPeriods) && localConfig.accountingPeriods.length > 0)
-            ? localConfig.accountingPeriods
-            : baseConfig.accountingPeriods,
-          activityFeePeriods: (Array.isArray(localConfig.activityFeePeriods) && localConfig.activityFeePeriods.length > 0)
-            ? localConfig.activityFeePeriods
-            : baseConfig.activityFeePeriods,
-          customUnitFeePeriods: (Array.isArray(localConfig.customUnitFeePeriods) && localConfig.customUnitFeePeriods.length > 0)
-            ? localConfig.customUnitFeePeriods
-            : (baseConfig.customUnitFeePeriods || []),
-          activePeriodId: localConfig.activePeriodId || 'ALL',
-          adminResidentProfile: localConfig.adminResidentProfile || baseConfig.adminResidentProfile,
         };
       }
     } catch {}

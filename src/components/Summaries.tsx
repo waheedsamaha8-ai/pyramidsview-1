@@ -58,10 +58,12 @@ export const Summaries: React.FC<SummariesProps> = ({
   } | null>(null);
 
   const [newAmount, setNewAmount] = useState<string>('200');
+  const [newDueAmount, setNewDueAmount] = useState<string>('');
   const [newPaymentType, setNewPaymentType] = useState<string>('اشتراك شهري');
   const [newNotes, setNewNotes] = useState<string>('');
   const [editingPaymentId, setEditingPaymentId] = useState<string | null>(null);
   const [editAmount, setEditAmount] = useState<string>('');
+  const [editDueAmount, setEditDueAmount] = useState<string>('');
   const [editPaymentType, setEditPaymentType] = useState<string>('');
   const [editPaymentStatus, setEditPaymentStatus] = useState<string>('collected');
   const [editReceiptNumber, setEditReceiptNumber] = useState<string>('');
@@ -286,25 +288,101 @@ export const Summaries: React.FC<SummariesProps> = ({
     });
   }, [categoryList, expenses, currentYear, months]);
 
-  const isChildDistributedPayment = (pay: Payment): boolean => {
-    if (pay.distributionSourceId && String(pay.distributionSourceId) !== String(pay.id)) return true;
-    if (payments.some(p => String(p.id) !== String(pay.id) && Array.isArray(p.distributedPaymentIds) && p.distributedPaymentIds.map(String).includes(String(pay.id)))) {
-      return true;
+  // Precompute occupant names for fast display
+  const occupantNamesMap = useMemo(() => {
+    const map = new Map<string, string>();
+    sortedResidents.forEach(res => {
+      const historical = getHistoricalOccupantForDate(res, `${currentYear}`);
+      const occupantName = historical.tenantName || historical.ownerName || res.name;
+      map.set(res.id, occupantName);
+    });
+    return map;
+  }, [sortedResidents, currentYear]);
+
+  // Precompute historical activity for each resident and month
+  const historicalActivitiesMap = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof getHistoricalActivityForDate>>();
+    sortedResidents.forEach(res => {
+      months.forEach(m => {
+        const hist = getHistoricalActivityForDate(res, `${currentYear}-${m}`, defaultMonthlyFee, activityDefaultFees, config?.activityFeePeriods);
+        map.set(`${res.id}_${m}`, hist);
+      });
+    });
+    return map;
+  }, [sortedResidents, currentYear, defaultMonthlyFee, activityDefaultFees, config?.activityFeePeriods, months]);
+
+  // Precompute resident year totals for Section 3 table
+  const residentYearTotalsMap = useMemo(() => {
+    const map = new Map<string, number>();
+    sortedResidents.forEach(res => {
+      const total = payments
+        .filter((p) => p.residentId === res.id && p.year === currentYear && p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل' && matchesPaymentType(p.paymentType, selectedPaymentTypeFilter))
+        .reduce((s, p) => s + p.amount, 0);
+      map.set(res.id, total);
+    });
+    return map;
+  }, [sortedResidents, payments, currentYear, selectedPaymentTypeFilter]);
+
+  // 4. Pre-index payments by resident and month for lightning-fast O(1) table rendering and instant modal opening
+  const precomputedData = useMemo(() => {
+    // 1. Build Sets of master and child distributed payments in a single O(N) pass
+    const childSet = new Set<string>();
+    const masterSet = new Set<string>();
+    const originalAggregatedSet = new Set<string>();
+
+    for (let i = 0; i < payments.length; i++) {
+      const p = payments[i];
+      if (p.distributionSourceId && String(p.distributionSourceId) !== String(p.id)) {
+        childSet.add(String(p.id));
+      }
+      if (Array.isArray(p.distributedPaymentIds) && p.distributedPaymentIds.length > 0) {
+        masterSet.add(String(p.id));
+        for (let j = 0; j < p.distributedPaymentIds.length; j++) {
+          childSet.add(String(p.distributedPaymentIds[j]));
+        }
+      }
+      if (p.isDistributed) {
+        masterSet.add(String(p.id));
+      }
+      if (p.isAggregatedCollection || (p.notes && p.notes.includes('سداد مجمع'))) {
+        originalAggregatedSet.add(String(p.id));
+      }
     }
-    return false;
+
+    // 2. Map payments by (residentKey, month) and (flatKey, month)
+    const paymentsByResidentAndMonth = new Map<string, Payment[]>();
+    for (let i = 0; i < payments.length; i++) {
+      const p = payments[i];
+      if (Number(p.year) !== Number(currentYear)) continue;
+      const mStr = String(parseInt(p.month, 10)).padStart(2, '0');
+      
+      if (p.residentId) {
+        const resIdKey = `${p.residentId}_${mStr}`;
+        let list = paymentsByResidentAndMonth.get(resIdKey);
+        if (!list) { list = []; paymentsByResidentAndMonth.set(resIdKey, list); }
+        list.push(p);
+      }
+      if (p.flatNumber !== undefined && p.flatNumber !== null) {
+        const flatKey = `flat_${String(p.flatNumber).trim()}_${mStr}`;
+        let list = paymentsByResidentAndMonth.get(flatKey);
+        if (!list) { list = []; paymentsByResidentAndMonth.set(flatKey, list); }
+        list.push(p);
+      }
+    }
+
+    return { childSet, masterSet, originalAggregatedSet, paymentsByResidentAndMonth };
+  }, [payments, currentYear]);
+
+  const isChildDistributedPayment = (pay: Payment): boolean => {
+    return precomputedData.childSet.has(String(pay.id));
   };
 
   const isMasterDistributionPayment = (pay: Payment): boolean => {
-    if (isChildDistributedPayment(pay)) return false;
-    if (pay.isDistributed) return true;
-    if (Array.isArray(pay.distributedPaymentIds) && pay.distributedPaymentIds.length > 0) return true;
-    if (payments.some(p => String(p.id) !== String(pay.id) && String(p.distributionSourceId || '') === String(pay.id))) return true;
-    return false;
+    return precomputedData.masterSet.has(String(pay.id));
   };
 
   const isOriginalAggregatedPayment = (pay: Payment): boolean => {
-    if (isChildDistributedPayment(pay)) return false;
-    return Boolean(pay.isAggregatedCollection || isMasterDistributionPayment(pay));
+    return precomputedData.originalAggregatedSet.has(String(pay.id)) || Boolean(pay.isAggregatedCollection);
   };
 
   const findMasterPayment = (pay: Payment): Payment => {
@@ -317,71 +395,122 @@ export const Summaries: React.FC<SummariesProps> = ({
     return pay;
   };
 
-  // 4. Fast indexed map of payments by resident & month for O(1) grid rendering
-  const paymentsByResidentAndMonth = useMemo(() => {
-    const map = new Map<string, Payment[]>();
-    payments.forEach((p) => {
-      if (p.year === currentYear) {
-        const key = `${p.residentId}_${p.month}`;
-        const existing = map.get(key) || [];
-        existing.push(p);
-        map.set(key, existing);
-      }
+  // Precompute all cell statuses once per render to guarantee instant 0ms modal opening and table responsiveness
+  const cellStatusMap = useMemo(() => {
+    const map = new Map<string, {
+      hasNoPayments: boolean;
+      paid: boolean;
+      pending: boolean;
+      isBulkGeneratedPending: boolean;
+      pendingAmount: number;
+      isCancelled: boolean;
+      amount: number;
+      paymentsList: Payment[];
+      isAggregated: boolean;
+      isDistributed: boolean;
+    }>();
+
+    const { childSet, masterSet, originalAggregatedSet, paymentsByResidentAndMonth } = precomputedData;
+
+    sortedResidents.forEach(res => {
+      const resFlatKey = String(res.flatNumber).trim();
+      months.forEach(m => {
+        const idKey = `${res.id}_${m}`;
+        const flatKey = `flat_${resFlatKey}_${m}`;
+        const rawList1 = paymentsByResidentAndMonth.get(idKey) || [];
+        const rawList2 = paymentsByResidentAndMonth.get(flatKey) || [];
+
+        const seen = new Set<string>();
+        const matchingPayments: Payment[] = [];
+        const processP = (p: Payment) => {
+          if (!seen.has(p.id) && matchesPaymentType(p.paymentType, selectedPaymentTypeFilter)) {
+            seen.add(p.id);
+            matchingPayments.push(p);
+          }
+        };
+        rawList1.forEach(processP);
+        rawList2.forEach(processP);
+
+        const cancelledPayments = matchingPayments.filter(
+          (p) => p.status === 'cancelled' || p.status === 'لاغي' || p.status === 'VOID' || p.status === 'ملغي' || p.status === 'مرفوض'
+        );
+
+        const isUncollectedPayment = (p: Payment) =>
+          p.status === 'pending' || p.status === 'لم يتم التحصيل' || p.status === 'uncollected' || p.status === 'unpaid' || p.status === 'غير مسدد' || p.status === 'معلق';
+
+        const validCollectedPayments = matchingPayments.filter(
+          (p) => !cancelledPayments.includes(p) && !isUncollectedPayment(p)
+        );
+
+        const pendingPayments = matchingPayments.filter(
+          (p) => !cancelledPayments.includes(p) && isUncollectedPayment(p)
+        );
+
+        const totalAmount = validCollectedPayments.reduce((sum, p) => sum + p.amount, 0);
+        const isPaid = totalAmount > 0 || validCollectedPayments.some(p => p.isManuallyPaid || p.status === 'collected' || p.status === 'paid' || p.status === 'تم التحصيل');
+        const isPending = !isPaid && pendingPayments.length > 0;
+        const pendingAmount = pendingPayments.reduce((sum, p) => sum + p.amount, 0);
+
+        const isBulkGeneratedPending = isPending && pendingPayments.some(p =>
+          p.isManuallyPaid !== true && ((p.isManuallyPaid === false) || (p.notes && (p.notes.includes('استحقاق اشتراك شهر') || p.notes.includes('توليد تلقائي'))))
+        );
+
+        const isOnlyCancelled = !isPaid && !isPending && cancelledPayments.length > 0;
+        const hasNoPayments = matchingPayments.length === 0;
+
+        const isAggregated = matchingPayments.some(p => 
+          p.status !== 'cancelled' && p.status !== 'لاغي' && (
+            originalAggregatedSet.has(String(p.id)) || 
+            Boolean(p.isAggregatedCollection) ||
+            childSet.has(String(p.id)) ||
+            Boolean(p.distributionSourceId) ||
+            (p.notes && (p.notes.includes('سداد مجمع') || p.notes.includes('تم السداد في شهر') || p.notes.includes('القيمة الموزعة للشهر')))
+          )
+        );
+        const isDistributed = matchingPayments.some(p => 
+          p.status !== 'cancelled' && p.status !== 'لاغي' && (
+            masterSet.has(String(p.id)) || Boolean(p.isDistributed)
+          )
+        );
+
+        map.set(`${res.id}_${m}`, {
+          hasNoPayments,
+          paid: isPaid,
+          pending: isPending,
+          isBulkGeneratedPending,
+          pendingAmount,
+          isCancelled: isOnlyCancelled,
+          amount: totalAmount,
+          paymentsList: matchingPayments,
+          isAggregated,
+          isDistributed,
+        });
+      });
     });
+
     return map;
-  }, [payments, currentYear]);
+  }, [sortedResidents, precomputedData, selectedPaymentTypeFilter]);
 
-  // Map and aggregate all payments for grid display in that month
+  // Fast O(1) reader for grid display in that month
   const getSubscriptionStatus = (residentId: string, month: string, filterType = selectedPaymentTypeFilter) => {
-    const monthList = paymentsByResidentAndMonth.get(`${residentId}_${month}`) || [];
+    if (filterType === selectedPaymentTypeFilter) {
+      const cached = cellStatusMap.get(`${residentId}_${month}`);
+      if (cached) return cached;
+    }
+    const monthList = precomputedData.paymentsByResidentAndMonth.get(`${residentId}_${month}`) || [];
     const matchingPayments = monthList.filter((p) => matchesPaymentType(p.paymentType, filterType));
-
-    const cancelledPayments = matchingPayments.filter(
-      (p) => p.status === 'cancelled' || p.status === 'لاغي' || p.status === 'VOID' || p.status === 'ملغي' || p.status === 'مرفوض'
-    );
-
-    const isUncollectedPayment = (p: Payment) =>
-      p.status === 'pending' || p.status === 'لم يتم التحصيل' || p.status === 'uncollected' || p.status === 'unpaid' || p.status === 'غير مسدد' || p.status === 'معلق';
-
-    const validCollectedPayments = matchingPayments.filter(
-      (p) => !cancelledPayments.includes(p) && !isUncollectedPayment(p)
-    );
-
-    const pendingPayments = matchingPayments.filter(
-      (p) => !cancelledPayments.includes(p) && isUncollectedPayment(p)
-    );
-
-    const totalAmount = validCollectedPayments.reduce((sum, p) => sum + p.amount, 0);
-    const isPaid = totalAmount > 0 || validCollectedPayments.some(p => p.isManuallyPaid || p.status === 'collected' || p.status === 'paid' || p.status === 'تم التحصيل');
-    const isPending = !isPaid && pendingPayments.length > 0;
-    const pendingAmount = pendingPayments.reduce((sum, p) => sum + p.amount, 0);
-
-    const isBulkGeneratedPending = isPending && pendingPayments.some(p =>
-      p.isManuallyPaid !== true && ((p.isManuallyPaid === false) || (p.notes && (p.notes.includes('استحقاق اشتراك شهر') || p.notes.includes('توليد تلقائي'))))
-    );
-
-    const isOnlyCancelled = !isPaid && !isPending && cancelledPayments.length > 0;
-
-    const hasNoPayments = matchingPayments.length === 0;
-
-    const isAggregated = matchingPayments.some(p => 
-      p.status !== 'cancelled' && p.status !== 'لاغي' && (isOriginalAggregatedPayment(p) || Boolean(p.isAggregatedCollection))
-    );
-    const isDistributed = matchingPayments.some(p => 
-      p.status !== 'cancelled' && p.status !== 'لاغي' && isMasterDistributionPayment(p)
-    );
-
+    const totalAmount = matchingPayments.filter(p => p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل').reduce((sum, p) => sum + p.amount, 0);
     return {
-      hasNoPayments,
-      paid: isPaid,
-      pending: isPending,
-      isBulkGeneratedPending,
-      pendingAmount: pendingAmount,
-      isCancelled: isOnlyCancelled,
+      hasNoPayments: matchingPayments.length === 0,
+      paid: totalAmount > 0,
+      pending: false,
+      isBulkGeneratedPending: false,
+      pendingAmount: 0,
+      isCancelled: false,
       amount: totalAmount,
       paymentsList: matchingPayments,
-      isAggregated,
-      isDistributed,
+      isAggregated: false,
+      isDistributed: false,
     };
   };
 
@@ -394,6 +523,13 @@ export const Summaries: React.FC<SummariesProps> = ({
     setConfirmCancelId(null);
 
     const fee = selectedCell ? getDefaultFeeForResident(selectedCell.resident, pay.month, currentYear) : (defaultMonthlyFee || 400);
+    const initialDue = (pay.expectedAmount !== undefined && pay.expectedAmount > 0)
+      ? pay.expectedAmount
+      : ((pay as any).dueAmount !== undefined && (pay as any).dueAmount > 0)
+        ? (pay as any).dueAmount
+        : fee;
+    setEditDueAmount(String(initialDue));
+
     const currentMonthNum = parseInt(pay.month, 10) || 1;
     const normalizedMonth = String(currentMonthNum).padStart(2, '0');
 
@@ -569,6 +705,9 @@ export const Summaries: React.FC<SummariesProps> = ({
     const masterPay = findMasterPayment(pay);
     const masterId = String(masterPay.id);
 
+    const parsedDue = parseFloat(editDueAmount);
+    const dueToSave = (!isNaN(parsedDue) && parsedDue >= 0) ? parsedDue : undefined;
+
     // Identify any existing child payments from previous distribution
     const existingChildPayments = payments.filter((p) =>
       String(p.id) !== masterId && (
@@ -642,12 +781,15 @@ export const Summaries: React.FC<SummariesProps> = ({
           flatNumber: masterPay.flatNumber,
           paymentType: editPaymentType || masterPay.paymentType || 'اشتراك شهري',
           amount: allocatedAmount,
+          expectedAmount: dueToSave,
+          dueAmount: dueToSave,
           receiptNumber: recNum,
           notes: noteText,
           fileId: masterPay.fileId || '',
           fileUrl: masterPay.fileUrl || '',
           date: masterPay.date || new Date().toISOString().split('T')[0],
           isManuallyPaid: true,
+          isManuallyEdited: true,
           status: paymentStatusToUse as any,
           isAggregatedCollection: isMaster,
           isDistributed: isMaster && otherMonths.length > 0,
@@ -696,10 +838,14 @@ export const Summaries: React.FC<SummariesProps> = ({
       const updatedPayment: Payment = {
         ...pay,
         amount: parsedAmount,
+        expectedAmount: dueToSave,
+        dueAmount: dueToSave,
         paymentType: editPaymentType,
         status: (editPaymentStatus as any) || 'collected',
         receiptNumber: (editReceiptNumber || '').trim(),
         notes: cleanCustomNote || undefined,
+        isManuallyPaid: true,
+        isManuallyEdited: true,
         isDistributed: false,
         distributedPaymentIds: [],
         originalAmountBeforeDistribution: undefined,
@@ -1141,11 +1287,8 @@ export const Summaries: React.FC<SummariesProps> = ({
 
                   {/* Residents of this floor */}
                   {group.residents.map((res) => {
-                    const historical = getHistoricalOccupantForDate(res, `${currentYear}`);
-                    const occupantName = historical.tenantName || historical.ownerName || res.name;
-                    const residentYearTotal = payments
-                      .filter((p) => p.residentId === res.id && p.year === currentYear && p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل' && matchesPaymentType(p.paymentType, selectedPaymentTypeFilter))
-                      .reduce((s, p) => s + p.amount, 0);
+                    const occupantName = occupantNamesMap.get(res.id) || res.name;
+                    const residentYearTotal = residentYearTotalsMap.get(res.id) || 0;
 
                     return (
                       <tr key={res.id} className="hover:bg-slate-50/30 transition">
@@ -1164,7 +1307,7 @@ export const Summaries: React.FC<SummariesProps> = ({
                           const status = getSubscriptionStatus(res.id, m);
                           const isMulti = status.paymentsList.length > 1;
                           const isQuarterEnd = idx === 2 || idx === 5 || idx === 8;
-                          const histAct = getHistoricalActivityForDate(res, `${currentYear}-${m}`, defaultMonthlyFee, activityDefaultFees, config?.activityFeePeriods);
+                          const histAct = historicalActivitiesMap.get(`${res.id}_${m}`) || { activityType: res.activityType || 'سكني', monthlyFee: defaultMonthlyFee || 400 };
                           const isNoFeeActivity = Boolean(
                             histAct.activityType === 'بدون تحصيل' ||
                             histAct.activityType === 'بدون تشطيب' ||
@@ -1196,8 +1339,9 @@ export const Summaries: React.FC<SummariesProps> = ({
                               key={m}
                               onClick={() => {
                                 const monthName = monthNamesArabic[idx];
-                                const defaultAmt = histAct.monthlyFee;
-                                setNewAmount(String(defaultAmt));
+                                const prescribedFee = getDefaultFeeForResident(res, m, currentYear);
+                                setNewAmount(String(prescribedFee));
+                                setNewDueAmount(String(prescribedFee));
                                 setNewNotes('');
                                 setNewPaymentType(
                                   selectedPaymentTypeFilter !== 'all'
@@ -1225,9 +1369,9 @@ export const Summaries: React.FC<SummariesProps> = ({
                                       {status.isDistributed && (
                                         <span className="w-2 h-2 rounded-full bg-emerald-600 ring-2 ring-emerald-300 animate-pulse" title="تم التوزيع من هذه الدفعة" />
                                       )}
-                                      {!status.isDistributed && status.isAggregated && (
-                                        <span className="text-[7px] sm:text-[7.5px] font-black px-1 py-0.2 bg-amber-300 text-amber-950 rounded-xs" title="تحصيل مجمع">
-                                          مجمع ⚡
+                                      {status.isAggregated && (
+                                        <span className="text-[7px] sm:text-[7.5px] font-black px-1 py-0.2 bg-amber-300 text-amber-950 rounded-xs shadow-2xs" title="تحصيل مجمع / موزع">
+                                          مجمع
                                         </span>
                                       )}
                                       {isMulti && (
@@ -1472,15 +1616,18 @@ export const Summaries: React.FC<SummariesProps> = ({
                                     {/* خانة المبلغ المستحق */}
                                     <div className="space-y-0.5">
                                       <label className="text-[9px] font-black text-amber-800 block truncate">المبلغ المستحق (ج.م)</label>
-                                      <button
-                                        type="button"
-                                        onClick={() => setEditAmount(String(editDueFee))}
-                                        title="انقر لتعيين المبلغ المدفوع بالقيمة المستحقة"
-                                        className="w-full px-2 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg text-xs text-right font-black text-amber-950 flex items-center justify-between transition shadow-2xs cursor-pointer h-[28px]"
-                                      >
-                                        <span>{editDueFee.toLocaleString()}</span>
-                                        <span className="text-[9px] text-amber-700 font-bold">ج.م</span>
-                                      </button>
+                                      <div className="relative">
+                                        <input
+                                          type="number"
+                                          min="0"
+                                          placeholder="المستحق"
+                                          value={editDueAmount}
+                                          onChange={(e) => setEditDueAmount(e.target.value)}
+                                          className="w-full pl-6 pr-1.5 sm:pr-2.5 py-1 bg-amber-50/90 border border-amber-300 focus:border-amber-500 rounded-lg text-xs font-black text-amber-950 text-right outline-none transition h-[28px]"
+                                          title="تعديل قيمة المبلغ المستحق يدوياً لهذه الدفعة (المصدر الأول للمبلغ المستحق)"
+                                        />
+                                        <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[8px] sm:text-[9px] text-amber-700 font-bold">ج.م</span>
+                                      </div>
                                     </div>
                                     <div className="space-y-0.5">
                                       <label className="text-[9px] font-black text-slate-600 block">المبلغ المدفوع (ج.م) *</label>
@@ -1788,8 +1935,9 @@ export const Summaries: React.FC<SummariesProps> = ({
                                     }
                                     if (isChild) {
                                       return (
-                                        <span className="px-1.5 py-0.2 bg-slate-100 text-slate-700 border border-slate-200 rounded text-[8px] font-bold">
-                                          <span>موزع من سداد مجمع</span>
+                                        <span className="px-1.5 py-0.2 bg-amber-100 text-amber-900 border border-amber-300 rounded text-[8px] font-black flex items-center gap-0.5 shadow-2xs">
+                                          <Sparkles className="w-2.5 h-2.5 text-amber-600" />
+                                          <span>موزع من تحصيل مجمع</span>
                                         </span>
                                       );
                                     }
@@ -1954,15 +2102,18 @@ export const Summaries: React.FC<SummariesProps> = ({
                   {/* خانة المبلغ المستحق */}
                   <div className="space-y-0.5">
                     <label className="text-[9px] font-bold text-amber-800 block truncate">المبلغ المستحق (ج.م)</label>
-                    <button
-                      type="button"
-                      onClick={() => setNewAmount(String(cellPrescribed.monthlyFee))}
-                      title="انقر لتعيين المبلغ المدفوع بالقيمة المستحقة"
-                      className="w-full px-2 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg text-[11px] sm:text-xs font-black text-amber-950 text-right flex items-center justify-between transition shadow-2xs cursor-pointer h-[30px]"
-                    >
-                      <span>{cellPrescribed.monthlyFee.toLocaleString()}</span>
-                      <span className="text-[8.5px] sm:text-[9.5px] text-amber-700 font-bold">ج.م</span>
-                    </button>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        min="0"
+                        placeholder="المستحق"
+                        value={newDueAmount}
+                        onChange={(e) => setNewDueAmount(e.target.value)}
+                        className="w-full pl-6 pr-1.5 sm:pr-2.5 py-1 bg-amber-50/90 border border-amber-300 focus:border-amber-500 rounded-lg text-[11px] sm:text-xs font-black text-amber-950 text-right outline-none transition h-[30px]"
+                        title="المبلغ المستحق (يمكن تعديله يدوياً ليكون المصدر الأول للمبلغ المستحق)"
+                      />
+                      <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[8.5px] sm:text-[9.5px] text-amber-700 font-bold">ج.م</span>
+                    </div>
                   </div>
 
                   {/* خانة المبلغ المدفوع */}
@@ -2019,6 +2170,9 @@ export const Summaries: React.FC<SummariesProps> = ({
                           return;
                         }
 
+                        const parsedDue = parseFloat(newDueAmount);
+                        const expectedDueToSave = (!isNaN(parsedDue) && parsedDue >= 0) ? parsedDue : undefined;
+
                         const pType = newPaymentType || 'اشتراك شهري';
                         const payDate = new Date().toISOString().split('T')[0];
                         const notesText = newNotes.trim() ? newNotes.trim() : `سداد اشتراك شهر ${selectedCell.monthName} ${currentYear}`;
@@ -2032,9 +2186,12 @@ export const Summaries: React.FC<SummariesProps> = ({
                           flatNumber: selectedCell.resident.flatNumber,
                           paymentType: pType,
                           amount: parsedAmount,
+                          expectedAmount: expectedDueToSave,
+                          dueAmount: expectedDueToSave,
                           notes: notesText,
                           date: payDate,
                           isManuallyPaid: true,
+                          isManuallyEdited: true,
                           status: 'collected',
                         };
 
@@ -2060,6 +2217,7 @@ export const Summaries: React.FC<SummariesProps> = ({
                             setNewNotes('');
                             const defaultAmt = getDefaultFeeForResident(selectedCell.resident, selectedCell.month, currentYear);
                             setNewAmount(String(defaultAmt));
+                            setNewDueAmount(String(defaultAmt));
                             setActionConfirm(null);
                           }
                         });

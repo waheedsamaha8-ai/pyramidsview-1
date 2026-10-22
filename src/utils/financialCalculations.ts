@@ -30,8 +30,39 @@ export function getResidentMonthlyFee(
   if (!resident) return defaultMonthlyFee || 400;
 
   const flatKey = String(resident.flatNumber);
+  const cleanAct = (resident.activityType || 'سكني').trim();
+  if (cleanAct === 'بدون تشطيب' || cleanAct === 'بدون تحصيل' || cleanAct.includes('بدون تشطيب') || cleanAct.includes('بدون تحصيل')) {
+    return 0;
+  }
 
-  // 1. أولاً: طبقاً لسجل الوحدة وسجل النشاط والتسلسل التاريخي للوحدة (Unit Record & Activity History)
+  // 1. أولاً: التعديل اليدوي على قيمة المبلغ المستحق في دفعة التحصيل أو الاستحقاق (المصدر الأول للمبلغ المستحق)
+  if (targetDateOrPeriod && payments) {
+    const resPayments = getPaymentsForResident(resident, payments);
+    const periodStr = String(targetDateOrPeriod);
+    const parts = periodStr.split('-');
+    const targetY = parts.length >= 1 ? parseInt(parts[0], 10) : 0;
+    const targetM = parts.length >= 2 ? parseInt(parts[1], 10) : 0;
+
+    if (targetY && targetM) {
+      const monthPayment = resPayments.find(p => {
+        const pYear = Number(p.year) || (p.date ? new Date(p.date).getFullYear() : targetY);
+        const pMonth = parseInt(String(p.month), 10);
+        if (pYear !== targetY || pMonth !== targetM || !isMonthlySubscriptionType(p.paymentType) || p.status === 'cancelled' || p.status === 'لاغي') return false;
+        return (p.expectedAmount !== undefined && !isNaN(p.expectedAmount) && p.expectedAmount > 0) ||
+               (p.dueAmount !== undefined && !isNaN(p.dueAmount) && p.dueAmount > 0);
+      });
+      if (monthPayment) {
+        if (monthPayment.expectedAmount !== undefined && !isNaN(monthPayment.expectedAmount) && monthPayment.expectedAmount > 0) {
+          return monthPayment.expectedAmount;
+        }
+        if (monthPayment.dueAmount !== undefined && !isNaN(monthPayment.dueAmount) && monthPayment.dueAmount > 0) {
+          return monthPayment.dueAmount;
+        }
+      }
+    }
+  }
+
+  // 2. ثانياً: سجل الوحدة الشامل (تسلسل النشاط والاستخدام طبقا للفترة الزمنية التي يوجد بها شهر التحصيل)
   if (resident.activityHistory && resident.activityHistory.length > 0) {
     const act = getHistoricalActivityForDate(resident, targetDateOrPeriod, defaultMonthlyFee, activityDefaultFees, activityFeePeriods);
     if (act && act.monthlyFee !== undefined && !isNaN(act.monthlyFee) && act.monthlyFee >= 0) {
@@ -39,11 +70,7 @@ export function getResidentMonthlyFee(
     }
   }
 
-  if (resident.monthlyFee !== undefined && !isNaN(resident.monthlyFee) && resident.monthlyFee > 0) {
-    return resident.monthlyFee;
-  }
-
-  // 2. ثانياً: في حالة عدم وجود قيمة بسجل الوحدة، تكون القيمة من إدارة اشتراكات الوحدات من فترة التسعير التي يوجد بها الشهر (CustomUnitFeePeriod)
+  // 3. ثالثاً: عمود فترة التسعير الموجود في إدارة اشتراكات الوحدة إذا لم يكن هناك تسلسل نشاط واستخدام في السجل
   if (customUnitFeePeriods && customUnitFeePeriods.length > 0) {
     if (targetDateOrPeriod) {
       const periodStr = String(targetDateOrPeriod);
@@ -71,64 +98,12 @@ export function getResidentMonthlyFee(
     }
   }
 
-  const cleanAct = (resident.activityType || 'سكني').trim();
-  if (cleanAct === 'بدون تشطيب' || cleanAct === 'بدون تحصيل' || cleanAct.includes('بدون تشطيب') || cleanAct.includes('بدون تحصيل')) {
-    return 0;
+  // 4. رابعاً: القيمة المحددة بالوحدة (resident.monthlyFee)
+  if (resident.monthlyFee !== undefined && !isNaN(resident.monthlyFee) && resident.monthlyFee > 0) {
+    return resident.monthlyFee;
   }
 
-  // 2. في حالة عدم وجود سجل للوحدة: يتم استخدام قيمة الاشتراك الشهري المستحق من التحصيل الشهري عن الفترة المحاسبية
-  if (targetDateOrPeriod && payments) {
-    const resPayments = getPaymentsForResident(resident, payments);
-    const periodStr = String(targetDateOrPeriod);
-    const parts = periodStr.split('-');
-    const targetY = parts.length >= 1 ? parseInt(parts[0], 10) : 0;
-    const targetM = parts.length >= 2 ? parseInt(parts[1], 10) : 0;
-    const matchedPeriod = activityFeePeriods && activityFeePeriods.length > 0
-      ? findMatchingActivityFeePeriod(targetDateOrPeriod, activityFeePeriods)
-      : undefined;
-
-    // أ. فحص دفعة هذا الشهر تحديداً إن وُجدت
-    if (targetY && targetM) {
-      const monthPayment = resPayments.find(p => {
-        const pYear = Number(p.year) || (p.date ? new Date(p.date).getFullYear() : targetY);
-        const pMonth = parseInt(String(p.month), 10);
-        return pYear === targetY && pMonth === targetM && isMonthlySubscriptionType(p.paymentType) &&
-          p.status !== 'cancelled' && p.status !== 'لاغي';
-      });
-      if (monthPayment) {
-        if (monthPayment.expectedAmount !== undefined && !isNaN(monthPayment.expectedAmount) && monthPayment.expectedAmount > 0) {
-          return monthPayment.expectedAmount;
-        }
-        if (monthPayment.amount !== undefined && monthPayment.amount > 0 && monthPayment.status !== 'pending') {
-          return monthPayment.amount;
-        }
-      }
-    }
-
-    // ب. فحص أي دفعة تحصيل شهري في نفس الفترة المحاسبية مسجل بها المبلغ المستحق
-    const periodPaymentWithExpected = resPayments.find(p => {
-      if (!isMonthlySubscriptionType(p.paymentType) || p.status === 'cancelled' || p.status === 'لاغي') return false;
-      const pYear = Number(p.year) || (p.date ? new Date(p.date).getFullYear() : 0);
-      const pMonth = parseInt(String(p.month), 10);
-      if (!pYear || !pMonth) return false;
-
-      if (matchedPeriod) {
-        const pPeriodStr = `${pYear}-${String(pMonth).padStart(2, '0')}`;
-        const pMatched = findMatchingActivityFeePeriod(pPeriodStr, activityFeePeriods);
-        if (pMatched?.id !== matchedPeriod.id) return false;
-      } else if (targetY && pYear !== targetY) {
-        return false;
-      }
-
-      return p.expectedAmount !== undefined && !isNaN(p.expectedAmount) && p.expectedAmount > 0;
-    });
-
-    if (periodPaymentWithExpected && periodPaymentWithExpected.expectedAmount) {
-      return periodPaymentWithExpected.expectedAmount;
-    }
-  }
-
-  // 3. طبقاً لقيمة التحصيل الشهري المستحق المسجل للفترات المحاسبية (activityFeePeriods)
+  // 5. خامساً: طبقاً لقيمة التحصيل الشهري المسجل للفترات المحاسبية (activityFeePeriods)
   if (targetDateOrPeriod && activityFeePeriods && activityFeePeriods.length > 0) {
     const matched = findMatchingActivityFeePeriod(targetDateOrPeriod, activityFeePeriods);
     if (matched && matched.fees && matched.fees[cleanAct] !== undefined) {
@@ -136,26 +111,17 @@ export function getResidentMonthlyFee(
     }
   }
 
-  // 4. Otherwise if manually changed in the fees column in the units table (and no activity periods defined)
-  if (resident.monthlyFee !== undefined && !isNaN(resident.monthlyFee) && resident.monthlyFee > 0 && (!activityFeePeriods || activityFeePeriods.length === 0)) {
-    return resident.monthlyFee;
-  }
-
-  // 5. Default fee for activity from Settings
+  // 6. القيمة الافتراضية للنشاط من الإعدادات
   return getDefaultFeeForActivity(resident.activityType, defaultMonthlyFee, activityDefaultFees, targetDateOrPeriod, activityFeePeriods);
 }
 
 /**
  * Resolves the prescribed monthly subscription fee and activity type for a resident for a specific year and month:
- * Priority Rules:
- * 1. Unit's Custom Fee Period record in customUnitFeePeriods (سجل تسعير الوحدة المحدد لهذا الشهر والسنة).
- * 2. Unit's Historical Activity Record in activityHistory (سجل النشاط والتسعير الخاص بالوحدة).
- * 3. في حالة عدم وجود سجل للوحدة:
- *    - قيمة الاشتراك الشهري المستحق من التحصيل الشهري عن الفترة المحاسبية (expectedAmount).
- *    - طبقاً لقيمة التحصيل الشهري المستحق المسجل للفترات المحاسبية (ActivityFeePeriod).
- *    - قيمة التحصيل الشهري المسدد فعلياً عن الشهر.
- *    - الرسوم المحددة للوحدة (resident.monthlyFee إن وُجدت).
- *    - القيمة الافتراضية للنشاط من الإعدادات العامة.
+ * الترتيب المعتمد لمصادر المبلغ المستحق:
+ * 1. المصدر الأول: التعديل اليدوي على قيمة المبلغ المستحق في دفعة التحصيل أو الاستحقاق (expectedAmount أو dueAmount).
+ * 2. المصدر الثاني: سجل الوحدة الشامل من قيمة الاشتراك الشهري المعتمد من تبويب تسلسل النشاط والاستخدام طبقا للفترة الزمنية التي يوجد بها شهر التحصيل.
+ * 3. المصدر الثالث: عمود فترة التسعير الموجود في إدارة اشتراكات الوحدة (customUnitFeePeriods) إذا لم يكن هناك تسلسل للنشاط والاستخدام بسجل الوحدة.
+ * 4. القيمة المحددة بالوحدة أو activityFeePeriods أو القيمة الافتراضية للنشاط.
  */
 export function getPrescribedFeeForMonth(
   resident: Resident,
@@ -176,11 +142,40 @@ export function getPrescribedFeeForMonth(
     return { monthlyFee: 0, activityType: cleanAct };
   }
 
+  const mNum = Number(month);
+  const yNum = Number(year);
   const mStr = String(month).padStart(2, '0');
   const periodStr = `${year}-${mStr}`;
 
-  // 1. أولاً: من سجل الوحدة الشامل وتسلسل النشاط والاستخدام (resident.activityHistory)
-  // البحث عن السجل الذي تغطي فترته الزمنية شهر وسنة التحصيل
+  // 1. أولاً: التعديل اليدوي على قيمة المبلغ المستحق في دفعة التحصيل أو الاستحقاق (المصدر الأول للمبلغ المستحق)
+  if (allResidentPayments && allResidentPayments.length > 0) {
+    const monthPayment = allResidentPayments.find(p => {
+      if (p.status === 'cancelled' || p.status === 'لاغي') return false;
+      const isMatchUnit = (resident.id && String(p.residentId || '').trim() === String(resident.id).trim()) ||
+        isSameFlatNumber(p.flatNumber, resident.flatNumber);
+      if (!isMatchUnit) return false;
+      const pYear = Number(p.year) || (p.date ? new Date(p.date).getFullYear() : yNum);
+      const pMonth = parseInt(String(p.month), 10);
+      if (pYear !== yNum || pMonth !== mNum || !isMonthlySubscriptionType(p.paymentType)) return false;
+
+      return (p.expectedAmount !== undefined && !isNaN(p.expectedAmount) && p.expectedAmount > 0) ||
+             (p.dueAmount !== undefined && !isNaN(p.dueAmount) && p.dueAmount > 0);
+    });
+
+    if (monthPayment) {
+      const manualDue = (monthPayment.expectedAmount !== undefined && !isNaN(monthPayment.expectedAmount) && monthPayment.expectedAmount > 0)
+        ? monthPayment.expectedAmount
+        : monthPayment.dueAmount;
+      if (manualDue !== undefined) {
+        return {
+          monthlyFee: manualDue,
+          activityType: resident.activityType || 'سكني',
+        };
+      }
+    }
+  }
+
+  // 2. ثانياً: سجل الوحدة الشامل من قيمة الاشتراك الشهري المعتمد من تبويب تسلسل النشاط والاستخدام طبقاً للفترة الزمنية لشهر التحصيل (المصدر الثاني)
   if (resident.activityHistory && Array.isArray(resident.activityHistory) && resident.activityHistory.length > 0) {
     const historyList = sortActivityRecordsChronologically(resident.activityHistory);
     const parsedTarget = parseToStandardDate(periodStr);
@@ -203,8 +198,7 @@ export function getPrescribedFeeForMonth(
     }
   }
 
-  // 2. ثانياً: إذا كانت الفترة الزمنية التي ينتمي إليها هذا الشهر غير موجودة في تسلسل النشاط والاستخدام،
-  // يتم الرجوع مباشرة إلى إدارة اشتراكات الوحدات (عمود فترة التسعير للفترة التي ينتمي إليها شهر التحصيل)
+  // 3. ثالثاً: عمود فترة التسعير الموجود في إدارة اشتراكات الوحدة إذا لم يكن هناك تسلسل للنشاط والاستخدام بسجل الوحدة (المصدر الثالث)
   if (customUnitFeePeriods && customUnitFeePeriods.length > 0) {
     const flatKey = String(resident.flatNumber).trim();
     const targetTotal = year * 12 + month;
@@ -261,7 +255,7 @@ export function getPrescribedFeeForMonth(
     }
   }
 
-  // 3. ثالثاً: كخيار أخير فقط في حال عدم وجود أي سجل بالنشاط أو فترة تسعير مطابقة للشهر
+  // 4. رابعاً: القيمة المحددة في سجل الوحدة (resident.monthlyFee)
   if (resident.monthlyFee !== undefined && !isNaN(resident.monthlyFee) && resident.monthlyFee > 0) {
     return {
       monthlyFee: resident.monthlyFee,
@@ -269,9 +263,21 @@ export function getPrescribedFeeForMonth(
     };
   }
 
-  // 3. في حال عدم توفر أي بيانات في سجل الوحدة أو فترة التسعير
+  // 4. رابعاً: طبقاً لفترات النشاط العامة (activityFeePeriods)
+  if (activityFeePeriods && activityFeePeriods.length > 0) {
+    const matched = findMatchingActivityFeePeriod(periodStr, activityFeePeriods);
+    if (matched && matched.fees && matched.fees[cleanAct] !== undefined) {
+      return {
+        monthlyFee: matched.fees[cleanAct],
+        activityType: resident.activityType || 'سكني',
+      };
+    }
+  }
+
+  // 5. خامساً: القيمة الافتراضية للنشاط من الإعدادات
+  const defaultFee = getDefaultFeeForActivity(resident.activityType, defaultMonthlyFee, activityDefaultFees, periodStr, activityFeePeriods);
   return {
-    monthlyFee: 0,
+    monthlyFee: defaultFee,
     activityType: resident.activityType || 'سكني',
   };
 }

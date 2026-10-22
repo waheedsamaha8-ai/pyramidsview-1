@@ -94,6 +94,7 @@ export interface Payment {
   paymentType: string;
   amount: number;
   expectedAmount?: number;
+  dueAmount?: number;
   receiptNumber?: string;
   notes?: string;
   fileId?: string; // Google Drive file ID
