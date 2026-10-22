@@ -132,14 +132,35 @@ export function useAppSync({
       offlineSync.saveCachedData('residents', uniqueResidents);
     });
 
-    const unsubPayments = firestoreService.subscribeToPayments(async (items) => {
+    const unsubPayments = firestoreService.subscribeToPayments((items) => {
       if (!isMounted || !Array.isArray(items)) return;
       const validItems = items.filter(p => p && p.id);
-      const hydrated = await restoreEntityImagesFromIndexedDB(validItems);
-      const cleanPayments = filterAndDeduplicatePayments(hydrated);
+      const cleanPayments = filterAndDeduplicatePayments(validItems);
       if (!isMounted) return;
-      setPayments(cleanPayments);
-      offlineSync.saveCachedData('payments', cleanPayments);
+
+      setPayments(prev => {
+        const incomingMap = new Map(cleanPayments.map(p => [String(p.id), p]));
+        const merged = cleanPayments.slice();
+        
+        // Retain optimistic recent items that might not have reached Firestore snapshot yet
+        prev.forEach(p => {
+          if (!incomingMap.has(String(p.id)) && String(p.id).startsWith('pay_')) {
+            merged.push(p);
+          }
+        });
+
+        const deduped = filterAndDeduplicatePayments(merged);
+
+        // Check if anything actually changed to prevent unnecessary re-renders
+        if (prev.length === deduped.length) {
+          const prevMap = new Map(prev.map(p => [String(p.id), `${p.amount}_${p.month}_${p.year}_${p.status}_${p.notes || ''}`]));
+          const isIdentical = deduped.every(p => prevMap.get(String(p.id)) === `${p.amount}_${p.month}_${p.year}_${p.status}_${p.notes || ''}`);
+          if (isIdentical) return prev;
+        }
+
+        offlineSync.saveCachedData('payments', deduped);
+        return deduped;
+      });
     });
 
     const unsubExpenses = firestoreService.subscribeToExpenses(async (items) => {

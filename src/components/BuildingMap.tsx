@@ -25,13 +25,14 @@ import {
   Download
 } from 'lucide-react';
 import { deriveFloorConfigsFromResidents, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber, getHistoricalOccupantForDate, getHistoricalActivityForDate } from '../utils/buildingStructure';
-import { calculateResidentFinancials, getCarriedPreviousBalance, calculateUnitClaimBreakdown, getResidentMonthlyFee } from '../utils/financialCalculations';
+import { calculateResidentFinancials, getCarriedPreviousBalance, calculateUnitClaimBreakdown, getResidentMonthlyFee, getPrescribedFeeForMonth } from '../utils/financialCalculations';
 import { getActiveAccountingPeriod } from '../utils/periodUtils';
 import { formatMobileNumber, formatPhoneForDisplay, toWhatsAppNumber } from '../utils/phoneUtils';
 import { shareImageViaWhatsApp } from '../utils/shareImageViaWhatsApp';
 import { generateElementImageBlob } from '../utils/imageExport';
 import { printReceiptClaim } from '../utils/receiptClaimGenerator';
 import { ReceiptClaimModal, ReceiptClaimData } from './ReceiptClaimModal';
+import { UnitHistoryModal } from './modals/UnitHistoryModal';
 
 interface BuildingMapProps {
   residents: Resident[];
@@ -41,6 +42,7 @@ interface BuildingMapProps {
   config?: AppConfig;
   currentMonth?: number;
   setCurrentMonth?: React.Dispatch<React.SetStateAction<number>>;
+  onEditResident?: (resident: Resident) => void;
 }
 
 export const BuildingMap: React.FC<BuildingMapProps> = ({
@@ -51,7 +53,9 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
   config,
   currentMonth,
   setCurrentMonth,
+  onEditResident,
 }) => {
+  const [historyModalResident, setHistoryModalResident] = useState<Resident | null>(null);
   const currentMonthNum = currentMonth !== undefined ? currentMonth + 1 : new Date().getMonth() + 1;
   const initialMonth = currentMonthNum < 10 ? `0${currentMonthNum}` : `${currentMonthNum}`;
   const [internalSelectedMonth, setInternalSelectedMonth] = useState<string>(initialMonth);
@@ -202,8 +206,22 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
       config?.customUnitFeePeriods
     );
 
-    const histAct = getHistoricalActivityForDate(resident, `${currentYear}-${selectedMonth}`, defaultMonthlyFee, activityDefaultFees, activityFeePeriods);
-    const monthlyFee = getResidentMonthlyFee(resident, defaultMonthlyFee, activityDefaultFees, `${currentYear}-${selectedMonth}`, payments, activityFeePeriods, config?.customUnitFeePeriods);
+    const prescribed = getPrescribedFeeForMonth(
+      resident,
+      Number(currentYear),
+      targetMonthNum,
+      payments,
+      defaultMonthlyFee,
+      activityDefaultFees,
+      activityFeePeriods,
+      config?.customUnitFeePeriods
+    );
+    const histAct = {
+      ...getHistoricalActivityForDate(resident, `${currentYear}-${selectedMonth}`, defaultMonthlyFee, activityDefaultFees, activityFeePeriods),
+      activityType: prescribed.activityType,
+      monthlyFee: prescribed.monthlyFee,
+    };
+    const monthlyFee = prescribed.monthlyFee;
     const isPaid = Boolean(currentMonthPayment && (currentMonthPayment.amount > 0 || currentMonthPayment.isManuallyPaid));
 
     // Calculate old debt strictly from carried previous balance (initialBalance or accumulated from prior years)
@@ -769,15 +787,15 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
             </div>
           </div>
 
-          {/* Filters Box: Month & Payment Type Selectors */}
-          <div className="flex flex-wrap items-center gap-2 bg-slate-50 p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl border border-slate-200 w-full sm:w-auto">
+          {/* Filters Box: Month & Payment Type Selectors ON THE SAME ROW */}
+          <div className="grid grid-cols-2 gap-1.5 sm:gap-2.5 bg-slate-50 p-1.5 sm:p-2 rounded-xl border border-slate-200 w-full lg:w-auto">
             {/* Month selector */}
-            <div className="flex items-center gap-1.5">
-              <span className="text-[10.5px] font-bold text-slate-500 whitespace-nowrap">الشهر:</span>
+            <div className="flex items-center gap-1 sm:gap-1.5 min-w-0">
+              <span className="text-[10px] sm:text-xs font-bold text-slate-500 whitespace-nowrap shrink-0">الشهر:</span>
               <select 
                 value={selectedMonth}
                 onChange={(e) => handleMonthChange(e.target.value)}
-                className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs font-black text-blue-950 outline-none cursor-pointer hover:border-blue-300 transition"
+                className="w-full bg-white border border-slate-200 rounded-lg px-1.5 sm:px-2 py-1 text-[11px] sm:text-xs font-black text-blue-950 outline-none cursor-pointer hover:border-blue-300 transition truncate"
               >
                 {months.map((m, idx) => (
                   <option key={m} value={m}>{monthNamesArabic[idx]} {currentYear}</option>
@@ -786,14 +804,14 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
             </div>
 
             {/* Payment Type selector */}
-            <div className="flex items-center gap-1.5 sm:border-r sm:border-slate-200 sm:pr-2">
-              <span className="text-[10.5px] font-bold text-slate-500 whitespace-nowrap">نوع التحصيل:</span>
+            <div className="flex items-center gap-1 sm:gap-1.5 border-r border-slate-200 pr-1.5 sm:pr-2 min-w-0">
+              <span className="text-[10px] sm:text-xs font-bold text-slate-500 whitespace-nowrap shrink-0">التحصيل:</span>
               <select 
                 value={selectedPaymentType}
                 onChange={(e) => setSelectedPaymentType(e.target.value)}
-                className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs font-black text-blue-950 outline-none cursor-pointer hover:border-blue-300 transition"
+                className="w-full bg-white border border-slate-200 rounded-lg px-1.5 sm:px-2 py-1 text-[11px] sm:text-xs font-black text-blue-950 outline-none cursor-pointer hover:border-blue-300 transition truncate"
               >
-                <option value="all">كافة أنواع التحصيلات</option>
+                <option value="all">كافة التحصيلات</option>
                 {availablePaymentTypes.map((type) => (
                   <option key={type} value={type}>{type}</option>
                 ))}
@@ -820,83 +838,130 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
       </div>
 
       {/* Building Grid - Lighter Canvas Background */}
-      <div className="flex flex-col gap-2.5 p-3.5 sm:p-5 bg-slate-200/80 rounded-3xl border-2 sm:border-4 border-slate-300 shadow-md overflow-hidden">
+      <div className="flex flex-col gap-2 p-1 sm:p-2 bg-slate-200/80 rounded-xl border border-slate-300 shadow-md overflow-hidden w-full">
         {[...effectiveFloorConfigs].reverse().map((floor) => {
           const units = getUnitNumbersForFloor(floor, residents);
 
           return (
-            <div key={floor.id} className="flex items-center gap-1.5 sm:gap-3 py-2 border-b border-slate-300/80 last:border-0">
-              <div className="w-14 sm:w-22 flex-shrink-0 text-center px-1 py-1 bg-slate-900 border border-slate-800 rounded-xl flex flex-col items-center justify-center min-h-[42px] shadow-2xs">
-                <span className="text-[8.5px] sm:text-xs font-black text-white">{floor.floorLabel}</span>
-                <span className="text-[7px] sm:text-[7.5px] font-bold text-slate-300 mt-0.5">{floor.activityType}</span>
+            <div key={floor.id} className="space-y-1.5 py-1.5 border-b border-slate-300/80 last:border-0">
+              {/* Floor Header Banner / Separator (فاصل بين الأدوار) */}
+              <div className="flex items-center justify-between px-2.5 py-1.5 bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 text-white rounded-xl border border-slate-700 shadow-2xs">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse shrink-0"></div>
+                  <span className="text-xs sm:text-sm font-black text-white">{floor.floorLabel}</span>
+                  <span className="text-[9.5px] sm:text-xs text-slate-300 font-bold">({floor.activityType || 'سكني'})</span>
+                </div>
+                <span className="text-[9.5px] sm:text-xs text-slate-300 font-bold bg-slate-800/90 px-2 py-0.5 rounded-lg border border-slate-700">
+                  فاصل الدور • {units.length} وحدات
+                </span>
               </div>
               
-              <div className="grid grid-cols-6 gap-1 sm:gap-1.5 flex-1">
+              <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
                 {units.map(unitNum => {
                   const status = getPaymentStatus(unitNum);
                   const resident = residents.find(r => isSameFlatNumber(r.flatNumber, unitNum));
-                  const histAct = resident ? getHistoricalActivityForDate(resident, `${currentYear}-${selectedMonth}`, defaultMonthlyFee, activityDefaultFees, activityFeePeriods) : null;
+                  const targetMonthNum = parseInt(selectedMonth, 10);
+                  const prescribed = resident ? getPrescribedFeeForMonth(
+                    resident,
+                    Number(currentYear),
+                    targetMonthNum,
+                    payments,
+                    defaultMonthlyFee,
+                    activityDefaultFees,
+                    activityFeePeriods,
+                    config?.customUnitFeePeriods
+                  ) : null;
+                  const historical = resident ? getHistoricalOccupantForDate(resident, `${currentYear}-${selectedMonth}`) : null;
+                  const ownerName = historical?.ownerName || resident?.name || 'شاغرة';
+
                   const isRaw = Boolean(
-                    histAct && (
-                      histAct.activityType === 'بدون تحصيل' ||
-                      histAct.activityType === 'بدون تشطيب' ||
-                      histAct.activityType.includes('بدون تحصيل') ||
-                      histAct.activityType.includes('بدون تشطيب') ||
-                      histAct.monthlyFee === 0
-                    )
+                    resident?.isExempt ||
+                    (prescribed && (
+                      prescribed.activityType === 'بدون تحصيل' ||
+                      prescribed.activityType === 'بدون تشطيب' ||
+                      prescribed.activityType.includes('بدون تحصيل') ||
+                      prescribed.activityType.includes('بدون تشطيب') ||
+                      prescribed.monthlyFee === 0
+                    ))
                   );
-                  const isFinishing = Boolean(histAct && !isRaw && (histAct.activityType === 'تحت التشطيب' || histAct.activityType.includes('تشطيب')));
+                  const isFinishing = Boolean(prescribed && !isRaw && (prescribed.activityType === 'تحت التشطيب' || prescribed.activityType.includes('تشطيب')));
                   const isPaid = status === 'paid';
                   const isUnpaid = status === 'unpaid';
 
-                  let btnBgClass = 'bg-slate-900 border-slate-950 text-white hover:bg-slate-950'; // vacant / unregistered
+                  // Month financial due and collected for unit
+                  const dueVal = isRaw ? 0 : (prescribed?.monthlyFee ?? defaultMonthlyFee);
+                  const unitPayments = payments.filter(p => 
+                    resident && 
+                    ((resident.id && String(p.residentId || '').trim() === String(resident.id).trim()) || isSameFlatNumber(p.flatNumber, resident.flatNumber)) && 
+                    Number(p.year) === Number(currentYear) && 
+                    parseInt(p.month, 10) === parseInt(selectedMonth, 10) && 
+                    p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل' &&
+                    matchesPaymentType(p.paymentType, selectedPaymentType) &&
+                    (p.amount > 0 || p.isManuallyPaid)
+                  );
+                  const collectedVal = unitPayments.reduce((s, p) => s + (p.amount || 0), 0);
+
+                  let btnBgClass = 'bg-slate-800 border-slate-900 text-white hover:bg-slate-900'; // vacant / unregistered
                   if (resident) {
                     if (isRaw) {
-                      // بدون تشطيب -> رمادي و بدون تحصيل
-                      btnBgClass = 'bg-slate-700 border-slate-800 text-slate-200 hover:bg-slate-800';
+                      btnBgClass = 'bg-slate-600 border-slate-700 text-slate-100 hover:bg-slate-700';
                     } else if (isPaid) {
-                      // مسدد -> أخضر
                       btnBgClass = 'bg-emerald-600 border-emerald-700 text-white hover:bg-emerald-700';
                     } else if (isFinishing) {
-                      // تحت التشطيب غير مسدد -> أحمر
                       btnBgClass = 'bg-rose-600 border-rose-700 text-white hover:bg-rose-700';
                     } else {
-                      // أنشطة سكنية/تجارية غير مسددة -> أحمر
                       btnBgClass = 'bg-rose-600 border-rose-700 text-white hover:bg-rose-700';
                     }
                   }
 
-                  const displayActivity = histAct ? histAct.activityType : (resident ? (resident.activityType || 'سكني') : 'شاغرة');
                   const unitStr = String(unitNum);
-                  const isLongUnit = unitStr.length > 3;
 
                   return (
                     <button 
                       key={unitNum}
                       onClick={() => setActiveUnit({ unitNum, floor, resident })}
                       className={`
-                        h-10 sm:h-12 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-all relative group p-0.5
+                        p-1.5 sm:p-2 rounded-xl flex flex-col justify-between gap-1 transition-all relative group text-right
                         ${btnBgClass}
-                        border-2 cursor-pointer active:scale-95 shadow-2xs
+                        border-2 cursor-pointer active:scale-95 shadow-2xs hover:shadow-md hover:-translate-y-0.5 min-h-[64px] sm:min-h-[72px]
                       `}
                     >
-                      <div className="flex items-center gap-0.5 max-w-full overflow-hidden px-0.5">
-                        <span 
-                          className={`${isLongUnit ? 'text-[7.5px] sm:text-[9.5px]' : 'text-[9.5px] sm:text-xs'} font-black text-white whitespace-nowrap tracking-tighter`}
-                          dir="ltr"
-                        >
-                          {unitStr}
+                      {/* Unit Number & Status Icon */}
+                      <div className="flex items-center justify-between gap-1 w-full border-b border-white/20 pb-0.5">
+                        <span className="text-[11px] sm:text-xs font-black text-white font-mono leading-none" dir="ltr">
+                          وحدة {unitStr}
                         </span>
-                        {isPaid && !isRaw && <Check className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-white stroke-[3] shrink-0" />}
-                        {!isPaid && !isFinishing && !isRaw && isUnpaid && <AlertCircle className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-white animate-pulse stroke-[3] shrink-0" />}
-                        {!isPaid && isFinishing && isUnpaid && <AlertCircle className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-white stroke-[2.5] shrink-0" />}
+                        {isPaid && !isRaw && <Check className="w-3 h-3 text-white stroke-[3] shrink-0" />}
+                        {!isPaid && !isFinishing && !isRaw && isUnpaid && <AlertCircle className="w-3 h-3 text-white animate-pulse stroke-[3] shrink-0" />}
+                        {isRaw && <span className="text-[7.5px] bg-slate-900/60 text-slate-200 px-1 py-0.2 rounded font-bold leading-tight">معفي</span>}
                       </div>
-                      <span className="text-[7.5px] sm:text-[8px] font-black text-white truncate max-w-full px-0.5 leading-none">
-                        {displayActivity}
-                      </span>
+
+                      {/* Owner Name */}
+                      <div className="text-[9px] sm:text-[10px] font-black text-white/95 truncate w-full leading-tight" title={ownerName}>
+                        {ownerName}
+                      </div>
+
+                      {/* Financial Dues & Collection */}
+                      <div className="flex items-center justify-between text-[7.5px] min-[360px]:text-[8px] sm:text-[8.5px] font-black pt-0.5 border-t border-white/20 w-full text-white/95 leading-none">
+                        <span>المستحق: <strong className="font-mono">{dueVal.toLocaleString()}</strong></span>
+                        <span>المحصل: <strong className="font-mono">{collectedVal.toLocaleString()}</strong></span>
+                      </div>
                     </button>
                   );
                 })}
+
+                {/* مربعات فارغة في الأماكن الناقصة لإكمال صف الـ 4 أعمدة */}
+                {(() => {
+                  const remainder = units.length % 4;
+                  const emptySlots = remainder === 0 ? 0 : 4 - remainder;
+                  return Array.from({ length: emptySlots }).map((_, idx) => (
+                    <div 
+                      key={`empty-slot-${floor.id}-${idx}`}
+                      className="rounded-xl border-2 border-dashed border-slate-400/70 bg-white/30 min-h-[64px] sm:min-h-[72px] shadow-2xs pointer-events-none select-none"
+                      aria-hidden="true"
+                    />
+                  ));
+                })()}
               </div>
             </div>
           );
@@ -907,33 +972,34 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
       {activeUnit && (
         <div className="fixed inset-0 z-[100] w-screen h-screen min-h-screen bg-white flex flex-col text-right overflow-hidden animate-fade-in">
           {/* Full Screen Page Header */}
-          <div className="bg-slate-900 text-white px-4 sm:px-8 py-4 flex items-center justify-between shadow-md shrink-0 border-b border-slate-800" dir="rtl">
+          <div className="bg-slate-900 text-white px-2.5 sm:px-6 py-2.5 flex items-center justify-between shadow-md shrink-0 border-b border-slate-800" dir="rtl">
             {/* Close Button X on Top Corner */}
             <button
               type="button"
               onClick={() => setActiveUnit(null)}
-              className="px-3 py-2 bg-slate-800 hover:bg-rose-600 hover:text-white text-slate-200 rounded-xl transition cursor-pointer flex items-center gap-2 text-xs sm:text-sm font-black shadow-xs active:scale-95"
+              className="p-2 sm:px-2.5 bg-slate-800 hover:bg-rose-600 hover:text-white text-slate-200 rounded-xl transition cursor-pointer flex items-center justify-center shadow-xs active:scale-95 shrink-0"
               title="إغلاق العرض (X)"
             >
-              <X className="w-5 h-5 text-rose-400 sm:text-current" />
-              <span>إغلاق الصفحة</span>
+              <X className="w-5 h-5 text-rose-400 hover:text-white" />
             </button>
 
             {/* Unit Title & Info */}
-            <div className="flex items-center gap-3 sm:gap-4">
-              <div className="text-right">
-                <h3 className="text-base sm:text-lg font-black text-white">بيانات وإيصال الوحدة {activeUnit.unitNum}</h3>
-                <p className="text-xs text-slate-300 font-bold">{activeUnit.floor.floorLabel} - {activeUnit.floor.activityType}</p>
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+              <div className="text-right min-w-0">
+                <h3 className="text-xs sm:text-sm font-black text-white whitespace-nowrap truncate">
+                  بيانات وإيصال الخريطة السنوية للوحدة {activeUnit.unitNum}
+                </h3>
+                <p className="text-[10px] sm:text-xs text-slate-300 font-bold whitespace-nowrap truncate">{activeUnit.floor.floorLabel} - {activeUnit.floor.activityType}</p>
               </div>
-              <div className="w-10 h-10 bg-blue-600 text-white rounded-2xl flex items-center justify-center shadow-md shrink-0">
-                <Home className="w-6 h-6" />
+              <div className="w-8 h-8 sm:w-9 sm:h-9 bg-blue-600 text-white rounded-xl flex items-center justify-center shadow-md shrink-0">
+                <Home className="w-4 h-4 sm:w-5 sm:h-5" />
               </div>
             </div>
           </div>
 
-          {/* Full Height Content Body */}
-          <div className="flex-1 w-full overflow-y-auto bg-slate-50 p-4 sm:p-6 md:p-8">
-            <div className="max-w-5xl mx-auto space-y-6 bg-white p-5 sm:p-8 rounded-3xl border border-slate-200/80 shadow-md">
+          {/* Full Height Content Body - Full width without side gutters */}
+          <div className="flex-1 w-full overflow-y-auto bg-slate-50 p-1 sm:p-2.5">
+            <div className="w-full space-y-3 sm:space-y-4 bg-white p-2 sm:p-4 rounded-xl border border-slate-200/80 shadow-md">
               {financials ? (
                 <>
                   {/* WhatsApp Direct Share Toast Feedback */}
@@ -960,9 +1026,9 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
                     const activeTenantPhone = historical.tenantPhone || (activeTenantName ? financials.resident.tenantPhone : undefined);
                     return (
                       <div className="bg-blue-50/50 p-3.5 rounded-2xl border border-blue-100/60 space-y-2">
-                        <div className="flex items-center justify-between">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
                           <div className="flex items-center gap-2.5">
-                            <div className="w-7 h-7 bg-blue-100 rounded-lg flex items-center justify-center text-blue-900">
+                            <div className="w-7 h-7 bg-blue-100 rounded-lg flex items-center justify-center text-blue-900 shrink-0">
                               <User className="w-3.5 h-3.5" />
                             </div>
                             <div>
@@ -975,9 +1041,21 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
                               )}
                             </div>
                           </div>
-                          <span className="text-[9.5px] font-black px-2.5 py-0.5 rounded-md bg-blue-100 text-blue-900 border border-blue-200">
-                            {((activeTenantName || financials.resident.ownershipType === 'إيجار') ? 'إيجار' : (financials.resident.ownershipType || 'تمليك'))} / {financials.histAct?.activityType || financials.resident.activityType || 'سكني'}
-                          </span>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => setHistoryModalResident(financials.resident)}
+                              className="flex items-center gap-1 px-2.5 py-1 bg-purple-100/90 hover:bg-purple-200 text-purple-950 border border-purple-300 rounded-lg text-[10px] sm:text-xs font-black transition active:scale-95 shadow-2xs cursor-pointer"
+                              title="فتح سجل الوحدة والشاغلين وتاريخ النشاط"
+                            >
+                              <History className="w-3.5 h-3.5 text-purple-700 shrink-0" />
+                              <span>سجل الوحدة</span>
+                            </button>
+                            <span className="text-[9.5px] font-black px-2.5 py-1 rounded-md bg-blue-100 text-blue-900 border border-blue-200">
+                              {((activeTenantName || financials.resident.ownershipType === 'إيجار') ? 'إيجار' : (financials.resident.ownershipType || 'تمليك'))} / {financials.histAct?.activityType || financials.resident.activityType || 'سكني'}
+                            </span>
+                          </div>
                         </div>
                         
                         {(activeOwnerPhone || activeTenantPhone) && (
@@ -1001,6 +1079,173 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
                             )}
                           </div>
                         )}
+                      </div>
+                    );
+                  })()}
+
+                  {/* 🗺️ الخريطة التفاعلية السنوية للشهور (4 صفوف × 3 أعمدة = 12 شهر) */}
+                  {(() => {
+                    const res = financials.resident;
+                    const isUnitPayment = (p: Payment) => 
+                      (res.id && String(p.residentId || '').trim() === String(res.id).trim()) ||
+                      isSameFlatNumber(p.flatNumber, res.flatNumber);
+
+                    const allUnitPayments = payments.filter(isUnitPayment);
+
+                    const monthsData = months.map((mStr, idx) => {
+                      const monthNum = idx + 1;
+                      const prescribed = getPrescribedFeeForMonth(
+                        res,
+                        Number(currentYear),
+                        monthNum,
+                        payments,
+                        defaultMonthlyFee,
+                        activityDefaultFees,
+                        activityFeePeriods,
+                        config?.customUnitFeePeriods
+                      );
+                      const isExempt = Boolean(
+                        res.isExempt ||
+                        prescribed.activityType === 'بدون تحصيل' ||
+                        prescribed.activityType === 'بدون تشطيب' ||
+                        prescribed.activityType?.includes('بدون تحصيل') ||
+                        prescribed.activityType?.includes('بدون تشطيب') ||
+                        prescribed.monthlyFee === 0
+                      );
+
+                      const monthPayments = allUnitPayments.filter(p => 
+                        Number(p.year) === Number(currentYear) &&
+                        parseInt(p.month, 10) === monthNum &&
+                        p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل' &&
+                        matchesPaymentType(p.paymentType, selectedPaymentType) &&
+                        (p.amount > 0 || p.isManuallyPaid)
+                      );
+
+                      const collectedAmount = monthPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+                      const dueAmount = isExempt ? 0 : prescribed.monthlyFee;
+
+                      let status: 'paid' | 'partial' | 'unpaid' | 'exempt' = 'unpaid';
+                      if (isExempt) {
+                        status = 'exempt';
+                      } else if (collectedAmount >= dueAmount && dueAmount > 0) {
+                        status = 'paid';
+                      } else if (collectedAmount > 0 && collectedAmount < dueAmount) {
+                        status = 'partial';
+                      } else if (collectedAmount > 0 && dueAmount === 0) {
+                        status = 'paid';
+                      } else {
+                        status = 'unpaid';
+                      }
+
+                      const firstPay = monthPayments[0];
+
+                      return {
+                        mStr,
+                        monthNum,
+                        monthName: monthNamesArabic[idx],
+                        status,
+                        dueAmount,
+                        collectedAmount,
+                        receiptNumber: firstPay?.receiptNumber,
+                        paymentDate: firstPay?.date
+                      };
+                    });
+
+                    return (
+                      <div className="bg-slate-100/90 p-2 sm:p-3 rounded-2xl border border-slate-200/90 space-y-2">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                          <div className="flex items-center gap-2">
+                            <div className="w-7 h-7 sm:w-8 sm:h-8 bg-blue-900 text-white rounded-xl flex items-center justify-center font-black shadow-xs shrink-0">
+                              <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white" />
+                            </div>
+                            <div>
+                              <h4 className="text-xs sm:text-sm font-black text-slate-900">
+                                الخريطة التفاعلية السنوية لأشهر السنة (سنة {currentYear})
+                              </h4>
+                              <p className="text-[9.5px] sm:text-[10px] text-slate-500 font-bold">
+                                12 شهراً مقسمة إلى 4 صفوف × 3 أعمدة بألوان حالة التحصيل
+                              </p>
+                            </div>
+                          </div>
+                          <span className="text-[9.5px] sm:text-[10.5px] font-bold text-blue-950 bg-white px-2.5 py-0.5 rounded-lg border border-slate-200 self-start sm:self-auto shadow-2xs">
+                            انقر على أي شهر لاستعراض الإيصال والمطالبة
+                          </span>
+                        </div>
+
+                        {/* 4 Rows × 3 Columns Grid (12 Months) */}
+                        <div className="grid grid-cols-3 gap-1.5 sm:gap-2.5" dir="rtl">
+                          {monthsData.map((m) => {
+                            const isSelected = selectedMonth === m.mStr;
+
+                            let cardColorClass = '';
+                            let badgeLabel = '';
+                            let badgeClass = '';
+
+                            if (m.status === 'paid') {
+                              cardColorClass = isSelected 
+                                ? 'bg-emerald-600 text-white border-2 border-emerald-800 ring-2 ring-emerald-400 shadow-md' 
+                                : 'bg-emerald-50 text-emerald-950 border-2 border-emerald-400 hover:bg-emerald-100 shadow-xs';
+                              badgeLabel = 'مسدد ✓';
+                              badgeClass = isSelected ? 'bg-emerald-800 text-white border-emerald-700' : 'bg-emerald-100 text-emerald-900 border-emerald-300';
+                            } else if (m.status === 'partial') {
+                              cardColorClass = isSelected 
+                                ? 'bg-amber-500 text-white border-2 border-amber-800 ring-2 ring-amber-400 shadow-md' 
+                                : 'bg-amber-50 text-amber-950 border-2 border-amber-400 hover:bg-amber-100 shadow-xs';
+                              badgeLabel = 'سداد جزئي ⏳';
+                              badgeClass = isSelected ? 'bg-amber-700 text-white border-amber-600' : 'bg-amber-100 text-amber-900 border-amber-300';
+                            } else if (m.status === 'exempt') {
+                              cardColorClass = isSelected 
+                                ? 'bg-slate-700 text-white border-2 border-slate-900 ring-2 ring-slate-400 shadow-md' 
+                                : 'bg-slate-200 text-slate-900 border-2 border-slate-400 hover:bg-slate-300 shadow-xs';
+                              badgeLabel = 'معفي ⚪';
+                              badgeClass = isSelected ? 'bg-slate-800 text-white border-slate-700' : 'bg-slate-300 text-slate-900 border-slate-400';
+                            } else {
+                              cardColorClass = isSelected 
+                                ? 'bg-rose-600 text-white border-2 border-rose-800 ring-2 ring-rose-400 shadow-md' 
+                                : 'bg-rose-50 text-rose-950 border-2 border-rose-400 hover:bg-rose-100 shadow-xs';
+                              badgeLabel = 'غير مسدد ⚠️';
+                              badgeClass = isSelected ? 'bg-rose-800 text-white border-rose-700' : 'bg-rose-100 text-rose-900 border-rose-300';
+                            }
+
+                            return (
+                              <button
+                                key={m.mStr}
+                                type="button"
+                                onClick={() => handleMonthChange(m.mStr)}
+                                className={`p-1.5 sm:p-2.5 rounded-xl flex flex-col justify-between gap-1 text-right transition-all cursor-pointer active:scale-95 ${cardColorClass}`}
+                              >
+                                {/* Header: Month Name & Status Badge */}
+                                <div className="flex items-center justify-between gap-1 border-b border-current/15 pb-1">
+                                  <span className="font-black text-[10px] sm:text-xs truncate">
+                                    شهر {m.monthNum} - {m.monthName}
+                                  </span>
+                                  <span className={`text-[7.5px] sm:text-[9px] font-black px-1.5 py-0.2 rounded-full border shrink-0 ${badgeClass}`}>
+                                    {badgeLabel}
+                                  </span>
+                                </div>
+
+                                {/* Financial Amounts */}
+                                <div className="flex flex-col min-[420px]:flex-row min-[420px]:items-center justify-between text-[8px] min-[360px]:text-[8.5px] sm:text-[10px] font-black leading-tight gap-0.5">
+                                  <span>مستحق: <strong className="font-mono">{m.dueAmount.toLocaleString()}</strong></span>
+                                  <span>محصل: <strong className="font-mono">{m.collectedAmount.toLocaleString()}</strong></span>
+                                </div>
+
+                                {/* Receipt / Status Detail */}
+                                <div className="text-[7.5px] min-[360px]:text-[8px] sm:text-[9px] font-bold opacity-90 truncate leading-tight">
+                                  {m.status === 'paid' ? (
+                                    <span>#{m.receiptNumber || `REC-${m.monthNum}`} ({m.paymentDate || 'مسدد'})</span>
+                                  ) : m.status === 'partial' ? (
+                                    <span>متبقي: {(m.dueAmount - m.collectedAmount).toLocaleString()} ج.م</span>
+                                  ) : m.status === 'exempt' ? (
+                                    <span>معفاه</span>
+                                  ) : (
+                                    <span>متأخرات</span>
+                                  )}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
                     );
                   })()}
@@ -1511,6 +1756,22 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
         onSuccessToast={(msg) => {
           setToastMsg(msg);
           setTimeout(() => setToastMsg(null), 8000);
+        }}
+      />
+
+      {/* Unit History Modal */}
+      <UnitHistoryModal
+        isOpen={historyModalResident !== null}
+        resident={historyModalResident}
+        activityTypes={config?.activityTypes || ['سكني', 'تجاري', 'إداري', 'عيادة', 'تحت التشطيب', 'مغلقة', 'بدون تحصيل']}
+        config={config}
+        onClose={() => setHistoryModalResident(null)}
+        onUpdateResident={(updatedResident) => {
+          setHistoryModalResident(updatedResident);
+          setActiveUnit(prev => prev && prev.resident && prev.resident.id === updatedResident.id ? { ...prev, resident: updatedResident } : prev);
+          if (onEditResident) {
+            onEditResident(updatedResident);
+          }
         }}
       />
     </div>

@@ -506,7 +506,7 @@ export const UnitHistoryModal: React.FC<UnitHistoryModalProps> = ({
   const currentActivityInfo = getLatestActivityFromHistory(resident, undefined, config?.defaultMonthlyFee, config?.activityDefaultFees);
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-3 overflow-y-auto" dir="rtl" onClick={onClose}>
+    <div className="fixed inset-0 z-[150] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-3 overflow-y-auto" dir="rtl" onClick={onClose}>
       <div 
         className="bg-white dark:bg-[#111a2e] rounded-2xl sm:rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl w-full max-w-xl max-h-[85vh] sm:max-h-[85vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200 text-right"
         onClick={(e) => e.stopPropagation()}

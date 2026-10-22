@@ -25,6 +25,7 @@ interface AppHeaderProps {
   onOpenNotifications: () => void;
   isMenuOpen: boolean;
   onToggleMenu: () => void;
+  onOpenAnnualMap?: () => void;
 }
 
 export const AppHeader: React.FC<AppHeaderProps> = ({
@@ -41,16 +42,22 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   unreadNotificationsCount,
   onOpenNotifications,
   isMenuOpen,
-  onToggleMenu
+  onToggleMenu,
+  onOpenAnnualMap
 }) => {
   return (
     <header className="sticky top-0 z-40 bg-white dark:bg-[#111a2e] border-b border-slate-100 dark:border-slate-800 shadow-sm shadow-slate-100/40 dark:shadow-none">
       <div className="max-w-full mx-auto px-2 sm:px-4 h-16 flex items-center justify-between" dir="rtl">
         {/* Right Section: Building Title, User Info & Firebase Status Dot */}
         <div className="flex items-center gap-2.5 sm:gap-3">
-          <div className="w-10 h-10 bg-gradient-to-br from-blue-900 to-indigo-900 text-white rounded-2xl flex items-center justify-center font-black shadow-xs shrink-0">
+          <button
+            type="button"
+            onClick={onOpenAnnualMap}
+            className="w-10 h-10 bg-gradient-to-br from-blue-900 to-indigo-900 text-white rounded-2xl flex items-center justify-center font-black shadow-xs shrink-0 cursor-pointer hover:scale-105 active:scale-95 transition"
+            title="فتح خريطة العمارة التفاعلية السنوية لجميع الوحدات"
+          >
             <Building2 className="w-5 h-5" />
-          </div>
+          </button>
           <div className="flex flex-col text-right">
             <div className="flex items-center gap-2">
               <h1 className="text-sm sm:text-base font-black text-blue-950 dark:text-white tracking-tight leading-tight">

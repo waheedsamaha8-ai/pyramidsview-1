@@ -1,7 +1,8 @@
 import React, { useMemo, useState, useRef } from 'react';
 import { Resident, Payment, Expense, UserRole, FloorConfig, AppConfig } from '../types';
-import { Calendar, Check, AlertCircle, RefreshCw, X, ExternalLink, Trash2, PlusCircle, CreditCard, Clock, Layers, Receipt, Edit, Save, Minus, Sparkles, RotateCcw, FileText, Filter } from 'lucide-react';
+import { Calendar, Check, AlertCircle, RefreshCw, X, ExternalLink, Trash2, PlusCircle, CreditCard, Clock, Layers, Receipt, Edit, Save, Minus, Sparkles, RotateCcw, FileText, Filter, History } from 'lucide-react';
 import { BuildingMap } from './BuildingMap';
+import { UnitHistoryModal } from './modals/UnitHistoryModal';
 import { deriveFloorConfigsFromResidents, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber, getHistoricalOccupantForDate, getHistoricalActivityForDate } from '../utils/buildingStructure';
 import { getPrescribedFeeForMonth, isPaymentForYearAndMonth, isMonthlySubscriptionType } from '../utils/financialCalculations';
 
@@ -18,6 +19,7 @@ interface SummariesProps {
   onDistributePayment?: (originalPaymentId: string, distributedPayments: Payment[], deletedPaymentIds?: string[]) => void;
   onDeletePayment?: (id: string) => void;
   onAddPayment?: (payment: Payment, base64Image?: string) => void;
+  onEditResident?: (resident: Resident) => void;
   activityDefaultFees?: Record<string, number>;
   defaultMonthlyFee?: number;
   paymentTypes?: string[];
@@ -45,7 +47,9 @@ export const Summaries: React.FC<SummariesProps> = ({
   config,
   currentMonth,
   setCurrentMonth,
+  onEditResident,
 }) => {
+  const [historyModalResident, setHistoryModalResident] = useState<Resident | null>(null);
   const [selectedCell, setSelectedCell] = useState<{
     resident: Resident;
     month: string;
@@ -55,6 +59,7 @@ export const Summaries: React.FC<SummariesProps> = ({
 
   const [newAmount, setNewAmount] = useState<string>('200');
   const [newPaymentType, setNewPaymentType] = useState<string>('اشتراك شهري');
+  const [newNotes, setNewNotes] = useState<string>('');
   const [editingPaymentId, setEditingPaymentId] = useState<string | null>(null);
   const [editAmount, setEditAmount] = useState<string>('');
   const [editPaymentType, setEditPaymentType] = useState<string>('');
@@ -62,6 +67,13 @@ export const Summaries: React.FC<SummariesProps> = ({
   const [editReceiptNumber, setEditReceiptNumber] = useState<string>('');
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
+  const [actionConfirm, setActionConfirm] = useState<{
+    title: string;
+    message: string;
+    confirmLabel: string;
+    confirmClass: string;
+    onConfirm: () => void;
+  } | null>(null);
 
   // States for aggregated payment distribution across months
   const [isDistributing, setIsDistributing] = useState<boolean>(false);
@@ -541,6 +553,19 @@ export const Summaries: React.FC<SummariesProps> = ({
       return;
     }
 
+    setActionConfirm({
+      title: 'تأكيد حفظ تعديل الدفعة',
+      message: `هل أنت متأكد من حفظ تعديل الدفعة بقيمة ${parsedAmount.toLocaleString()} ج.م للوحدة ${selectedCell?.resident.flatNumber}؟`,
+      confirmLabel: 'تأكيد التعديل الآن',
+      confirmClass: 'bg-blue-900 hover:bg-blue-950 text-white',
+      onConfirm: () => {
+        executeSavePayment(pay, parsedAmount);
+        setActionConfirm(null);
+      }
+    });
+  };
+
+  const executeSavePayment = (pay: Payment, parsedAmount: number) => {
     const masterPay = findMasterPayment(pay);
     const masterId = String(masterPay.id);
 
@@ -722,6 +747,7 @@ export const Summaries: React.FC<SummariesProps> = ({
           config={config}
           currentMonth={currentMonth}
           setCurrentMonth={setCurrentMonth}
+          onEditResident={onEditResident}
         />
       </section>
 
@@ -1068,9 +1094,11 @@ export const Summaries: React.FC<SummariesProps> = ({
           <table className="w-full text-center border-collapse table-fixed min-w-[690px] sm:min-w-[1060px]">
             <thead>
               <tr className="bg-slate-50/50 text-slate-500 font-extrabold text-[10px] sm:text-xs border-b border-slate-100">
-                <th className="w-[58px] min-w-[58px] sm:w-28 sm:min-w-28 px-0.5 sm:px-2 py-2 sm:py-2.5 sticky right-0 bg-white shadow-xs z-10 border-l border-slate-100 text-center sm:text-right">
-                  <span className="block sm:hidden text-[10px]">الوحدة</span>
-                  <span className="hidden sm:block">الوحدة / الساكن</span>
+                <th className="w-[58px] min-w-[58px] sm:w-28 sm:min-w-28 px-0.5 sm:px-1.5 py-1.5 sm:py-2 sticky right-0 bg-white shadow-xs z-10 border-l border-slate-100 text-center">
+                  <div className="flex flex-col items-center justify-center leading-tight">
+                    <span className="text-[10px] sm:text-xs font-black text-slate-800">الوحدة</span>
+                    <span className="text-[8.5px] sm:text-[9.5px] font-bold text-slate-400">الاسم</span>
+                  </div>
                 </th>
                 {monthNamesArabic.map((name, idx) => {
                   const isQuarterEnd = idx === 2 || idx === 5 || idx === 8;
@@ -1121,11 +1149,14 @@ export const Summaries: React.FC<SummariesProps> = ({
 
                     return (
                       <tr key={res.id} className="hover:bg-slate-50/30 transition">
-                        <td className="px-0.5 sm:px-2 py-1.5 sm:py-2 sticky right-0 bg-white shadow-xs z-10 text-center sm:text-right border-l border-slate-100">
-                          <div className="flex flex-col leading-tight items-center sm:items-start justify-center">
-                            <span className="font-black text-blue-900 text-[10px] sm:text-xs">وحدة {res.flatNumber}</span>
-                            <span className="text-slate-500 truncate max-w-[54px] sm:max-w-[95px] text-[8.5px] sm:text-[10.5px]" title={occupantName}>
-                              {occupantName.split(' ')[0]}
+                        <td className="px-0.5 sm:px-1.5 py-1.5 sm:py-2 sticky right-0 bg-white shadow-xs z-10 text-center border-l border-slate-100 overflow-hidden">
+                          <div className="flex flex-col leading-tight items-center justify-center w-full">
+                            <span className="font-black text-blue-900 text-[10px] sm:text-xs whitespace-nowrap">وحدة {res.flatNumber}</span>
+                            <span 
+                              className="text-slate-600 font-bold truncate max-w-[54px] sm:max-w-[95px] text-[8.5px] sm:text-[10px] leading-tight mt-0.5 block" 
+                              title={occupantName}
+                            >
+                              {occupantName}
                             </span>
                           </div>
                         </td>
@@ -1167,6 +1198,7 @@ export const Summaries: React.FC<SummariesProps> = ({
                                 const monthName = monthNamesArabic[idx];
                                 const defaultAmt = histAct.monthlyFee;
                                 setNewAmount(String(defaultAmt));
+                                setNewNotes('');
                                 setNewPaymentType(
                                   selectedPaymentTypeFilter !== 'all'
                                     ? selectedPaymentTypeFilter
@@ -1279,11 +1311,39 @@ export const Summaries: React.FC<SummariesProps> = ({
 
       {/* Aggregated Collections Details Overlay Modal */}
       {selectedCell && (() => {
-        const activeCellPayments = payments.filter(
-          (p) =>
-            p.residentId === selectedCell.resident.id &&
-            p.month === selectedCell.month &&
-            p.year === currentYear
+        // Instant optimistic merge: combines parent payments state with local optimistic cell updates to eliminate lag & flickering
+        const activeCellPayments = (() => {
+          const map = new Map<string, Payment>();
+          payments.forEach((p) => {
+            if (
+              p.residentId === selectedCell.resident.id &&
+              p.month === selectedCell.month &&
+              p.year === currentYear
+            ) {
+              map.set(String(p.id), p);
+            }
+          });
+          (selectedCell.payments || []).forEach((p) => {
+            if (
+              p.residentId === selectedCell.resident.id &&
+              p.month === selectedCell.month &&
+              p.year === currentYear
+            ) {
+              map.set(String(p.id), p);
+            }
+          });
+          return Array.from(map.values());
+        })();
+
+        const cellPrescribed = getPrescribedFeeForMonth(
+          selectedCell.resident,
+          currentYear,
+          parseInt(selectedCell.month, 10),
+          payments,
+          defaultMonthlyFee,
+          activityDefaultFees,
+          config?.activityFeePeriods,
+          config?.customUnitFeePeriods
         );
 
         return (
@@ -1309,35 +1369,37 @@ export const Summaries: React.FC<SummariesProps> = ({
               {/* Content Body */}
               <div className="p-3 space-y-2 overflow-y-auto flex-1 min-h-0">
                 {/* Resident Summary Bar */}
-                {(() => {
-                  const cellPrescribed = getPrescribedFeeForMonth(
-                    selectedCell.resident,
-                    currentYear,
-                    parseInt(selectedCell.month, 10),
-                    payments,
-                    defaultMonthlyFee,
-                    activityDefaultFees,
-                    config?.activityFeePeriods,
-                    config?.customUnitFeePeriods
-                  );
-                  return (
-                    <div className="bg-blue-50/50 px-3 py-1.5 rounded-lg border border-blue-100/60 flex items-center justify-between gap-2 shrink-0 flex-wrap">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[10px] text-slate-500 font-bold">الساكن:</span>
-                        <span className="text-xs font-black text-slate-800">{selectedCell.resident.name}</span>
-                      </div>
-                      <div className="flex items-center gap-1 bg-purple-100 text-purple-900 px-2 py-0.5 rounded text-[10px] font-black border border-purple-200">
-                        <span>النشاط: {cellPrescribed.activityType} ({cellPrescribed.monthlyFee.toLocaleString()} ج.م)</span>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[10px] text-slate-500 font-bold">الإجمالي:</span>
-                        <span className="text-xs font-black text-emerald-600 bg-emerald-50/80 px-2 py-0.5 rounded">
-                          {activeCellPayments.reduce((sum, p) => sum + p.amount, 0)} ج.م
-                        </span>
-                      </div>
+                <div className="bg-blue-50/50 p-2 sm:p-2.5 rounded-xl border border-blue-100/70 flex items-center justify-between gap-2 shrink-0">
+                  {/* Right side: Occupant & Total */}
+                  <div className="space-y-1 text-right">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-slate-500 font-bold">الساكن:</span>
+                      <span className="text-xs font-black text-slate-800">{selectedCell.resident.name}</span>
                     </div>
-                  );
-                })()}
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-slate-500 font-bold">الإجمالي:</span>
+                      <span className="text-xs font-black text-emerald-600 bg-emerald-50/80 px-2 py-0.5 rounded">
+                        {activeCellPayments.reduce((sum, p) => sum + p.amount, 0)} ج.م
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Left side: Activity Badge & Unit History Button (as circled in screenshot 2) */}
+                  <div className="flex flex-col items-end gap-1.5 shrink-0">
+                    <div className="flex items-center gap-1 bg-purple-100 text-purple-900 px-2 py-0.5 rounded text-[10px] font-black border border-purple-200">
+                      <span>النشاط: {cellPrescribed.activityType} ({cellPrescribed.monthlyFee.toLocaleString()} ج.م)</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setHistoryModalResident(selectedCell.resident)}
+                      className="flex items-center gap-1 px-2.5 py-1 bg-purple-100/90 hover:bg-purple-200 text-purple-950 border border-purple-300 rounded-lg text-[10px] sm:text-xs font-black transition active:scale-95 shadow-2xs cursor-pointer"
+                      title="فتح سجل الوحدة والشاغلين وتاريخ النشاط"
+                    >
+                      <History className="w-3.5 h-3.5 text-purple-700 shrink-0" />
+                      <span>سجل الوحدة</span>
+                    </button>
+                  </div>
+                </div>
 
                 {/* Payments List */}
                 <div className="space-y-1.5">
@@ -1403,52 +1465,70 @@ export const Summaries: React.FC<SummariesProps> = ({
                               </div>
 
                               {/* Basic Inputs */}
-                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                                <div className="space-y-0.5">
-                                  <label className="text-[9px] font-black text-slate-600 block">المبلغ الإجمالي (ج.م) *</label>
-                                  <input
-                                    type="number"
-                                    min="1"
-                                    value={editAmount}
-                                    onChange={(e) => setEditAmount(e.target.value)}
-                                    className="w-full px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs text-right font-black focus:border-blue-500 outline-none"
-                                  />
-                                </div>
-                                <div className="space-y-0.5">
-                                  <label className="text-[9px] font-bold text-slate-600 block">نوع الدفعة</label>
-                                  <select
-                                    value={editPaymentType}
-                                    onChange={(e) => setEditPaymentType(e.target.value)}
-                                    className="w-full px-1.5 py-1 bg-white border border-slate-200 rounded-lg text-xs text-right font-bold focus:border-blue-500 outline-none cursor-pointer"
-                                  >
-                                    {(paymentTypes && paymentTypes.length > 0 ? paymentTypes : ['اشتراك شهري', 'صيانة طارئة', 'تحصيلات اخرى']).map(type => (
-                                      <option key={type} value={type}>{type}</option>
-                                    ))}
-                                  </select>
-                                </div>
-                                <div className="space-y-0.5">
-                                  <label className="text-[9px] font-bold text-slate-600 block">حالة الدفعة</label>
-                                  <select
-                                    value={editPaymentStatus}
-                                    onChange={(e) => setEditPaymentStatus(e.target.value)}
-                                    className="w-full px-1.5 py-1 bg-white border border-slate-200 rounded-lg text-xs text-right font-bold focus:border-blue-500 outline-none cursor-pointer"
-                                  >
-                                    <option value="collected">مسدد</option>
-                                    <option value="pending">لم يحصل</option>
-                                    <option value="cancelled">لاغي</option>
-                                  </select>
-                                </div>
-                                <div className="space-y-0.5">
-                                  <label className="text-[9px] font-bold text-slate-600 block">رقم الإيصال</label>
-                                  <input
-                                    type="text"
-                                    placeholder="اختياري"
-                                    value={editReceiptNumber}
-                                    onChange={(e) => setEditReceiptNumber(e.target.value)}
-                                    className="w-full px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs text-right font-bold focus:border-blue-500 outline-none font-mono"
-                                  />
-                                </div>
-                              </div>
+                              {(() => {
+                                const editDueFee = getDefaultFeeForResident(selectedCell.resident, pay.month || selectedCell.month, currentYear);
+                                return (
+                                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                                    {/* خانة المبلغ المستحق */}
+                                    <div className="space-y-0.5">
+                                      <label className="text-[9px] font-black text-amber-800 block truncate">المبلغ المستحق (ج.م)</label>
+                                      <button
+                                        type="button"
+                                        onClick={() => setEditAmount(String(editDueFee))}
+                                        title="انقر لتعيين المبلغ المدفوع بالقيمة المستحقة"
+                                        className="w-full px-2 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg text-xs text-right font-black text-amber-950 flex items-center justify-between transition shadow-2xs cursor-pointer h-[28px]"
+                                      >
+                                        <span>{editDueFee.toLocaleString()}</span>
+                                        <span className="text-[9px] text-amber-700 font-bold">ج.م</span>
+                                      </button>
+                                    </div>
+                                    <div className="space-y-0.5">
+                                      <label className="text-[9px] font-black text-slate-600 block">المبلغ المدفوع (ج.م) *</label>
+                                      <input
+                                        type="number"
+                                        min="1"
+                                        value={editAmount}
+                                        onChange={(e) => setEditAmount(e.target.value)}
+                                        className="w-full px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs text-right font-black focus:border-blue-500 outline-none h-[28px]"
+                                      />
+                                    </div>
+                                    <div className="space-y-0.5">
+                                      <label className="text-[9px] font-bold text-slate-600 block">نوع الدفعة</label>
+                                      <select
+                                        value={editPaymentType}
+                                        onChange={(e) => setEditPaymentType(e.target.value)}
+                                        className="w-full px-1.5 py-1 bg-white border border-slate-200 rounded-lg text-xs text-right font-bold focus:border-blue-500 outline-none cursor-pointer h-[28px]"
+                                      >
+                                        {(paymentTypes && paymentTypes.length > 0 ? paymentTypes : ['اشتراك شهري', 'صيانة طارئة', 'تحصيلات اخرى']).map(type => (
+                                          <option key={type} value={type}>{type}</option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                    <div className="space-y-0.5">
+                                      <label className="text-[9px] font-bold text-slate-600 block">حالة الدفعة</label>
+                                      <select
+                                        value={editPaymentStatus}
+                                        onChange={(e) => setEditPaymentStatus(e.target.value)}
+                                        className="w-full px-1.5 py-1 bg-white border border-slate-200 rounded-lg text-xs text-right font-bold focus:border-blue-500 outline-none cursor-pointer h-[28px]"
+                                      >
+                                        <option value="collected">مسدد</option>
+                                        <option value="pending">لم يحصل</option>
+                                        <option value="cancelled">لاغي</option>
+                                      </select>
+                                    </div>
+                                    <div className="space-y-0.5">
+                                      <label className="text-[9px] font-bold text-slate-600 block">رقم الإيصال</label>
+                                      <input
+                                        type="text"
+                                        placeholder="اختياري"
+                                        value={editReceiptNumber}
+                                        onChange={(e) => setEditReceiptNumber(e.target.value)}
+                                        className="w-full px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs text-right font-bold focus:border-blue-500 outline-none font-mono h-[28px]"
+                                      />
+                                    </div>
+                                  </div>
+                                );
+                              })()}
 
                               {/* Notes Input Field */}
                               <div className="space-y-0.5 pt-0.5">
@@ -1806,7 +1886,26 @@ export const Summaries: React.FC<SummariesProps> = ({
                                       ) : (
                                         <button
                                           type="button"
-                                          onClick={() => setDeleteConfirmId(pay.id)}
+                                          onClick={() => {
+                                            setActionConfirm({
+                                              title: 'تأكيد حذف الدفعة',
+                                              message: `هل أنت متأكد من حذف هذه الدفعة نهائياً بقيمة ${pay.amount.toLocaleString()} ج.م للوحدة ${selectedCell?.resident.flatNumber} (${pay.paymentType || 'اشتراك شهري'})؟ لا يمكن التراجع عن هذا الإجراء.`,
+                                              confirmLabel: 'تأكيد الحذف نهائياً',
+                                              confirmClass: 'bg-rose-600 hover:bg-rose-700 text-white',
+                                              onConfirm: () => {
+                                                if (onDeletePayment) {
+                                                  onDeletePayment(pay.id);
+                                                } else {
+                                                  onCellClick(selectedCell!.resident.id, selectedCell!.month, true, pay.id);
+                                                }
+                                                setSelectedCell(prev => prev ? {
+                                                  ...prev,
+                                                  payments: prev.payments.filter(p => p.id !== pay.id)
+                                                } : null);
+                                                setActionConfirm(null);
+                                              }
+                                            });
+                                          }}
                                           className="px-2 py-1 text-rose-700 hover:text-rose-900 hover:bg-rose-100/70 rounded-lg transition cursor-pointer flex items-center gap-1 text-[10px] font-black border border-rose-200 bg-rose-50/80 shadow-3xs active:scale-95"
                                           title="حذف الدفعة"
                                         >
@@ -1837,7 +1936,7 @@ export const Summaries: React.FC<SummariesProps> = ({
               </div>
             </div>
 
-            {/* Quick Payment Input Form (Amount next to Payment Type next to Submit Button) */}
+            {/* Quick Payment Input Form */}
             {!isReadOnly && role !== 'ASSISTANT' && (
               <div className="px-3 py-2 bg-emerald-50/50 border-t border-slate-100 space-y-1.5 shrink-0">
                 <div className="flex items-center justify-between">
@@ -1850,36 +1949,67 @@ export const Summaries: React.FC<SummariesProps> = ({
                   </span>
                 </div>
 
+                {/* الصف الأول: خانة المبلغ المستحق بجانب خانة المبلغ المدفوع وبجانبهم خانة نوع الدفعة */}
                 <div className="grid grid-cols-3 gap-1.5 sm:gap-2 items-end">
+                  {/* خانة المبلغ المستحق */}
                   <div className="space-y-0.5">
-                    <label className="text-[9px] font-bold text-slate-500 block truncate">المبلغ (ج.م) *</label>
+                    <label className="text-[9px] font-bold text-amber-800 block truncate">المبلغ المستحق (ج.م)</label>
+                    <button
+                      type="button"
+                      onClick={() => setNewAmount(String(cellPrescribed.monthlyFee))}
+                      title="انقر لتعيين المبلغ المدفوع بالقيمة المستحقة"
+                      className="w-full px-2 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg text-[11px] sm:text-xs font-black text-amber-950 text-right flex items-center justify-between transition shadow-2xs cursor-pointer h-[30px]"
+                    >
+                      <span>{cellPrescribed.monthlyFee.toLocaleString()}</span>
+                      <span className="text-[8.5px] sm:text-[9.5px] text-amber-700 font-bold">ج.م</span>
+                    </button>
+                  </div>
+
+                  {/* خانة المبلغ المدفوع */}
+                  <div className="space-y-0.5">
+                    <label className="text-[9px] font-bold text-slate-500 block truncate">المبلغ المدفوع (ج.م) *</label>
                     <div className="relative">
                       <input
                         type="number"
                         min="1"
-                        placeholder="المبلغ"
+                        placeholder="المبلغ المدفوع"
                         value={newAmount}
                         onChange={(e) => setNewAmount(e.target.value)}
-                        className="w-full pl-6 pr-1.5 sm:pr-2.5 py-1 bg-white border border-slate-200 focus:border-emerald-500 rounded-lg text-[11px] sm:text-xs font-bold text-right outline-none transition"
+                        className="w-full pl-6 pr-1.5 sm:pr-2.5 py-1 bg-white border border-slate-200 focus:border-emerald-500 rounded-lg text-[11px] sm:text-xs font-bold text-right outline-none transition h-[30px]"
                       />
                       <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[8.5px] sm:text-[9.5px] text-slate-400 font-bold">ج.م</span>
                     </div>
                   </div>
 
+                  {/* خانة نوع الدفعة */}
                   <div className="space-y-0.5">
                     <label className="text-[9px] font-bold text-slate-500 block truncate">نوع الدفعة</label>
                     <select
                       value={newPaymentType}
                       onChange={(e) => setNewPaymentType(e.target.value)}
-                      className="w-full px-1 sm:px-2 py-1 bg-white border border-slate-200 focus:border-emerald-500 rounded-lg text-[11px] sm:text-xs font-bold text-right outline-none transition cursor-pointer"
+                      className="w-full px-1 sm:px-2 py-1 bg-white border border-slate-200 focus:border-emerald-500 rounded-lg text-[11px] sm:text-xs font-bold text-right outline-none transition cursor-pointer h-[30px]"
                     >
                       {(paymentTypes && paymentTypes.length > 0 ? paymentTypes : ['اشتراك شهري', 'صيانة طارئة', 'تحصيلات اخرى']).map(type => (
                         <option key={type} value={type}>{type}</option>
                       ))}
                     </select>
                   </div>
+                </div>
 
-                  <div>
+                {/* الصف الثاني: تحتهم خانة الملاحظات وزر تسجيل الدفعة الآن */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 sm:gap-2 items-end pt-0.5">
+                  <div className="sm:col-span-2 space-y-0.5">
+                    <label className="text-[9px] font-bold text-slate-500 block truncate">الملاحظات</label>
+                    <input
+                      type="text"
+                      placeholder="ملاحظات الدفعة (اختياري)..."
+                      value={newNotes}
+                      onChange={(e) => setNewNotes(e.target.value)}
+                      className="w-full px-2.5 py-1 bg-white border border-slate-200 focus:border-emerald-500 rounded-lg text-[11px] sm:text-xs font-medium text-right outline-none transition placeholder:text-slate-400 h-[30px]"
+                    />
+                  </div>
+
+                  <div className="sm:col-span-1">
                     <button
                       type="button"
                       onClick={() => {
@@ -1891,7 +2021,7 @@ export const Summaries: React.FC<SummariesProps> = ({
 
                         const pType = newPaymentType || 'اشتراك شهري';
                         const payDate = new Date().toISOString().split('T')[0];
-                        const notesText = `سداد اشتراك شهر ${selectedCell.monthName} ${currentYear}`;
+                        const notesText = newNotes.trim() ? newNotes.trim() : `سداد اشتراك شهر ${selectedCell.monthName} ${currentYear}`;
 
                         const newPay: Payment = {
                           id: `pay_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
@@ -1905,25 +2035,36 @@ export const Summaries: React.FC<SummariesProps> = ({
                           notes: notesText,
                           date: payDate,
                           isManuallyPaid: true,
+                          status: 'collected',
                         };
 
-                        if (onAddPayment) {
-                          onAddPayment(newPay);
-                        } else {
-                          onCellClick(selectedCell.resident.id, selectedCell.month, false, undefined, parsedAmount, pType);
-                        }
+                        setActionConfirm({
+                          title: 'تأكيد تسجيل الدفعة',
+                          message: `هل أنت متأكد من تسجيل دفعة جديدة بقيمة ${parsedAmount.toLocaleString()} ج.م للوحدة ${selectedCell.resident.flatNumber} (${selectedCell.resident.name}) لشهر ${selectedCell.monthName} ${currentYear}؟`,
+                          confirmLabel: 'تأكيد التسجيل الآن',
+                          confirmClass: 'bg-emerald-600 hover:bg-emerald-700 text-white',
+                          onConfirm: () => {
+                            if (onAddPayment) {
+                              onAddPayment(newPay);
+                            } else {
+                              onCellClick(selectedCell.resident.id, selectedCell.month, false, undefined, parsedAmount, pType);
+                            }
 
-                        // Update local modal list dynamically so the user immediately sees it
-                        setSelectedCell(prev => prev ? {
-                          ...prev,
-                          payments: [...prev.payments, newPay],
-                        } : null);
+                            // Update local modal list dynamically so the user immediately sees it with 0ms latency
+                            setSelectedCell(prev => prev ? {
+                              ...prev,
+                              payments: [...prev.payments, newPay],
+                            } : null);
 
-                        // Reset inputs
-                        const defaultAmt = getDefaultFeeForResident(selectedCell.resident, selectedCell.month, currentYear);
-                        setNewAmount(String(defaultAmt));
+                            // Reset inputs
+                            setNewNotes('');
+                            const defaultAmt = getDefaultFeeForResident(selectedCell.resident, selectedCell.month, currentYear);
+                            setNewAmount(String(defaultAmt));
+                            setActionConfirm(null);
+                          }
+                        });
                       }}
-                      className="w-full py-1 sm:py-1.5 px-1 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-[10px] sm:text-xs font-black rounded-lg shadow-2xs transition cursor-pointer flex items-center justify-center gap-1 leading-tight"
+                      className="w-full h-[30px] px-1 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-[10px] sm:text-xs font-black rounded-lg shadow-2xs transition cursor-pointer flex items-center justify-center gap-1 leading-tight"
                     >
                       <PlusCircle className="w-3.5 h-3.5 shrink-0" />
                       <span className="truncate">تسجيل الدفعة الآن</span>
@@ -1946,6 +2087,55 @@ export const Summaries: React.FC<SummariesProps> = ({
         </div>
       );
     })()}
+
+      {/* Global Confirmation Dialog for Registration / Edit / Deletion */}
+      {actionConfirm && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 backdrop-blur-xs p-3 sm:p-4 animate-fade-in" dir="rtl">
+          <div className="w-full max-w-sm bg-white rounded-2xl border border-slate-200 shadow-2xl p-4 sm:p-5 text-right space-y-4">
+            <div className="flex items-center gap-2 border-b border-slate-100 pb-2.5">
+              <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-900 flex items-center justify-center shrink-0">
+                <AlertCircle className="w-4 h-4" />
+              </div>
+              <h4 className="text-sm font-black text-slate-900">{actionConfirm.title}</h4>
+            </div>
+            <p className="text-xs font-bold text-slate-700 leading-relaxed">
+              {actionConfirm.message}
+            </p>
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setActionConfirm(null)}
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                onClick={actionConfirm.onConfirm}
+                className={`px-4 py-1.5 rounded-xl text-xs font-black transition cursor-pointer shadow-sm active:scale-95 ${actionConfirm.confirmClass}`}
+              >
+                {actionConfirm.confirmLabel}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Unit History Modal */}
+      <UnitHistoryModal
+        isOpen={historyModalResident !== null}
+        resident={historyModalResident}
+        activityTypes={config?.activityTypes || ['سكني', 'تجاري', 'إداري', 'عيادة', 'تحت التشطيب', 'مغلقة', 'بدون تحصيل']}
+        config={config}
+        onClose={() => setHistoryModalResident(null)}
+        onUpdateResident={(updatedResident) => {
+          setHistoryModalResident(updatedResident);
+          setSelectedCell(prev => prev && prev.resident.id === updatedResident.id ? { ...prev, resident: updatedResident } : prev);
+          if (onEditResident) {
+            onEditResident(updatedResident);
+          }
+        }}
+      />
     </div>
   );
 };

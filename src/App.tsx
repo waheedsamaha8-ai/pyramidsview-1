@@ -1250,76 +1250,7 @@ export default function App() {
     }
   };
 
-  // Real-time bidirectional Firestore subscriptions for instant sync with Android app
-  useEffect(() => {
-    if (isInitializingAuth) return;
 
-    const unsubs: (() => void)[] = [];
-
-    try {
-      unsubs.push(
-        firestoreService.subscribeToResidents((newResidents) => {
-          if (newResidents && newResidents.length > 0) {
-            const clean = deduplicateResidents(newResidents);
-            setResidents(clean);
-            offlineSync.saveCachedData('residents', clean);
-          }
-        })
-      );
-
-      unsubs.push(
-        firestoreService.subscribeToPayments((newPayments) => {
-          if (newPayments && Array.isArray(newPayments)) {
-            const clean = filterAndDeduplicatePayments(newPayments);
-            setPayments(prev => {
-              if (prev.length === clean.length) {
-                const prevMap = new Map(prev.map(p => [String(p.id), `${p.amount}_${p.month}_${p.year}_${p.status}`]));
-                const isIdentical = clean.every(p => prevMap.get(String(p.id)) === `${p.amount}_${p.month}_${p.year}_${p.status}`);
-                if (isIdentical) return prev;
-              }
-              return clean;
-            });
-            offlineSync.saveCachedData('payments', clean);
-          }
-        })
-      );
-
-      unsubs.push(
-        firestoreService.subscribeToExpenses((newExpenses) => {
-          if (newExpenses && Array.isArray(newExpenses)) {
-            setExpenses(newExpenses);
-            offlineSync.saveCachedData('expenses', newExpenses);
-          }
-        })
-      );
-
-      unsubs.push(
-        firestoreService.subscribeToConfig((newConfig) => {
-          if (newConfig) {
-            setConfig(prev => ({ ...prev, ...newConfig }));
-            offlineSync.saveCachedData('config', newConfig);
-          }
-        })
-      );
-
-      unsubs.push(
-        firestoreService.subscribeToRules((newRules) => {
-          if (newRules && Array.isArray(newRules)) {
-            setRules(newRules);
-            offlineSync.saveCachedData('rules', { rules: newRules });
-          }
-        })
-      );
-    } catch (err) {
-      console.warn('Real-time subscriptions warning:', err);
-    }
-
-    return () => {
-      unsubs.forEach(unsub => {
-        try { unsub(); } catch {}
-      });
-    };
-  }, [isInitializingAuth]);
 
   const [isConnectingGoogle, setIsConnectingGoogle] = useState(false);
 
@@ -1560,11 +1491,13 @@ export default function App() {
     
     // Immediately persist in local state and offline cache
     unregisterDeletedPaymentIds(cleanPayment.id);
-    const updatedPayments = filterAndDeduplicatePayments([...payments.filter(p => p.id !== cleanPayment.id), localPayment]);
-    setPayments(updatedPayments);
-    offlineSync.saveCachedData('payments', updatedPayments);
+    setPayments(prev => {
+      const updatedPayments = filterAndDeduplicatePayments([...prev.filter(p => String(p.id) !== String(cleanPayment.id)), localPayment]);
+      offlineSync.saveCachedData('payments', updatedPayments);
+      return updatedPayments;
+    });
 
-    // Persist directly to Firestore
+    // Persist directly to Firestore in background
     firestoreService.savePaymentToFirestore(localPayment)
       .then(() => {
         addNotification('تسجيل دفعة جديدة', `تم تسجيل دفعة بقيمة ${payment.amount} ج.م للوحدة ${payment.flatNumber} (${payment.residentName}) بنجاح.`, 'success', 'services');
@@ -1593,9 +1526,11 @@ export default function App() {
     }
 
     unregisterDeletedPaymentIds(cleanPayment.id);
-    const updatedPayments = filterAndDeduplicatePayments(payments.map((p) => p.id === cleanPayment.id ? localPayment : p));
-    setPayments(updatedPayments);
-    offlineSync.saveCachedData('payments', updatedPayments);
+    setPayments(prev => {
+      const updatedPayments = filterAndDeduplicatePayments(prev.map((p) => String(p.id) === String(cleanPayment.id) ? localPayment : p));
+      offlineSync.saveCachedData('payments', updatedPayments);
+      return updatedPayments;
+    });
 
     firestoreService.savePaymentToFirestore(localPayment)
       .then(() => {
@@ -3333,6 +3268,7 @@ export default function App() {
             defaultMonthlyFee={config.defaultMonthlyFee}
             paymentTypes={config.paymentTypes}
             config={config}
+            onEditResident={editResident}
           />
         )}
 
