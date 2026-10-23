@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useRef } from 'react';
 import { Resident, Payment, Expense, UserRole, FloorConfig, AppConfig } from '../types';
-import { Calendar, Check, AlertCircle, RefreshCw, X, ExternalLink, Trash2, PlusCircle, CreditCard, Clock, Layers, Receipt, Edit, Save, Minus, Sparkles, RotateCcw, FileText, Filter, History } from 'lucide-react';
+import { Calendar, Check, AlertCircle, RefreshCw, X, ExternalLink, Trash2, PlusCircle, CreditCard, Clock, Layers, Receipt, Edit, Save, Minus, Sparkles, RotateCcw, FileText, Filter, History, Image as ImageIcon } from 'lucide-react';
 import { BuildingMap } from './BuildingMap';
 import { UnitHistoryModal } from './modals/UnitHistoryModal';
 import { deriveFloorConfigsFromResidents, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber, getHistoricalOccupantForDate, getHistoricalActivityForDate } from '../utils/buildingStructure';
@@ -19,6 +19,7 @@ interface SummariesProps {
   onDistributePayment?: (originalPaymentId: string, distributedPayments: Payment[], deletedPaymentIds?: string[]) => void;
   onDeletePayment?: (id: string) => void;
   onAddPayment?: (payment: Payment, base64Image?: string) => void;
+  onPreviewImage?: (url: string) => void;
   onEditResident?: (resident: Resident) => void;
   activityDefaultFees?: Record<string, number>;
   defaultMonthlyFee?: number;
@@ -28,7 +29,13 @@ interface SummariesProps {
   setCurrentMonth?: React.Dispatch<React.SetStateAction<number>>;
 }
 
-export const Summaries: React.FC<SummariesProps> = ({
+const STATIC_MONTHS = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'];
+const STATIC_MONTH_NAMES_ARABIC = [
+  'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
+  'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'
+];
+
+const SummariesComponent: React.FC<SummariesProps> = ({
   residents,
   payments,
   expenses,
@@ -41,6 +48,7 @@ export const Summaries: React.FC<SummariesProps> = ({
   onDistributePayment,
   onDeletePayment,
   onAddPayment,
+  onPreviewImage,
   activityDefaultFees,
   defaultMonthlyFee,
   paymentTypes,
@@ -165,11 +173,8 @@ export const Summaries: React.FC<SummariesProps> = ({
     return prescribed.monthlyFee;
   };
 
-  const months = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'];
-  const monthNamesArabic = [
-    'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
-    'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'
-  ];
+  const months = STATIC_MONTHS;
+  const monthNamesArabic = STATIC_MONTH_NAMES_ARABIC;
 
   const sortedResidents = useMemo(() => {
     return [...residents].sort((a, b) => compareFlatNumbers(a.flatNumber, b.flatNumber));
@@ -193,7 +198,7 @@ export const Summaries: React.FC<SummariesProps> = ({
         balance: monthPayments - monthExpenses,
       };
     });
-  }, [payments, expenses, currentYear, months]);
+  }, [payments, expenses, currentYear]);
 
   const grandPaymentsTotal = monthlyData.reduce((sum, d) => sum + d.payments, 0);
   const grandExpensesTotal = monthlyData.reduce((sum, d) => sum + d.expenses, 0);
@@ -286,7 +291,7 @@ export const Summaries: React.FC<SummariesProps> = ({
         totalYear,
       };
     });
-  }, [categoryList, expenses, currentYear, months]);
+  }, [categoryList, expenses, currentYear]);
 
   // Precompute occupant names for fast display
   const occupantNamesMap = useMemo(() => {
@@ -309,19 +314,27 @@ export const Summaries: React.FC<SummariesProps> = ({
       });
     });
     return map;
-  }, [sortedResidents, currentYear, defaultMonthlyFee, activityDefaultFees, config?.activityFeePeriods, months]);
+  }, [sortedResidents, currentYear, defaultMonthlyFee, activityDefaultFees, config?.activityFeePeriods]);
 
-  // Precompute resident year totals for Section 3 table
+  // Precompute resident year totals for Section 3 table (single pass O(payments.length))
   const residentYearTotalsMap = useMemo(() => {
     const map = new Map<string, number>();
-    sortedResidents.forEach(res => {
-      const total = payments
-        .filter((p) => p.residentId === res.id && p.year === currentYear && p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل' && matchesPaymentType(p.paymentType, selectedPaymentTypeFilter))
-        .reduce((s, p) => s + p.amount, 0);
-      map.set(res.id, total);
-    });
+    for (let i = 0; i < payments.length; i++) {
+      const p = payments[i];
+      if (
+        p.residentId &&
+        Number(p.year) === Number(currentYear) &&
+        p.status !== 'cancelled' &&
+        p.status !== 'لاغي' &&
+        p.status !== 'pending' &&
+        p.status !== 'لم يتم التحصيل' &&
+        matchesPaymentType(p.paymentType, selectedPaymentTypeFilter)
+      ) {
+        map.set(p.residentId, (map.get(p.residentId) || 0) + (Number(p.amount) || 0));
+      }
+    }
     return map;
-  }, [sortedResidents, payments, currentYear, selectedPaymentTypeFilter]);
+  }, [payments, currentYear, selectedPaymentTypeFilter]);
 
   // 4. Pre-index payments by resident and month for lightning-fast O(1) table rendering and instant modal opening
   const precomputedData = useMemo(() => {
@@ -1540,15 +1553,17 @@ export const Summaries: React.FC<SummariesProps> = ({
                     <div className="flex items-center gap-1 bg-purple-100 text-purple-900 px-2 py-0.5 rounded text-[10px] font-black border border-purple-200">
                       <span>النشاط: {cellPrescribed.activityType} ({cellPrescribed.monthlyFee.toLocaleString()} ج.م)</span>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setHistoryModalResident(selectedCell.resident)}
-                      className="flex items-center gap-1 px-2.5 py-1 bg-purple-100/90 hover:bg-purple-200 text-purple-950 border border-purple-300 rounded-lg text-[10px] sm:text-xs font-black transition active:scale-95 shadow-2xs cursor-pointer"
-                      title="فتح سجل الوحدة والشاغلين وتاريخ النشاط"
-                    >
-                      <History className="w-3.5 h-3.5 text-purple-700 shrink-0" />
-                      <span>سجل الوحدة</span>
-                    </button>
+                    {role === 'ADMIN' && (
+                      <button
+                        type="button"
+                        onClick={() => setHistoryModalResident(selectedCell.resident)}
+                        className="flex items-center gap-1 px-2.5 py-1 bg-purple-100/90 hover:bg-purple-200 text-purple-950 border border-purple-300 rounded-lg text-[10px] sm:text-xs font-black transition active:scale-95 shadow-2xs cursor-pointer"
+                        title="فتح سجل الوحدة والشاغلين وتاريخ النشاط"
+                      >
+                        <History className="w-3.5 h-3.5 text-purple-700 shrink-0" />
+                        <span>سجل الوحدة</span>
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -1970,15 +1985,21 @@ export const Summaries: React.FC<SummariesProps> = ({
 
                                 <div className="flex items-center gap-1 shrink-0 flex-wrap">
                                   {pay.fileUrl && (
-                                    <a 
-                                      href={pay.fileUrl} 
-                                      target="_blank" 
-                                      rel="noreferrer"
-                                      className="p-1 text-blue-900 hover:bg-blue-50 rounded transition"
-                                      title="عرض الإيصال"
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (onPreviewImage) {
+                                          onPreviewImage(pay.fileUrl!);
+                                        } else {
+                                          window.open(pay.fileUrl, '_blank');
+                                        }
+                                      }}
+                                      className="px-2 py-1 text-purple-900 hover:text-purple-950 hover:bg-purple-100 rounded-lg transition cursor-pointer flex items-center gap-1 text-[10px] font-black border border-purple-200 bg-purple-50 shadow-3xs active:scale-95"
+                                      title="فتح وعرض صورة الإيصال"
                                     >
-                                      <ExternalLink className="w-3 h-3" />
-                                    </a>
+                                      <ImageIcon className="w-3.5 h-3.5 text-purple-700 shrink-0" />
+                                      <span>صورة الإيصال</span>
+                                    </button>
                                   )}
 
                                   {!isReadOnly && (
@@ -2304,3 +2325,5 @@ export const Summaries: React.FC<SummariesProps> = ({
     </div>
   );
 };
+
+export const Summaries = React.memo(SummariesComponent);

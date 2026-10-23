@@ -642,11 +642,14 @@ export default function App() {
   // Sidebar categories state (default: all sections closed)
   const [expandedSections, setExpandedSections] = useState<string[]>([]);
 
-  const toggleSection = (section: string) => {
+  const toggleSection = useCallback((section: string) => {
     setExpandedSections(prev => 
       prev.includes(section) ? prev.filter(s => s !== section) : [...prev, section]
     );
-  };
+  }, []);
+
+  const handleCloseMenu = useCallback(() => setMenuOpen(false), []);
+  const handleToggleMenu = useCallback(() => setMenuOpen(prev => !prev), []);
 
   // Initialize Auth on load
   useEffect(() => {
@@ -2725,15 +2728,19 @@ export default function App() {
   }, [activeAccountingPeriod]);
 
   // Stats summaries - strictly by financial accounting month and year (شهر المحاسبة)
-  const totalReceived = filteredPaymentsByPeriod
-    .filter((p) => parsePaymentYear(p, currentYear) === currentYear && (viewMode === 'year' || parsePaymentMonth(p) === (currentMonth + 1)) && isValidPaidPayment(p) && ((p.amount || 0) > 0))
-    .reduce((sum, p) => sum + p.amount, 0);
+  const totalReceived = useMemo(() => {
+    return filteredPaymentsByPeriod
+      .filter((p) => parsePaymentYear(p, currentYear) === currentYear && (viewMode === 'year' || parsePaymentMonth(p) === (currentMonth + 1)) && isValidPaidPayment(p) && ((p.amount || 0) > 0))
+      .reduce((sum, p) => sum + p.amount, 0);
+  }, [filteredPaymentsByPeriod, currentYear, viewMode, currentMonth]);
 
-  const totalSpent = filteredExpensesByPeriod
-    .filter((e) => parseExpenseYear(e, currentYear) === currentYear && (viewMode === 'year' || parseExpenseMonth(e) === (currentMonth + 1)))
-    .reduce((sum, e) => sum + e.amount, 0);
+  const totalSpent = useMemo(() => {
+    return filteredExpensesByPeriod
+      .filter((e) => parseExpenseYear(e, currentYear) === currentYear && (viewMode === 'year' || parseExpenseMonth(e) === (currentMonth + 1)))
+      .reduce((sum, e) => sum + e.amount, 0);
+  }, [filteredExpensesByPeriod, currentYear, viewMode, currentMonth]);
 
-  const currentSafeBalance = totalReceived - totalSpent;
+  const currentSafeBalance = useMemo(() => totalReceived - totalSpent, [totalReceived, totalSpent]);
 
   // Dynamic Unit Activity Statistical Breakdown
   const unitActivityStats = useMemo(() => {
@@ -2855,20 +2862,24 @@ export default function App() {
     return fallbacks[index % fallbacks.length];
   };
 
-  // Chart data formatting
-  const monthsAbbr = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'];
-  const monthNamesArabic = [
-    'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
-    'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'
-  ];
-  const chartData = monthsAbbr.map((m, idx) => ({
-    name: monthNamesArabic[idx],
-    التحصيلات: filteredPaymentsByPeriod.filter((p) => isPaymentForYearAndMonth(p, currentYear, idx + 1) && isValidPaidPayment(p) && ((p.amount || 0) > 0)).reduce((sum, p) => sum + p.amount, 0),
-    المصروفات: filteredExpensesByPeriod.filter((e) => isExpenseForYearAndMonth(e, currentYear, idx + 1)).reduce((sum, e) => sum + e.amount, 0),
-  }));
+  // Chart data formatting (memoized to prevent expensive 24-filter re-computations on unrelated renders)
+  const chartData = useMemo(() => {
+    const monthsAbbr = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'];
+    const monthNamesArabic = [
+      'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
+      'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'
+    ];
+    return monthsAbbr.map((m, idx) => ({
+      name: monthNamesArabic[idx],
+      التحصيلات: filteredPaymentsByPeriod.filter((p) => isPaymentForYearAndMonth(p, currentYear, idx + 1) && isValidPaidPayment(p) && ((p.amount || 0) > 0)).reduce((sum, p) => sum + p.amount, 0),
+      المصروفات: filteredExpensesByPeriod.filter((e) => isExpenseForYearAndMonth(e, currentYear, idx + 1)).reduce((sum, e) => sum + e.amount, 0),
+    }));
+  }, [filteredPaymentsByPeriod, filteredExpensesByPeriod, currentYear]);
 
   // Filtering for Resident view only
-  const filteredResidentPayments = filteredPaymentsByPeriod.filter(p => p.year === currentYear && (!flatNumber || isSameFlatNumber(p.flatNumber, flatNumber)));
+  const filteredResidentPayments = useMemo(() => {
+    return filteredPaymentsByPeriod.filter(p => p.year === currentYear && (!flatNumber || isSameFlatNumber(p.flatNumber, flatNumber)));
+  }, [filteredPaymentsByPeriod, currentYear, flatNumber]);
 
   // Resolve the resident/tenant object for the current logged in user
   const currentResidentObj = useMemo(() => {
@@ -3091,13 +3102,13 @@ export default function App() {
         unreadNotificationsCount={visibleNotifications.length}
         onOpenNotifications={() => setShowNotifications(true)}
         isMenuOpen={mobileMenuOpen}
-        onToggleMenu={() => setMenuOpen(!mobileMenuOpen)}
+        onToggleMenu={handleToggleMenu}
       />
 
       {/* Navigation Drawer */}
       <NavigationDrawer
         isOpen={mobileMenuOpen}
-        onClose={() => setMenuOpen(false)}
+        onClose={handleCloseMenu}
         buildingName={config?.buildingName || localStorage.getItem("active_building_name") || "بيراميدز فيو ١"}
         activeTab={activeTab}
         onNavigateTab={setActiveTab}
@@ -3253,6 +3264,7 @@ export default function App() {
             expenseTypes={config.expenseTypes}
             onEditPayment={editPayment}
             onDeletePayment={deletePayment}
+            onPreviewImage={handlePreviewImage}
             activityDefaultFees={config.activityDefaultFees}
             defaultMonthlyFee={config.defaultMonthlyFee}
             paymentTypes={config.paymentTypes}

@@ -29,7 +29,7 @@ interface NavigationDrawerProps {
   onLogout: () => void;
 }
 
-export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
+const NavigationDrawerComponent: React.FC<NavigationDrawerProps> = ({
   isOpen,
   onClose,
   buildingName,
@@ -46,9 +46,9 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex justify-end" onClick={onClose}>
+    <div className="fixed inset-0 z-50 bg-slate-950/60 flex justify-end transition-opacity duration-200" onClick={onClose}>
       <div 
-        className="w-80 max-w-[85vw] h-full bg-white dark:bg-[#111a2e] shadow-2xl p-5 flex flex-col justify-between animate-slide-left overflow-y-auto max-h-screen text-right"
+        className="w-80 max-w-[85vw] h-full bg-white dark:bg-[#111a2e] shadow-2xl p-5 flex flex-col justify-between animate-slide-left will-change-transform transform-gpu overflow-y-auto max-h-screen text-right"
         dir="rtl"
         onClick={(e) => e.stopPropagation()}
       >
@@ -261,3 +261,5 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
     </div>
   );
 };
+
+export const NavigationDrawer = React.memo(NavigationDrawerComponent);

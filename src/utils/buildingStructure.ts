@@ -773,8 +773,7 @@ export function getLatestOccupantFromHistory(
     return { ownerName: '', tenantName: undefined, occupantName: '' };
   }
 
-  const tenantPhonesSet = getAllTenantPhones(resident);
-  const fallbackSafeOwnerPhone = isTenantPhone(resident.phone, tenantPhonesSet) ? undefined : resident.phone;
+  const fallbackSafeOwnerPhone = resident.ownerPhone || resident.phone;
 
   const fallback = {
     ownerName: (resident.name || '').trim(),
@@ -782,7 +781,7 @@ export function getLatestOccupantFromHistory(
     tenantName: (resident.tenantName || '').trim() || undefined,
     tenantPhone: resident.tenantPhone,
     occupantName: (resident.tenantName || resident.name || '').trim(),
-    occupantPhone: resident.tenantName ? resident.tenantPhone : fallbackSafeOwnerPhone,
+    occupantPhone: resident.tenantName ? (resident.tenantPhone || fallbackSafeOwnerPhone) : fallbackSafeOwnerPhone,
   };
 
   if (!resident.history || !Array.isArray(resident.history) || resident.history.length === 0) {
@@ -926,11 +925,9 @@ export function getLatestOccupantFromHistory(
 
   if (!resolvedOwnerName) {
     resolvedOwnerName = fallback.ownerName;
-    resolvedOwnerPhone = fallback.ownerPhone;
   }
-
-  if (resolvedOwnerPhone && isTenantPhone(resolvedOwnerPhone, tenantPhonesSet)) {
-    resolvedOwnerPhone = undefined;
+  if (!resolvedOwnerPhone) {
+    resolvedOwnerPhone = fallback.ownerPhone || resident.ownerPhone || resident.phone;
   }
 
   // 2. Resolve Tenant strictly for the target period/interval:
@@ -951,8 +948,15 @@ export function getLatestOccupantFromHistory(
     }
   }
 
+  // Fallback to resident top-level tenant if not explicitly matched in history but defined on resident
+  if (!tenantMatched && resident.tenantName && resident.tenantName.trim()) {
+    resolvedTenantName = resident.tenantName.trim();
+    resolvedTenantPhone = resident.tenantPhone && resident.tenantPhone.trim() ? resident.tenantPhone.trim() : undefined;
+    tenantMatched = true;
+  }
+
   const finalTenant = tenantMatched && resolvedTenantName ? resolvedTenantName : undefined;
-  const finalTenantPhone = finalTenant ? resolvedTenantPhone : undefined;
+  const finalTenantPhone = finalTenant ? (resolvedTenantPhone || resident.tenantPhone) : undefined;
 
   return {
     ownerName: resolvedOwnerName,

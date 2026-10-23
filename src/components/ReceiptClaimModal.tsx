@@ -333,8 +333,12 @@ const ReceiptClaimModalContent: React.FC<{
     return isReceipt;
   }, [data.currentMonthStatus, isReceipt]);
 
-  // Construct formatted RTL text for WhatsApp
+  // Construct formatted RTL text for WhatsApp mirroring the screen exactly
   const shareText = useMemo(() => {
+    const cb = effectiveClaimBreakdown;
+    const paidAmt = data.amount || displayMonthlyFee;
+    const todayStr = data.date || `${data.year}-${data.month}`;
+
     if (isReceipt) {
       let t = `🏢 *اتحاد ملاك عمارة بيراميدز فيو ١*\n`;
       t += `💐 *إيصال سداد: ${paymentDescription}*\n`;
@@ -346,42 +350,48 @@ const ReceiptClaimModalContent: React.FC<{
       } else {
         t += `• ${occupantInfo.singleLine}\n`;
       }
-      t += `💰 *المبلغ المسدد معتمداً:* *${Math.round(data.amount).toLocaleString()} جنيه مصري* ✓\n`;
+      t += `💰 *المبلغ المسدد معتمداً:* *${Math.round(paidAmt).toLocaleString()} ج.م* ✓\n`;
       t += `🗓 *بيان الإيصال:* ${paymentDescription}\n`;
       t += `🏷 *نوع التحصيل:* ${paymentCategory}\n`;
       t += `🔢 *رقم الإيصال:* ${docNumber}\n`;
-      t += `📅 *تاريخ السداد:* ${data.date || `${data.year}-${data.month}`}\n`;
+      t += `📅 *تاريخ السداد:* ${todayStr}\n\n`;
 
       t += `-----------------------------------\n`;
-      if (totalUnitDebt > 0) {
-        const delayedMonthsText = unpaidMonthsCount === 1 ? 'تأخير شهر واحد' : unpaidMonthsCount === 2 ? 'تأخير شهرين' : unpaidMonthsCount <= 10 ? `تأخير ${unpaidMonthsCount} أشهر` : `تأخير ${unpaidMonthsCount} شهراً`;
-        t += `⚠️ *بيان تفصيلي بالمديونيات والمتأخرات المتبقية على الوحدة:*\n`;
-        t += `• متأخرات ${paymentCategory}: ${delayedMonthsText} (${Math.round(unpaidMonthsDues).toLocaleString()} ج.م)\n`;
-        if (oldCarriedDebts > 0) {
-          t += `• مديونيات قديمة ومرحلة: ${Math.round(oldCarriedDebts).toLocaleString()} ج.م\n`;
-        }
-        t += `• إجمالي المديونية المتبقية: *${Math.round(totalUnitDebt).toLocaleString()} جنيه مصري* (المتأخرات الحالية + المديونيات القديمة)\n`;
-        t += `🌺 *نشكركم على حسن تعاونكم والتزامكم بالسداد لدعم نظافة وصيانة وخدمات العمارة، ونرجو التكرم بسرعة سداد وتصفية المبالغ المتبقية للحفاظ على استمرار تقديم الخدمات المشتركة بأفضل صورة لراحة الجميع.*\n`;
-      } else {
-        t += `✨ *موقف المديونيات:*\n`;
-        t += `لا توجد أي مديونيات قديمة أو متأخرات على الوحدة، والحساب مسدد بالكامل حتى تاريخه 👍\n`;
-        t += `🌺 *نشكركم جزيل الشكر والتقدير على التزامكم الدائم بالسداد في المواعيد المحددة، مما يسهم بشكل مباشر في استمرار خدمات ونظافة وتطوير العمارة.*\n`;
-      }
+      t += `📋 *بيان وتفصيل المبالغ المستحقة على الوحدة:*\n\n`;
+      t += `1️⃣ *حالة الشهر الحالي (${monthName} ${data.year}):*\n`;
+      t += `• ${cb.subsLineText}\n`;
+      t += `• ${cb.otherLineText}\n\n`;
+
+      t += `2️⃣ *الاشتراكات الشهرية (من بداية الفترة المحاسبية وحتى الشهر الحالي):*\n`;
+      t += `• إجمالي المبالغ المستحقة للاشتراك الشهري: ${cb.priorSubsDue.toLocaleString()} ج.م\n`;
+      t += `• المبالغ المسددة من بداية الفترة المحاسبية وحتى الشهر الحالي: ${cb.priorSubsPaid.toLocaleString()} ج.م\n`;
+      t += `• الفرق بينهما (متأخرات أو رصيد موجب): ${cb.priorSubsStatusText}\n\n`;
+
+      t += `3️⃣ *التحصيلات الأخرى (من بداية الفترة المحاسبية وحتى الشهر الحالي):*\n`;
+      t += `• إجمالي المبالغ المستحقة عن التحصيلات الأخرى: ${cb.priorOtherDue.toLocaleString()} ج.م\n`;
+      t += `• إجمالي المبالغ المسددة للتحصيلات الأخرى: ${cb.priorOtherPaid.toLocaleString()} ج.م\n`;
+      t += `• الفرق بينهما (متأخرات أو رصيد موجب): ${cb.priorOtherStatusText}\n\n`;
+
+      t += `4️⃣ *مديونيات سابقة أو مرحل من فترات محاسبية سابقة أو رصيد افتتاحي للوحدة:*\n`;
+      t += `• القيمة: ${cb.previousDebtAmount > 0 ? `${cb.previousDebtAmount.toLocaleString()} ج.م (مديونيات سابقة)` : (cb.previousSurplusAmount > 0 ? `+${cb.previousSurplusAmount.toLocaleString()} ج.م (رصيد موجب دائن مرحل)` : '0 ج.م (لا توجد مديونيات سابقة)')}\n\n`;
+
+      t += `📦 *ملخص المستحقات والتفصيل المالي:*\n`;
+      t += `5️⃣ *إجمالي المستحق عن هذا الشهر:* ${cb.currentMonthTotalDue.toLocaleString()} ج.م\n`;
+      t += `6️⃣ *إجمالي المتأخرات والمديونيات:* ${cb.totalArrearsAndDebts > 0 ? `${cb.totalArrearsAndDebts.toLocaleString()} ج.م` : '0 ج.م (خالص بالكامل)'}\n\n`;
+
+      t += `✨ *المبلغ المسدد معتمداً بالإيصال:* *${Math.round(paidAmt).toLocaleString()} جنيه مصري* ✓\n`;
+      t += `🌺 *نشكركم جزيل الشكر والتقدير على حرصكم الدائم وسدادكم المنتظم، مما يساهم مباشرةً في الحفاظ على العمارة وتطوير خدماتها.*\n`;
 
       if (data.notes) {
-        t += `📝 *ملاحظات:* ${data.notes}\n`;
+        t += `\n📝 *ملاحظات:* ${data.notes}\n`;
       }
       t += `-----------------------------------\n`;
       t += `شاكرين لكم حسن تعاونكم الدائم في الحفاظ على العمارة وتطوير خدماتها.\n`;
       t += `إدارة اتحاد ملاك بيراميدز فيو ١`;
       return t;
     } else {
-      const netVal = data.netDebt !== undefined ? data.netDebt : (data.amount || 0);
-      const isDebt = netVal > 0;
-      const isZero = netVal === 0;
-
       let t = `🏢 *اتحاد ملاك عمارة بيراميدز فيو ١*\n`;
-      t += `🏛️ *إشعار مطالبة وبيان مستحقات للفترة المحاسبية*\n`;
+      t += `🏛️ *إشعار مطالبة وبيان مستحقات (${paymentCategory})*\n`;
       t += `-----------------------------------\n`;
       t += `🚪 *الوحدة:* ( الوحدة ${data.unitNumber} - ${activityType} )\n`;
       t += `📍 *النطاق المحاسبي:* ${data.periodName || 'الفترة المحاسبية النشطة'}\n`;
@@ -391,40 +401,44 @@ const ReceiptClaimModalContent: React.FC<{
       } else {
         t += `• ${occupantInfo.singleLine}\n\n`;
       }
-      t += `📋 *بيان وتفاصيل المستحقات والسداد للوحدة للفترة المحاسبية:*\n`;
-      t += `• إجمالي المستحقات (اشتراكات): ${Math.round(data.periodExpectedDues || data.totalDues || 0).toLocaleString()} ج.م\n`;
-      t += `• إجمالي المسدد (اشتراكات): ${Math.round(data.monthlyPaid || data.totalPaid || 0).toLocaleString()} ج.م\n`;
-      t += `• التحصيلات الأخرى: ${Math.round(data.otherCollectionsPaid || 0).toLocaleString()} ج.م مسدد${(data.otherCollectionsDebt || 0) > 0 ? ` (${Math.round(data.otherCollectionsDebt || 0).toLocaleString()} ج.م غير مسدد)` : ''}\n`;
 
-      if (!data.hideCarriedBalance && data.carriedBalance !== undefined && data.carriedBalance !== 0) {
-        t += `• الرصيد السابق المرحل: ${data.carriedBalance < 0 ? `-${Math.abs(data.carriedBalance).toLocaleString()} ج.م (مديونية سابقة)` : `+${data.carriedBalance.toLocaleString()} ج.م (فائض سابق)`}\n`;
-      }
+      t += `📋 *بيان وتفصيل المبالغ المستحقة على الوحدة:*\n\n`;
+      t += `1️⃣ *حالة الشهر الحالي (${monthName} ${data.year}):*\n`;
+      t += `• ${cb.subsLineText}\n`;
+      t += `• ${cb.otherLineText}\n\n`;
 
-      t += `\n-----------------------------------\n`;
+      t += `2️⃣ *الاشتراكات الشهرية (من بداية الفترة المحاسبية وحتى الشهر الحالي):*\n`;
+      t += `• إجمالي المبالغ المستحقة للاشتراك الشهري: ${cb.priorSubsDue.toLocaleString()} ج.م\n`;
+      t += `• المبالغ المسددة من بداية الفترة المحاسبية وحتى الشهر الحالي: ${cb.priorSubsPaid.toLocaleString()} ج.م\n`;
+      t += `• الفرق بينهما (متأخرات أو رصيد موجب): ${cb.priorSubsStatusText}\n\n`;
 
-      if (isDebt) {
-        t += `🔴 *صافي الدين المستحق للسداد:* *-${Math.abs(Math.round(netVal)).toLocaleString()} جنيه مصري*\n`;
-        t += `⚠️ *موقف الحساب:* توجد مديونية مستحقة على الوحدة للفترة المحاسبية.\n`;
-        t += `🤝 *نأمل من سيادتكم التكرم بالمبادرة بسرعة سداد المستحقات لتغطية مصروفات الصيانة الدورية والنظافة والأمن وتشغيل المصاعد بكفاءة لراحة وسلامة جميع سكان ورواد العمارة.*\n`;
-      } else if (isZero) {
-        t += `🔵 *صافي الدين:* *0 جنيه مصري (خالص بالكامل)*\n`;
-        t += `✓ *موقف الحساب:* جميع المستحقات مسددة بالكامل ولا توجد أي مديونيات متأخرة 👍\n`;
-        t += `🌺 *نشكركم جزيل الشكر والتقدير على التزامكم بالسداد ودعم خدمات العمارة.*\n`;
-      } else {
-        t += `🟢 *صافي الرصيد الدائن (فائض):* *+${Math.abs(Math.round(netVal)).toLocaleString()} جنيه مصري*\n`;
-        t += `✨ *موقف الحساب:* يتوفر رصيد دائن (فائض مسدد بالزيادة) لصالح الوحدة.\n`;
-        t += `🌺 *نشكركم جزيل الشكر والتقدير على تعاونكم وتواصلكم الدائم.*\n`;
-      }
+      t += `3️⃣ *التحصيلات الأخرى (من بداية الفترة المحاسبية وحتى الشهر الحالي):*\n`;
+      t += `• إجمالي المبالغ المستحقة عن التحصيلات الأخرى: ${cb.priorOtherDue.toLocaleString()} ج.م\n`;
+      t += `• إجمالي المبالغ المسددة للتحصيلات الأخرى: ${cb.priorOtherPaid.toLocaleString()} ج.م\n`;
+      t += `• الفرق بينهما (متأخرات أو رصيد موجب): ${cb.priorOtherStatusText}\n\n`;
+
+      t += `4️⃣ *مديونيات سابقة أو مرحل من فترات محاسبية سابقة أو رصيد افتتاحي للوحدة:*\n`;
+      t += `• القيمة: ${cb.previousDebtAmount > 0 ? `${cb.previousDebtAmount.toLocaleString()} ج.م (مديونيات سابقة)` : (cb.previousSurplusAmount > 0 ? `+${cb.previousSurplusAmount.toLocaleString()} ج.م (رصيد موجب دائن مرحل)` : '0 ج.م (لا توجد مديونيات سابقة)')}\n\n`;
+
+      t += `📦 *ملخص المستحقات والتفصيل المالي:*\n`;
+      t += `5️⃣ *إجمالي المستحق عن هذا الشهر:* ${cb.currentMonthTotalDue.toLocaleString()} ج.م\n`;
+      t += `6️⃣ *إجمالي المتأخرات والمديونيات:* ${cb.totalArrearsAndDebts > 0 ? `${cb.totalArrearsAndDebts.toLocaleString()} ج.م` : '0 ج.م (خالص بالكامل)'}\n\n`;
+
+      t += `💰 *إجمالي المبلغ المطلوب سداده:* *${cb.totalDueForPayment.toLocaleString()} جنيه مصري*\n`;
+      t += `🔢 *رقم المطالبة:* ${docNumber}\n`;
+      t += `📅 *تاريخ الإصدار:* ${todayStr}\n\n`;
+
+      t += `🤝 *نأمل من سيادتكم التكرم بالمبادرة بسداد المستحقات في أقرب وقت لضمان استمرار خدمات النظافة، الحراسة، الصيانة، وتشغيل المصاعد بكفاءة لراحة جميع السكّان.*\n`;
 
       if (data.notes) {
         t += `\n📝 *ملاحظات:* ${data.notes}\n`;
       }
       t += `-----------------------------------\n`;
-      t += `شاكرين ومقدرين حسن تعاونكم الدائم.\n`;
+      t += `مع جزيل الشكر والتقدير.\n`;
       t += `إدارة اتحاد ملاك بيراميدز فيو ١`;
       return t;
     }
-  }, [data, isReceipt, monthName, docNumber, hasTenant, occupantInfo, carriedDebt, activityType, displayMonthlyFee, unpaidMonthsCount, unpaidMonthsDues, paymentCategory, paymentDescription, totalUnitDebt, oldCarriedDebts]);
+  }, [data, isReceipt, monthName, docNumber, occupantInfo, activityType, displayMonthlyFee, paymentCategory, paymentDescription, effectiveClaimBreakdown]);
 
   const handleDownloadImage = () => {
     if (!imageBlob && !imageDataUrl) return;

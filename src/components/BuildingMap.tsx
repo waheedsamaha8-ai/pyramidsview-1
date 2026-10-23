@@ -1,5 +1,5 @@
-import React, { useState, useMemo, useRef } from 'react';
-import { Resident, Payment, FloorConfig, AppConfig } from '../types';
+import React, { useState, useMemo, useRef, useCallback } from 'react';
+import { Resident, Payment, FloorConfig, AppConfig, UserRole } from '../types';
 import { 
   Building2, 
   Check, 
@@ -22,10 +22,11 @@ import {
   Loader2,
   Share2,
   CheckCircle2,
-  Download
+  Download,
+  Eye
 } from 'lucide-react';
 import { deriveFloorConfigsFromResidents, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber, getHistoricalOccupantForDate, getHistoricalActivityForDate } from '../utils/buildingStructure';
-import { calculateResidentFinancials, getCarriedPreviousBalance, calculateUnitClaimBreakdown, getResidentMonthlyFee, getPrescribedFeeForMonth } from '../utils/financialCalculations';
+import { calculateResidentFinancials, getCarriedPreviousBalance, calculateUnitClaimBreakdown, getResidentMonthlyFee, getPrescribedFeeForMonth, parsePaymentMonth, parsePaymentYear, isMonthlySubscriptionType } from '../utils/financialCalculations';
 import { getActiveAccountingPeriod } from '../utils/periodUtils';
 import { formatMobileNumber, formatPhoneForDisplay, toWhatsAppNumber } from '../utils/phoneUtils';
 import { shareImageViaWhatsApp } from '../utils/shareImageViaWhatsApp';
@@ -33,6 +34,12 @@ import { generateElementImageBlob } from '../utils/imageExport';
 import { printReceiptClaim } from '../utils/receiptClaimGenerator';
 import { ReceiptClaimModal, ReceiptClaimData } from './ReceiptClaimModal';
 import { UnitHistoryModal } from './modals/UnitHistoryModal';
+
+const STATIC_MONTHS = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'];
+const STATIC_MONTH_NAMES_ARABIC = [
+  'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
+  'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'
+];
 
 interface BuildingMapProps {
   residents: Resident[];
@@ -43,9 +50,10 @@ interface BuildingMapProps {
   currentMonth?: number;
   setCurrentMonth?: React.Dispatch<React.SetStateAction<number>>;
   onEditResident?: (resident: Resident) => void;
+  role?: UserRole;
 }
 
-export const BuildingMap: React.FC<BuildingMapProps> = ({
+const BuildingMapComponent: React.FC<BuildingMapProps> = ({
   residents,
   payments,
   floorConfigs,
@@ -54,6 +62,7 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
   currentMonth,
   setCurrentMonth,
   onEditResident,
+  role,
 }) => {
   const [historyModalResident, setHistoryModalResident] = useState<Resident | null>(null);
   const currentMonthNum = currentMonth !== undefined ? currentMonth + 1 : new Date().getMonth() + 1;
@@ -80,14 +89,12 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
   const [receiptModalData, setReceiptModalData] = useState<ReceiptClaimData | null>(null);
   const [historyYearFilter, setHistoryYearFilter] = useState<'all' | 'current'>('all');
   const [showPaidUnitBreakdown, setShowPaidUnitBreakdown] = useState<boolean>(false);
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
 
   const receiptCardRef = useRef<HTMLDivElement>(null);
   
-  const months = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'];
-  const monthNamesArabic = [
-    'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
-    'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'
-  ];
+  const months = STATIC_MONTHS;
+  const monthNamesArabic = STATIC_MONTH_NAMES_ARABIC;
 
   const accountingStartDate = config?.accountingStartDate || '2026-01-01';
   const defaultMonthlyFee = config?.defaultMonthlyFee || 400;
@@ -123,7 +130,7 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
     return [];
   }, [floorConfigs, residents]);
 
-  const matchesPaymentType = (payType: string | undefined, filterType: string) => {
+  const matchesPaymentType = useCallback((payType: string | undefined, filterType: string) => {
     if (!filterType || filterType === 'all' || filterType === 'الكل') return true;
     if (!payType) return false;
     const cleanPay = payType.trim();
@@ -135,25 +142,96 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
     if (normPay === normFilter) return true;
     if (normFilter.includes('اشتراك') && (normPay.includes('اشتراك') || normPay.includes('شهر'))) return true;
     return false;
-  };
+  }, []);
 
-  const getPaymentStatus = (flatNumber: number | string) => {
-    const resident = residents.find(r => isSameFlatNumber(r.flatNumber, flatNumber));
-    if (!resident) return 'empty';
+  const isOtherPaymentFilter = useMemo(() => {
+    if (!selectedPaymentType || selectedPaymentType === 'all' || selectedPaymentType === 'الكل') return false;
+    const norm = selectedPaymentType.trim().replace(/ي$/g, 'ى').replace(/[أإآ]/g, 'ا');
+    return !norm.includes('اشتراك') && !norm.includes('شهر');
+  }, [selectedPaymentType]);
 
+  // Map of resident by normalized flat number for instant O(1) lookup
+  const residentsByFlatMap = useMemo(() => {
+    const map = new Map<string, Resident>();
+    residents.forEach(r => {
+      if (r.flatNumber !== undefined && r.flatNumber !== null) {
+        map.set(String(r.flatNumber).trim(), r);
+      }
+    });
+    return map;
+  }, [residents]);
+
+  // Precomputed payment status for all units in selectedMonth & selectedPaymentType
+  const unitPaymentStatusMap = useMemo(() => {
+    const statusMap = new Map<string, 'paid' | 'unpaid' | 'no_record' | 'empty'>();
     const targetMonthNum = parseInt(selectedMonth, 10);
 
-    const payment = payments.find(p => 
-      ((resident.id && String(p.residentId || '').trim() === String(resident.id).trim()) || isSameFlatNumber(p.flatNumber, resident.flatNumber)) && 
-      Number(p.year) === Number(currentYear) && 
-      parseInt(p.month, 10) === targetMonthNum &&
-      p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل' &&
-      matchesPaymentType(p.paymentType, selectedPaymentType) &&
-      (p.amount > 0 || p.isManuallyPaid)
-    );
+    const paymentsByResId = new Map<string, Payment[]>();
+    const paymentsByFlat = new Map<string, Payment[]>();
 
-    if (payment) return 'paid';
-    return 'unpaid';
+    for (let i = 0; i < payments.length; i++) {
+      const p = payments[i];
+      if (
+        Number(p.year) === Number(currentYear) &&
+        parseInt(p.month, 10) === targetMonthNum &&
+        p.status !== 'cancelled' &&
+        p.status !== 'لاغي' &&
+        matchesPaymentType(p.paymentType, selectedPaymentType)
+      ) {
+        if (p.residentId) {
+          const key = String(p.residentId).trim();
+          let arr = paymentsByResId.get(key);
+          if (!arr) { arr = []; paymentsByResId.set(key, arr); }
+          arr.push(p);
+        }
+        if (p.flatNumber !== undefined && p.flatNumber !== null) {
+          const key = String(p.flatNumber).trim();
+          let arr = paymentsByFlat.get(key);
+          if (!arr) { arr = []; paymentsByFlat.set(key, arr); }
+          arr.push(p);
+        }
+      }
+    }
+
+    const isUncollectedStatus = (s?: string, isManuallyPaid?: boolean) => 
+      s === 'pending' || 
+      s === 'لم يتم التحصيل' || 
+      s === 'uncollected' || 
+      s === 'غير مسدد' || 
+      s === 'معلق' || 
+      s === 'unpaid' ||
+      (!isManuallyPaid && s !== 'collected' && s !== 'paid' && s !== 'تم التحصيل');
+
+    residents.forEach(resident => {
+      const flatKey = String(resident.flatNumber).trim();
+      const resIdKey = String(resident.id || '').trim();
+
+      const list1 = paymentsByResId.get(resIdKey) || [];
+      const list2 = paymentsByFlat.get(flatKey) || [];
+
+      const seen = new Set<string>();
+      const combined: Payment[] = [];
+      list1.forEach(p => { if (!seen.has(p.id)) { seen.add(p.id); combined.push(p); } });
+      list2.forEach(p => { if (!seen.has(p.id)) { seen.add(p.id); combined.push(p); } });
+
+      const paidPayment = combined.find(p => !isUncollectedStatus(p.status, p.isManuallyPaid) && (p.amount > 0 || p.isManuallyPaid));
+
+      if (paidPayment) {
+        statusMap.set(flatKey, 'paid');
+      } else if (isOtherPaymentFilter && combined.length === 0) {
+        statusMap.set(flatKey, 'no_record');
+      } else {
+        statusMap.set(flatKey, 'unpaid');
+      }
+    });
+
+    return statusMap;
+  }, [residents, payments, currentYear, selectedMonth, selectedPaymentType, isOtherPaymentFilter, matchesPaymentType]);
+
+  const getPaymentStatus = (flatNumber: number | string) => {
+    const key = String(flatNumber).trim();
+    if (!residentsByFlatMap.has(key)) return 'empty';
+    return unitPaymentStatusMap.get(key) || 'unpaid';
   };
 
   const getUnitFinancials = (flatNumber: number | string) => {
@@ -175,9 +253,9 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
     const totalPaid = currentYearPayments.reduce((sum, p) => sum + p.amount, 0);
     const targetMonthNum = parseInt(selectedMonth, 10);
     const currentMonthPayment = allUnitPayments.find(p => 
-      Number(p.year) === Number(currentYear) &&
-      parseInt(p.month, 10) === targetMonthNum && 
-      matchesPaymentType(p.paymentType, selectedPaymentType) &&
+      (Number(p.year) === Number(currentYear) || parsePaymentYear(p, Number(currentYear)) === Number(currentYear)) &&
+      (parseInt(p.month, 10) === targetMonthNum || parsePaymentMonth(p) === targetMonthNum) && 
+      (isOtherPaymentFilter ? matchesPaymentType(p.paymentType, selectedPaymentType) : isMonthlySubscriptionType(p.paymentType)) &&
       p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل' &&
       (p.amount > 0 || p.isManuallyPaid)
     );
@@ -278,18 +356,56 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
   const stats = useMemo(() => {
     let paidCount = 0;
     let unpaidCount = 0;
+    let pendingWithReceiptCount = 0;
     let finishingUnpaidCount = 0;
     let rawNoFeeCount = 0;
+    let noRecordCount = 0;
     let emptyCount = 0;
+
+    const targetMonthNum = parseInt(selectedMonth, 10);
+
+    const isUncollectedStatus = (s?: string, isManuallyPaid?: boolean) => 
+      s === 'pending' || 
+      s === 'لم يتم التحصيل' || 
+      s === 'uncollected' || 
+      s === 'غير مسدد' || 
+      s === 'معلق' || 
+      s === 'unpaid' ||
+      (!isManuallyPaid && s !== 'collected' && s !== 'paid' && s !== 'تم التحصيل');
 
     effectiveFloorConfigs.forEach(floor => {
       const units = getUnitNumbersForFloor(floor, residents);
       units.forEach(u => {
-        const st = getPaymentStatus(u);
         const res = residents.find(r => isSameFlatNumber(r.flatNumber, u));
-        if (!res || st === 'empty') {
+        if (!res) {
           emptyCount++;
+          return;
+        }
+
+        if (isOtherPaymentFilter) {
+          const unitMatchingPayments = payments.filter(p => 
+            ((res.id && String(p.residentId || '').trim() === String(res.id).trim()) || isSameFlatNumber(p.flatNumber, res.flatNumber)) && 
+            Number(p.year) === Number(currentYear) && 
+            parseInt(p.month, 10) === targetMonthNum && 
+            p.status !== 'cancelled' && p.status !== 'لاغي' &&
+            matchesPaymentType(p.paymentType, selectedPaymentType)
+          );
+
+          const collectedPayments = unitMatchingPayments.filter(p => !isUncollectedStatus(p.status, p.isManuallyPaid) && (p.amount > 0 || p.isManuallyPaid));
+          const pendingWithReceipt = unitMatchingPayments.find(p => isUncollectedStatus(p.status, p.isManuallyPaid) && Boolean(p.receiptNumber && p.receiptNumber.trim() !== ''));
+          const pendingWithoutReceipt = unitMatchingPayments.find(p => isUncollectedStatus(p.status, p.isManuallyPaid) && (!p.receiptNumber || p.receiptNumber.trim() === ''));
+
+          if (collectedPayments.length > 0) {
+            paidCount++;
+          } else if (pendingWithReceipt) {
+            pendingWithReceiptCount++;
+          } else if (pendingWithoutReceipt) {
+            unpaidCount++;
+          } else {
+            noRecordCount++;
+          }
         } else {
+          const st = getPaymentStatus(u);
           const histAct = getHistoricalActivityForDate(res, `${currentYear}-${selectedMonth}`, defaultMonthlyFee, activityDefaultFees, activityFeePeriods);
           const isRaw = Boolean(
             histAct.activityType === 'بدون تحصيل' ||
@@ -298,10 +414,24 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
             histAct.activityType?.includes('بدون تشطيب') ||
             histAct.monthlyFee === 0
           );
+
+          const hasPendingWithReceipt = payments.some(p => 
+            res && 
+            ((res.id && String(p.residentId || '').trim() === String(res.id).trim()) || isSameFlatNumber(p.flatNumber, res.flatNumber)) && 
+            Number(p.year) === Number(currentYear) && 
+            parseInt(p.month, 10) === targetMonthNum && 
+            p.status !== 'cancelled' && p.status !== 'لاغي' &&
+            isUncollectedStatus(p.status, p.isManuallyPaid) &&
+            matchesPaymentType(p.paymentType, selectedPaymentType) &&
+            Boolean(p.receiptNumber && p.receiptNumber.trim() !== '')
+          );
+
           if (isRaw) {
             rawNoFeeCount++;
           } else if (st === 'paid') {
             paidCount++;
+          } else if (hasPendingWithReceipt) {
+            pendingWithReceiptCount++;
           } else {
             unpaidCount++;
           }
@@ -309,8 +439,8 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
       });
     });
 
-    return { paidCount, unpaidCount, finishingUnpaidCount, rawNoFeeCount, emptyCount };
-  }, [effectiveFloorConfigs, residents, payments, currentYear, selectedMonth, selectedPaymentType]);
+    return { paidCount, unpaidCount, pendingWithReceiptCount, finishingUnpaidCount, rawNoFeeCount, noRecordCount, emptyCount };
+  }, [effectiveFloorConfigs, residents, payments, currentYear, selectedMonth, selectedPaymentType, isOtherPaymentFilter]);
 
   // WhatsApp Electronic Receipt Generator & Direct Trigger
   const sendWhatsAppReceipt = (target: 'owner' | 'tenant' | 'both') => {
@@ -327,9 +457,7 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
       : `مطالبة (${payCategory}) - عن شهر ${monthName} ${currentYear}`;
 
     const generateText = (recipientName: string, recipientRole: string) => {
-      const unpaidCount = financials.unpaidMonthsCount;
-      const unpaidDues = financials.unpaidMonthsDues;
-      const totalDue = unpaidDues + oldDebtVal;
+      const cb = financials.claimBreakdown;
 
       if (isPaid) {
         let msg = `🏢 *اتحاد ملاك عمارة بيراميدز فيو ١*\n`;
@@ -344,18 +472,30 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
         msg += `📅 *تاريخ السداد:* ${todayStr}\n\n`;
 
         msg += `-----------------------------------\n`;
-        if (totalDue > 0) {
-          msg += `⚠️ *بيان تفصيلي بالمديونيات والمتأخرات المتبقية على الوحدة:*\n`;
-          msg += `• متأخرات ${payCategory}: تأخير ${unpaidCount} شهور (${Math.round(unpaidDues).toLocaleString()} ج.م)\n`;
-          if (oldDebtVal > 0) {
-            msg += `• مديونيات قديمة ومرحلة: ${oldDebtVal.toLocaleString()} ج.م\n`;
-          }
-          msg += `• إجمالي المديونية المتبقية: *${totalDue.toLocaleString()} جنيه مصري* (المتأخرات الحالية + المديونيات القديمة)\n`;
-          msg += `🌺 *نشكركم على حسن تعاونكم والتزامكم بالسداد لدعم نظافة وصيانة وخدمات العمارة، ونرجو التكرم بسرعة سداد وتصفية المبالغ المتبقية للحفاظ على استمرار تقديم الخدمات المشتركة بأفضل صورة لراحة وسلامة الجميع.*\n`;
-        } else {
-          msg += `✨ *موقف المديونيات:* تم سداد الدفعة بنجاح، والحساب خالٍ تماماً من أي مديونيات قديمة أو متأخرات 👍\n`;
-          msg += `🌺 *نشكركم جزيل الشكر والتقدير على حرصكم والتزامكم الدائم بالسداد في المواعيد المحددة.*\n`;
-        }
+        msg += `📋 *بيان وتفصيل المبالغ المستحقة على الوحدة:*\n\n`;
+        msg += `1️⃣ *حالة الشهر الحالي (${monthName} ${currentYear}):*\n`;
+        msg += `• ${cb.subsLineText}\n`;
+        msg += `• ${cb.otherLineText}\n\n`;
+
+        msg += `2️⃣ *الاشتراكات الشهرية (من بداية الفترة المحاسبية وحتى الشهر الحالي):*\n`;
+        msg += `• إجمالي المبالغ المستحقة للاشتراك الشهري: ${cb.priorSubsDue.toLocaleString()} ج.م\n`;
+        msg += `• المبالغ المسددة من بداية الفترة المحاسبية وحتى الشهر الحالي: ${cb.priorSubsPaid.toLocaleString()} ج.م\n`;
+        msg += `• الفرق بينهما (متأخرات أو رصيد موجب): ${cb.priorSubsStatusText}\n\n`;
+
+        msg += `3️⃣ *التحصيلات الأخرى (من بداية الفترة المحاسبية وحتى الشهر الحالي):*\n`;
+        msg += `• إجمالي المبالغ المستحقة عن التحصيلات الأخرى: ${cb.priorOtherDue.toLocaleString()} ج.م\n`;
+        msg += `• إجمالي المبالغ المسددة للتحصيلات الأخرى: ${cb.priorOtherPaid.toLocaleString()} ج.م\n`;
+        msg += `• الفرق بينهما (متأخرات أو رصيد موجب): ${cb.priorOtherStatusText}\n\n`;
+
+        msg += `4️⃣ *مديونيات سابقة أو مرحل من فترات محاسبية سابقة أو رصيد افتتاحي للوحدة:*\n`;
+        msg += `• القيمة: ${cb.previousDebtAmount > 0 ? `${cb.previousDebtAmount.toLocaleString()} ج.م (مديونيات سابقة)` : (cb.previousSurplusAmount > 0 ? `+${cb.previousSurplusAmount.toLocaleString()} ج.م (رصيد موجب دائن مرحل)` : '0 ج.م (لا توجد مديونيات سابقة)')}\n\n`;
+
+        msg += `📦 *ملخص المستحقات والتفصيل المالي:*\n`;
+        msg += `5️⃣ *إجمالي المستحق عن هذا الشهر:* ${cb.currentMonthTotalDue.toLocaleString()} ج.م\n`;
+        msg += `6️⃣ *إجمالي المتأخرات والمديونيات:* ${cb.totalArrearsAndDebts > 0 ? `${cb.totalArrearsAndDebts.toLocaleString()} ج.م` : '0 ج.م (خالص بالكامل)'}\n\n`;
+
+        msg += `✨ *المبلغ المسدد معتمداً بالإيصال:* *${paidAmt.toLocaleString()} جنيه مصري* ✓\n`;
+        msg += `🌺 *نشكركم جزيل الشكر والتقدير على حرصكم الدائم وسدادكم المنتظم، مما يساهم مباشرةً في الحفاظ على العمارة وتطوير خدماتها.*\n`;
         msg += `-----------------------------------\n`;
         msg += `شاكرين لكم حسن تعاونكم وحرصكم الدائم على خدمات وصيانة العمارة.\n`;
         msg += `إدارة اتحاد ملاك بيراميدز فيو ١`;
@@ -366,28 +506,35 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
         msg += `-----------------------------------\n`;
         msg += `تحية طيبة،\n`;
         msg += `نحيط سيادتكم علماً ببيان مستحقات ( *الوحدة ${resident.flatNumber} - ${resident.activityType}* ):\n`;
-        msg += `👤 *المطلوب منه (${recipientRole}):* ${recipientName}\n`;
-        const cb = financials.claimBreakdown;
-        msg += `📋 *بيان وتفصيل المبالغ المستحقة على الوحدة:*\n`;
+        msg += `👤 *المطلوب منه (${recipientRole}):* ${recipientName}\n\n`;
+
+        msg += `📋 *بيان وتفصيل المبالغ المستحقة على الوحدة:*\n\n`;
         msg += `1️⃣ *حالة الشهر الحالي (${monthName} ${currentYear}):*\n`;
         msg += `• ${cb.subsLineText}\n`;
         msg += `• ${cb.otherLineText}\n\n`;
+
         msg += `2️⃣ *الاشتراكات الشهرية (من بداية الفترة المحاسبية وحتى الشهر الحالي):*\n`;
-        msg += `• إجمالي المستحق للاشتراك الشهري: ${cb.priorSubsDue.toLocaleString()} ج.م\n`;
-        msg += `• إجمالي المسدد من بداية الفترة: ${cb.priorSubsPaid.toLocaleString()} ج.م\n`;
-        msg += `• الفرق: ${cb.priorSubsStatusText}\n\n`;
+        msg += `• إجمالي المبالغ المستحقة للاشتراك الشهري: ${cb.priorSubsDue.toLocaleString()} ج.م\n`;
+        msg += `• المبالغ المسددة من بداية الفترة المحاسبية وحتى الشهر الحالي: ${cb.priorSubsPaid.toLocaleString()} ج.م\n`;
+        msg += `• الفرق بينهما (متأخرات أو رصيد موجب): ${cb.priorSubsStatusText}\n\n`;
+
         msg += `3️⃣ *التحصيلات الأخرى (من بداية الفترة المحاسبية وحتى الشهر الحالي):*\n`;
-        msg += `• إجمالي المستحق عن التحصيلات الأخرى: ${cb.priorOtherDue.toLocaleString()} ج.م\n`;
-        msg += `• إجمالي المسدد للتحصيلات الأخرى: ${cb.priorOtherPaid.toLocaleString()} ج.م\n`;
-        msg += `• الفرق: ${cb.priorOtherStatusText}\n\n`;
-        msg += `4️⃣ *مديونيات سابقة أو مرحل أو رصيد افتتاحي:* ${cb.previousDebtAmount > 0 ? `${cb.previousDebtAmount.toLocaleString()} ج.م (مديونيات سابقة)` : (cb.previousSurplusAmount > 0 ? `+${cb.previousSurplusAmount.toLocaleString()} ج.م (رصيد دائن / مرحل)` : '0 ج.م')}\n\n`;
+        msg += `• إجمالي المبالغ المستحقة عن التحصيلات الأخرى: ${cb.priorOtherDue.toLocaleString()} ج.م\n`;
+        msg += `• إجمالي المبالغ المسددة للتحصيلات الأخرى: ${cb.priorOtherPaid.toLocaleString()} ج.م\n`;
+        msg += `• الفرق بينهما (متأخرات أو رصيد موجب): ${cb.priorOtherStatusText}\n\n`;
+
+        msg += `4️⃣ *مديونيات سابقة أو مرحل من فترات محاسبية سابقة أو رصيد افتتاحي للوحدة:*\n`;
+        msg += `• القيمة: ${cb.previousDebtAmount > 0 ? `${cb.previousDebtAmount.toLocaleString()} ج.م (مديونيات سابقة)` : (cb.previousSurplusAmount > 0 ? `+${cb.previousSurplusAmount.toLocaleString()} ج.م (رصيد موجب دائن مرحل)` : '0 ج.م (لا توجد مديونيات سابقة)')}\n\n`;
+
         msg += `📦 *ملخص المستحقات والتفصيل المالي:*\n`;
         msg += `5️⃣ *إجمالي المستحق عن هذا الشهر:* ${cb.currentMonthTotalDue.toLocaleString()} ج.م\n`;
-        msg += `6️⃣ *إجمالي المتأخرات والمديونيات:* ${cb.totalArrearsAndDebts.toLocaleString()} ج.م\n\n`;
+        msg += `6️⃣ *إجمالي المتأخرات والمديونيات:* ${cb.totalArrearsAndDebts > 0 ? `${cb.totalArrearsAndDebts.toLocaleString()} ج.م` : '0 ج.م (خالص بالكامل)'}\n\n`;
+
         msg += `💰 *إجمالي المبلغ المطلوب سداده:* *${cb.totalDueForPayment.toLocaleString()} جنيه مصري*\n`;
         msg += `🔢 *رقم المطالبة:* CLM-${resident.flatNumber}-${selectedMonth}${currentYear}\n`;
         msg += `📅 *تاريخ الإصدار:* ${todayStr}\n\n`;
-        msg += `🤝 *نأمل من سيادتكم التكرم بالمبادرة بسرعة سداد المستحقات لتغطية مصروفات الصيانة الدورية والنظافة والأمن وتشغيل المصاعد بكفاءة لراحة وسلامة جميع سكان ورواد العمارة.*\n`;
+
+        msg += `🤝 *نأمل من سيادتكم التكرم بالمبادرة بسداد المستحقات في أقرب وقت لضمان استمرار خدمات النظافة، الحراسة، الصيانة، وتشغيل المصاعد بكفاءة لراحة جميع السكّان.*\n`;
         msg += `-----------------------------------\n`;
         msg += `مع جزيل الشكر والتقدير.\n`;
         msg += `إدارة اتحاد ملاك بيراميدز فيو ١`;
@@ -827,13 +974,24 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
             <span className="text-slate-800 font-bold">تم السداد ({stats.paidCount})</span>
           </div>
           <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
-            <div className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 bg-rose-600 rounded-sm sm:rounded-md shadow-2xs border border-rose-700 shrink-0"></div>
-            <span className="text-slate-800 font-bold">متأخر ({stats.unpaidCount})</span>
+            <div className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 bg-red-900 rounded-sm sm:rounded-md shadow-2xs border border-red-950 shrink-0"></div>
+            <span className="text-slate-800 font-bold">معلق برقم إيصال ({stats.pendingWithReceiptCount})</span>
           </div>
           <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
-            <div className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 bg-slate-700 rounded-sm sm:rounded-md shadow-2xs border border-slate-800 shrink-0"></div>
-            <span className="text-slate-800 font-bold">بدون تحصيل ({stats.rawNoFeeCount})</span>
+            <div className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 bg-rose-600 rounded-sm sm:rounded-md shadow-2xs border border-rose-700 shrink-0"></div>
+            <span className="text-slate-800 font-bold">غير مسدد ({stats.unpaidCount})</span>
           </div>
+          {isOtherPaymentFilter ? (
+            <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+              <div className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 bg-white rounded-sm sm:rounded-md shadow-2xs border-2 border-slate-400 shrink-0"></div>
+              <span className="text-slate-800 font-bold">لا توجد تحصيلات ({stats.noRecordCount})</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+              <div className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 bg-slate-700 rounded-sm sm:rounded-md shadow-2xs border border-slate-800 shrink-0"></div>
+              <span className="text-slate-800 font-bold">بدون تحصيل ({stats.rawNoFeeCount})</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -885,32 +1043,67 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
                     ))
                   );
                   const isFinishing = Boolean(prescribed && !isRaw && (prescribed.activityType === 'تحت التشطيب' || prescribed.activityType.includes('تشطيب')));
-                  const isPaid = status === 'paid';
-                  const isUnpaid = status === 'unpaid';
 
-                  // Month financial due and collected for unit
-                  const dueVal = isRaw ? 0 : (prescribed?.monthlyFee ?? defaultMonthlyFee);
-                  const unitPayments = payments.filter(p => 
+                  const unitMatchingPayments = payments.filter(p => 
                     resident && 
                     ((resident.id && String(p.residentId || '').trim() === String(resident.id).trim()) || isSameFlatNumber(p.flatNumber, resident.flatNumber)) && 
                     Number(p.year) === Number(currentYear) && 
-                    parseInt(p.month, 10) === parseInt(selectedMonth, 10) && 
-                    p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل' &&
-                    matchesPaymentType(p.paymentType, selectedPaymentType) &&
-                    (p.amount > 0 || p.isManuallyPaid)
+                    parseInt(p.month, 10) === targetMonthNum && 
+                    p.status !== 'cancelled' && p.status !== 'لاغي' &&
+                    matchesPaymentType(p.paymentType, selectedPaymentType)
                   );
-                  const collectedVal = unitPayments.reduce((s, p) => s + (p.amount || 0), 0);
+
+                  const isUncollectedStatus = (s?: string, isManuallyPaid?: boolean) => 
+                    s === 'pending' || 
+                    s === 'لم يتم التحصيل' || 
+                    s === 'uncollected' || 
+                    s === 'غير مسدد' || 
+                    s === 'معلق' || 
+                    s === 'unpaid' ||
+                    (!isManuallyPaid && s !== 'collected' && s !== 'paid' && s !== 'تم التحصيل');
+
+                  const collectedPayments = unitMatchingPayments.filter(p => !isUncollectedStatus(p.status, p.isManuallyPaid) && (p.amount > 0 || p.isManuallyPaid));
+                  const collectedVal = collectedPayments.reduce((s, p) => s + (p.amount || 0), 0);
+                  const isPaid = collectedPayments.length > 0 || collectedVal > 0;
+
+                  const pendingPaymentWithReceipt = unitMatchingPayments.find(p => 
+                    isUncollectedStatus(p.status, p.isManuallyPaid) && Boolean(p.receiptNumber && p.receiptNumber.trim() !== '')
+                  );
+
+                  const pendingPaymentWithoutReceipt = unitMatchingPayments.find(p => 
+                    isUncollectedStatus(p.status, p.isManuallyPaid) && (!p.receiptNumber || p.receiptNumber.trim() === '')
+                  );
+
+                  const isUnpaid = status === 'unpaid' || Boolean(pendingPaymentWithoutReceipt);
+                  const dueVal = isRaw ? 0 : (prescribed?.monthlyFee ?? defaultMonthlyFee);
 
                   let btnBgClass = 'bg-slate-800 border-slate-900 text-white hover:bg-slate-900'; // vacant / unregistered
+                  let isWhiteCard = false;
+
                   if (resident) {
-                    if (isRaw) {
-                      btnBgClass = 'bg-slate-600 border-slate-700 text-slate-100 hover:bg-slate-700';
-                    } else if (isPaid) {
-                      btnBgClass = 'bg-emerald-600 border-emerald-700 text-white hover:bg-emerald-700';
-                    } else if (isFinishing) {
-                      btnBgClass = 'bg-rose-600 border-rose-700 text-white hover:bg-rose-700';
+                    if (isOtherPaymentFilter) {
+                      if (isPaid) {
+                        btnBgClass = 'bg-emerald-600 border-emerald-700 text-white hover:bg-emerald-700';
+                      } else if (pendingPaymentWithReceipt) {
+                        btnBgClass = 'bg-red-900 border-red-950 text-white hover:bg-red-950';
+                      } else if (pendingPaymentWithoutReceipt) {
+                        btnBgClass = 'bg-rose-600 border-rose-700 text-white hover:bg-rose-700';
+                      } else {
+                        btnBgClass = 'bg-white border-slate-300 text-slate-800 hover:bg-slate-100/90 shadow-2xs';
+                        isWhiteCard = true;
+                      }
                     } else {
-                      btnBgClass = 'bg-rose-600 border-rose-700 text-white hover:bg-rose-700';
+                      if (isRaw) {
+                        btnBgClass = 'bg-slate-600 border-slate-700 text-slate-100 hover:bg-slate-700';
+                      } else if (isPaid) {
+                        btnBgClass = 'bg-emerald-600 border-emerald-700 text-white hover:bg-emerald-700';
+                      } else if (pendingPaymentWithReceipt) {
+                        btnBgClass = 'bg-red-900 border-red-950 text-white hover:bg-red-950';
+                      } else if (isFinishing) {
+                        btnBgClass = 'bg-rose-600 border-rose-700 text-white hover:bg-rose-700';
+                      } else {
+                        btnBgClass = 'bg-rose-600 border-rose-700 text-white hover:bg-rose-700';
+                      }
                     }
                   }
 
@@ -927,23 +1120,37 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
                       `}
                     >
                       {/* Unit Number & Status Icon */}
-                      <div className="flex items-center justify-between gap-1 w-full border-b border-white/20 pb-0.5">
-                        <span className="text-[11px] sm:text-xs font-black text-white font-mono leading-none" dir="ltr">
+                      <div className={`flex items-center justify-between gap-1 w-full border-b ${isWhiteCard ? 'border-slate-200' : 'border-white/20'} pb-0.5`}>
+                        <span className={`text-[11px] sm:text-xs font-black ${isWhiteCard ? 'text-slate-900' : 'text-white'} font-mono leading-none`} dir="ltr">
                           وحدة {unitStr}
                         </span>
-                        {isPaid && !isRaw && <Check className="w-3 h-3 text-white stroke-[3] shrink-0" />}
-                        {!isPaid && !isFinishing && !isRaw && isUnpaid && <AlertCircle className="w-3 h-3 text-white animate-pulse stroke-[3] shrink-0" />}
-                        {isRaw && <span className="text-[7.5px] bg-slate-900/60 text-slate-200 px-1 py-0.2 rounded font-bold leading-tight">معفي</span>}
+                        {isPaid && <Check className={`w-3 h-3 ${isWhiteCard ? 'text-emerald-600' : 'text-white'} stroke-[3] shrink-0`} />}
+                        {!isPaid && pendingPaymentWithReceipt && (
+                          <span className="text-[7.5px] bg-red-950 text-amber-300 px-1 py-0.2 rounded font-black border border-red-700 leading-tight shrink-0">
+                            #{pendingPaymentWithReceipt.receiptNumber}
+                          </span>
+                        )}
+                        {!isPaid && !pendingPaymentWithReceipt && pendingPaymentWithoutReceipt && (
+                          <AlertCircle className={`w-3 h-3 ${isWhiteCard ? 'text-rose-600' : 'text-white'} animate-pulse stroke-[3] shrink-0`} />
+                        )}
+                        {!isOtherPaymentFilter && !isPaid && !pendingPaymentWithReceipt && !isFinishing && !isRaw && isUnpaid && (
+                          <AlertCircle className="w-3 h-3 text-white animate-pulse stroke-[3] shrink-0" />
+                        )}
+                        {!isOtherPaymentFilter && isRaw && (
+                          <span className="text-[7.5px] bg-slate-900/60 text-slate-200 px-1 py-0.2 rounded font-bold leading-tight">معفي</span>
+                        )}
                       </div>
 
                       {/* Owner Name */}
-                      <div className="text-[9px] sm:text-[10px] font-black text-white/95 truncate w-full leading-tight" title={ownerName}>
+                      <div className={`text-[9px] sm:text-[10px] font-black ${isWhiteCard ? 'text-slate-700' : 'text-white/95'} truncate w-full leading-tight`} title={ownerName}>
                         {ownerName}
                       </div>
 
                       {/* Financial Dues & Collection */}
-                      <div className="flex items-center justify-between text-[7.5px] min-[360px]:text-[8px] sm:text-[8.5px] font-black pt-0.5 border-t border-white/20 w-full text-white/95 leading-none">
-                        <span>المستحق: <strong className="font-mono">{dueVal.toLocaleString()}</strong></span>
+                      <div className={`flex items-center ${isOtherPaymentFilter ? 'justify-center' : 'justify-between'} text-[7.5px] min-[360px]:text-[8px] sm:text-[8.5px] font-black pt-0.5 border-t ${isWhiteCard ? 'border-slate-200 text-slate-600' : 'border-white/20 text-white/95'} leading-none`}>
+                        {!isOtherPaymentFilter && (
+                          <span>المستحق: <strong className="font-mono">{dueVal.toLocaleString()}</strong></span>
+                        )}
                         <span>المحصل: <strong className="font-mono">{collectedVal.toLocaleString()}</strong></span>
                       </div>
                     </button>
@@ -1043,15 +1250,17 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
                           </div>
 
                           <div className="flex items-center gap-2 shrink-0">
-                            <button
-                              type="button"
-                              onClick={() => setHistoryModalResident(financials.resident)}
-                              className="flex items-center gap-1 px-2.5 py-1 bg-purple-100/90 hover:bg-purple-200 text-purple-950 border border-purple-300 rounded-lg text-[10px] sm:text-xs font-black transition active:scale-95 shadow-2xs cursor-pointer"
-                              title="فتح سجل الوحدة والشاغلين وتاريخ النشاط"
-                            >
-                              <History className="w-3.5 h-3.5 text-purple-700 shrink-0" />
-                              <span>سجل الوحدة</span>
-                            </button>
+                            {role === 'ADMIN' && (
+                              <button
+                                type="button"
+                                onClick={() => setHistoryModalResident(financials.resident)}
+                                className="flex items-center gap-1 px-2.5 py-1 bg-purple-100/90 hover:bg-purple-200 text-purple-950 border border-purple-300 rounded-lg text-[10px] sm:text-xs font-black transition active:scale-95 shadow-2xs cursor-pointer"
+                                title="فتح سجل الوحدة والشاغلين وتاريخ النشاط"
+                              >
+                                <History className="w-3.5 h-3.5 text-purple-700 shrink-0" />
+                                <span>سجل الوحدة</span>
+                              </button>
+                            )}
                             <span className="text-[9.5px] font-black px-2.5 py-1 rounded-md bg-blue-100 text-blue-900 border border-blue-200">
                               {((activeTenantName || financials.resident.ownershipType === 'إيجار') ? 'إيجار' : (financials.resident.ownershipType || 'تمليك'))} / {financials.histAct?.activityType || financials.resident.activityType || 'سكني'}
                             </span>
@@ -1113,39 +1322,61 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
                         prescribed.monthlyFee === 0
                       );
 
-                      const monthPayments = allUnitPayments.filter(p => 
-                        Number(p.year) === Number(currentYear) &&
-                        parseInt(p.month, 10) === monthNum &&
-                        p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل' &&
-                        matchesPaymentType(p.paymentType, selectedPaymentType) &&
-                        (p.amount > 0 || p.isManuallyPaid)
-                      );
-
-                      const pendingPaymentWithReceipt = allUnitPayments.find(p => 
-                        Number(p.year) === Number(currentYear) &&
-                        parseInt(p.month, 10) === monthNum &&
+                      const monthMatchingPayments = allUnitPayments.filter(p => 
+                        (Number(p.year) === Number(currentYear) || parsePaymentYear(p, Number(currentYear)) === Number(currentYear)) &&
+                        (parseInt(p.month, 10) === monthNum || parsePaymentMonth(p) === monthNum) &&
                         p.status !== 'cancelled' && p.status !== 'لاغي' &&
-                        (p.status === 'pending' || p.status === 'لم يتم التحصيل' || p.status === 'uncollected' || p.status === 'غير مسدد' || p.status === 'معلق') &&
-                        Boolean(p.receiptNumber && p.receiptNumber.trim() !== '')
+                        matchesPaymentType(p.paymentType, selectedPaymentType)
                       );
 
-                      const collectedAmount = monthPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
-                      const dueAmount = isExempt ? 0 : prescribed.monthlyFee;
+                      const isUncollectedStatus = (s?: string, isManuallyPaid?: boolean) => 
+                        s === 'pending' || 
+                        s === 'لم يتم التحصيل' || 
+                        s === 'uncollected' || 
+                        s === 'غير مسدد' || 
+                        s === 'معلق' || 
+                        s === 'unpaid' ||
+                        (!isManuallyPaid && s !== 'collected' && s !== 'paid' && s !== 'تم التحصيل');
 
-                      let status: 'paid' | 'partial' | 'unpaid' | 'exempt' = 'unpaid';
-                      if (isExempt) {
-                        status = 'exempt';
-                      } else if (collectedAmount >= dueAmount && dueAmount > 0) {
-                        status = 'paid';
-                      } else if (collectedAmount > 0 && collectedAmount < dueAmount) {
-                        status = 'partial';
-                      } else if (collectedAmount > 0 && dueAmount === 0) {
-                        status = 'paid';
+                      const collectedPayments = monthMatchingPayments.filter(p => !isUncollectedStatus(p.status, p.isManuallyPaid) && (p.amount > 0 || p.isManuallyPaid));
+                      const collectedAmount = collectedPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+
+                      const pendingPaymentWithReceipt = monthMatchingPayments.find(p => 
+                        isUncollectedStatus(p.status, p.isManuallyPaid) && Boolean(p.receiptNumber && p.receiptNumber.trim() !== '')
+                      );
+
+                      const pendingPaymentWithoutReceipt = monthMatchingPayments.find(p => 
+                        isUncollectedStatus(p.status, p.isManuallyPaid) && (!p.receiptNumber || p.receiptNumber.trim() === '')
+                      );
+
+                      const dueAmount = isOtherPaymentFilter ? 0 : (isExempt ? 0 : prescribed.monthlyFee);
+
+                      let status: 'paid' | 'partial' | 'unpaid' | 'exempt' | 'no_record' = 'unpaid';
+                      if (isOtherPaymentFilter) {
+                        if (collectedPayments.length > 0 || collectedAmount > 0) {
+                          status = 'paid';
+                        } else if (pendingPaymentWithReceipt) {
+                          status = 'partial';
+                        } else if (pendingPaymentWithoutReceipt) {
+                          status = 'unpaid';
+                        } else {
+                          status = 'no_record';
+                        }
                       } else {
-                        status = 'unpaid';
+                        if (isExempt) {
+                          status = 'exempt';
+                        } else if (collectedAmount >= dueAmount && dueAmount > 0) {
+                          status = 'paid';
+                        } else if (collectedAmount > 0 && collectedAmount < dueAmount) {
+                          status = 'partial';
+                        } else if (collectedAmount > 0 && dueAmount === 0) {
+                          status = 'paid';
+                        } else {
+                          status = 'unpaid';
+                        }
                       }
 
-                      const firstPay = monthPayments[0];
+                      const firstPay = collectedPayments[0] || monthMatchingPayments[0];
 
                       return {
                         mStr,
@@ -1158,6 +1389,7 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
                         paymentDate: firstPay?.date,
                         hasPendingReceipt: Boolean(pendingPaymentWithReceipt),
                         pendingReceiptNumber: pendingPaymentWithReceipt?.receiptNumber,
+                        hasNoRecord: status === 'no_record',
                       };
                     });
 
@@ -1190,6 +1422,7 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
                             let cardColorClass = '';
                             let badgeLabel = '';
                             let badgeClass = '';
+                            let isWhiteMonthCard = false;
 
                             if (m.hasPendingReceipt && m.status !== 'paid') {
                               // دفعة معلقة مع وجود رقم إيصال: باللون الأحمر الغامق
@@ -1204,6 +1437,13 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
                                 : 'bg-emerald-50 text-emerald-950 border-2 border-emerald-400 hover:bg-emerald-100 shadow-xs';
                               badgeLabel = 'مسدد ✓';
                               badgeClass = isSelected ? 'bg-emerald-800 text-white border-emerald-700' : 'bg-emerald-100 text-emerald-900 border-emerald-300';
+                            } else if (m.status === 'no_record') {
+                              isWhiteMonthCard = true;
+                              cardColorClass = isSelected 
+                                ? 'bg-white text-slate-900 border-2 border-blue-600 ring-2 ring-blue-400 shadow-md font-black' 
+                                : 'bg-white text-slate-800 border-2 border-slate-300 hover:bg-slate-50 shadow-xs';
+                              badgeLabel = 'لا تحصيل';
+                              badgeClass = 'bg-slate-100 text-slate-700 border-slate-300';
                             } else if (m.status === 'partial') {
                               cardColorClass = isSelected 
                                 ? 'bg-amber-500 text-white border-2 border-amber-800 ring-2 ring-amber-400 shadow-md' 
@@ -1232,7 +1472,7 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
                                 className={`p-1.5 sm:p-2.5 rounded-xl flex flex-col justify-between gap-1 text-right transition-all cursor-pointer active:scale-95 ${cardColorClass}`}
                               >
                                 {/* Header: Month Name & Status Badge */}
-                                <div className="flex items-center justify-between gap-1 border-b border-current/15 pb-1">
+                                <div className={`flex items-center justify-between gap-1 border-b ${isWhiteMonthCard ? 'border-slate-200' : 'border-current/15'} pb-1`}>
                                   <span className="font-black text-[10px] sm:text-xs truncate">
                                     شهر {m.monthNum} - {m.monthName}
                                   </span>
@@ -1242,17 +1482,21 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
                                 </div>
 
                                 {/* Financial Amounts */}
-                                <div className="flex flex-col min-[420px]:flex-row min-[420px]:items-center justify-between text-[8px] min-[360px]:text-[8.5px] sm:text-[10px] font-black leading-tight gap-0.5">
-                                  <span>مستحق: <strong className="font-mono">{m.dueAmount.toLocaleString()}</strong></span>
+                                <div className={`flex items-center ${isOtherPaymentFilter ? 'justify-center' : 'justify-between'} text-[8px] min-[360px]:text-[8.5px] sm:text-[10px] font-black leading-tight gap-1`}>
+                                  {!isOtherPaymentFilter && (
+                                    <span>مستحق: <strong className="font-mono">{m.dueAmount.toLocaleString()}</strong></span>
+                                  )}
                                   <span>محصل: <strong className="font-mono">{m.collectedAmount.toLocaleString()}</strong></span>
                                 </div>
 
                                 {/* Receipt / Status Detail */}
                                 <div className="text-[7.5px] min-[360px]:text-[8px] sm:text-[9px] font-bold opacity-90 truncate leading-tight">
                                   {m.hasPendingReceipt && m.status !== 'paid' ? (
-                                    <span className="text-amber-300 font-extrabold font-mono">إيصال: #{m.pendingReceiptNumber} (غير مسدد)</span>
+                                    <span className="text-amber-300 font-extrabold font-mono">إيصال: #{m.pendingReceiptNumber} (معلق)</span>
                                   ) : m.status === 'paid' ? (
                                     <span>#{m.receiptNumber || `REC-${m.monthNum}`} ({m.paymentDate || 'مسدد'})</span>
+                                  ) : m.status === 'no_record' ? (
+                                    <span className="text-slate-500 font-normal">لا توجد تحصيلات</span>
                                   ) : m.status === 'partial' ? (
                                     <span>متبقي: {(m.dueAmount - m.collectedAmount).toLocaleString()} ج.م</span>
                                   ) : m.status === 'exempt' ? (
@@ -1667,47 +1911,109 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
                                 const mNum = parseInt(p.month, 10);
                                 const mName = !isNaN(mNum) && mNum >= 1 && mNum <= 12 ? monthNamesArabic[mNum - 1] : p.month;
                                 const isCancelled = p.status === 'cancelled' || p.status === 'لاغي';
-                                const isPending = p.status === 'pending' || p.status === 'لم يتم التحصيل';
+                                const isExempt = p.status === 'exempt' || p.status === 'معفي';
+                                const isUncollected = 
+                                  p.status === 'pending' || 
+                                  p.status === 'لم يتم التحصيل' ||
+                                  p.status === 'uncollected' ||
+                                  p.status === 'unpaid' ||
+                                  p.status === 'غير مسدد' ||
+                                  p.status === 'لم يسدد' ||
+                                  p.status === 'معلق';
+                                const hasReceiptNumber = Boolean(p.receiptNumber && p.receiptNumber.trim() !== '');
+                                const isDarkRed = isUncollected && hasReceiptNumber;
+                                const isPaid = !isCancelled && !isExempt && !isUncollected;
+
+                                let cardClass = '';
+                                let iconBoxClass = '';
+                                let titleClass = '';
+                                let subtitleClass = '';
+                                let amountClass = '';
+                                let statusBadgeClass = '';
+                                let statusBadgeText = '';
+                                let receiptBadgeClass = '';
+                                let notesBoxClass = '';
+
+                                if (isCancelled) {
+                                  cardClass = 'bg-slate-400/80 border-slate-600 text-slate-950 shadow-xs';
+                                  iconBoxClass = 'bg-slate-500 border-slate-700 text-white';
+                                  titleClass = 'text-slate-950 font-black';
+                                  subtitleClass = 'text-slate-800 font-bold';
+                                  amountClass = 'line-through text-slate-950 font-black';
+                                  statusBadgeClass = 'bg-red-200 text-red-950 border border-red-400 font-black';
+                                  statusBadgeText = 'ملغي ✕';
+                                  receiptBadgeClass = 'bg-slate-500 text-white border-slate-600 font-mono font-bold';
+                                  notesBoxClass = 'bg-slate-300 text-slate-900 border border-slate-400';
+                                } else if (isExempt) {
+                                  cardClass = 'bg-slate-200/90 border-slate-300 text-slate-800 shadow-xs';
+                                  iconBoxClass = 'bg-slate-300 border-slate-400 text-slate-800';
+                                  titleClass = 'text-slate-900 font-black';
+                                  subtitleClass = 'text-slate-700 font-bold';
+                                  amountClass = 'text-slate-800 font-black';
+                                  statusBadgeClass = 'bg-slate-300 text-slate-800 border border-slate-400 font-black';
+                                  statusBadgeText = 'معفي ⚪';
+                                  receiptBadgeClass = 'bg-slate-300 text-slate-800 border-slate-400 font-mono font-bold';
+                                  notesBoxClass = 'bg-slate-100 text-slate-800 border border-slate-200';
+                                } else if (isDarkRed) {
+                                  cardClass = 'bg-red-900 border-2 border-red-950 text-white shadow-md';
+                                  iconBoxClass = 'bg-red-950 border-red-700 text-amber-300';
+                                  titleClass = 'text-white font-black';
+                                  subtitleClass = 'text-red-100 font-bold';
+                                  amountClass = 'text-amber-200 font-black';
+                                  statusBadgeClass = 'bg-red-950 text-amber-300 border border-red-700 font-black';
+                                  statusBadgeText = `معلق (إيصال #${p.receiptNumber}) ⏳`;
+                                  receiptBadgeClass = 'bg-red-950 text-amber-300 border border-red-700 font-mono font-black';
+                                  notesBoxClass = 'bg-red-950/80 text-amber-200 border border-red-800';
+                                } else if (isUncollected) {
+                                  cardClass = 'bg-rose-200/90 border-2 border-rose-400 text-rose-950 shadow-xs';
+                                  iconBoxClass = 'bg-rose-300 border-rose-400 text-rose-950';
+                                  titleClass = 'text-rose-950 font-black';
+                                  subtitleClass = 'text-rose-900 font-bold';
+                                  amountClass = 'text-rose-900 font-black';
+                                  statusBadgeClass = 'bg-orange-100 text-orange-900 border border-orange-300 font-black';
+                                  statusBadgeText = 'قيد التحصيل ⏳';
+                                  receiptBadgeClass = 'bg-rose-300 text-rose-950 border-rose-400 font-mono font-bold';
+                                  notesBoxClass = 'bg-rose-100/90 text-rose-950 border border-rose-300';
+                                } else {
+                                  // مسدد
+                                  cardClass = 'bg-emerald-200/80 border-2 border-emerald-400 text-emerald-950 shadow-xs';
+                                  iconBoxClass = 'bg-emerald-300 border-emerald-400 text-emerald-950';
+                                  titleClass = 'text-emerald-950 font-black';
+                                  subtitleClass = 'text-emerald-900 font-bold';
+                                  amountClass = 'text-emerald-900 font-black';
+                                  statusBadgeClass = 'bg-emerald-100 text-emerald-900 border border-emerald-300 font-black';
+                                  statusBadgeText = 'مسدد ✓';
+                                  receiptBadgeClass = 'bg-emerald-100 text-emerald-950 border border-emerald-300 font-mono font-bold';
+                                  notesBoxClass = 'bg-emerald-100/70 text-emerald-950 border border-emerald-300';
+                                }
 
                                 return (
                                   <div 
                                     key={p.id} 
-                                    className={`p-3 rounded-2xl border text-right transition flex flex-col gap-1.5 shadow-2xs ${
-                                      isCancelled
-                                        ? 'bg-rose-50/50 border-rose-200/80 text-rose-900 opacity-75'
-                                        : isPending
-                                        ? 'bg-amber-50/60 border-amber-200 text-amber-950'
-                                        : 'bg-white border-slate-200/80 hover:border-blue-300'
-                                    }`}
+                                    className={`p-3 rounded-2xl border text-right transition flex flex-col gap-2 shadow-2xs ${cardClass}`}
                                   >
-                                    <div className="flex items-center justify-between">
+                                    <div className="flex items-center justify-between gap-2">
                                       <div className="flex items-center gap-2.5">
-                                        <div className={`w-8 h-8 rounded-xl flex items-center justify-center border shadow-2xs shrink-0 ${
-                                          isCancelled
-                                            ? 'bg-rose-100 border-rose-200 text-rose-700'
-                                            : isPending
-                                            ? 'bg-amber-100 border-amber-200 text-amber-800'
-                                            : 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                                        }`}>
+                                        <div className={`w-8 h-8 rounded-xl flex items-center justify-center border shadow-2xs shrink-0 ${iconBoxClass}`}>
                                           <CreditCard className="w-4 h-4" />
                                         </div>
                                         <div>
-                                          <div className="text-xs font-black text-slate-900 flex items-center gap-1.5 flex-wrap">
+                                          <div className={`text-xs font-black flex items-center gap-1.5 flex-wrap ${titleClass}`}>
                                             <span>{p.paymentType || 'اشتراك شهري'}</span>
                                             {p.receiptNumber && (
-                                              <span className="text-[9.5px] font-mono text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 font-bold">
+                                              <span className={`text-[9.5px] px-1.5 py-0.5 rounded border ${receiptBadgeClass}`}>
                                                 #{p.receiptNumber}
                                               </span>
                                             )}
                                           </div>
-                                          <div className="text-[10px] text-slate-500 font-bold flex items-center gap-1.5 flex-wrap pt-0.5">
+                                          <div className={`text-[10px] font-bold flex items-center gap-1.5 flex-wrap pt-0.5 ${subtitleClass}`}>
                                             <span className="flex items-center gap-1">
-                                              <Calendar className="w-3 h-3 text-slate-400" />
+                                              <Calendar className="w-3 h-3 opacity-70" />
                                               <span>عن شهر {mName} ({p.month}) لسنة {p.year}</span>
                                             </span>
                                             {p.date && (
                                               <>
-                                                <span className="text-slate-300">•</span>
+                                                <span className="opacity-40">•</span>
                                                 <span>بتاريخ: {p.date}</span>
                                               </>
                                             )}
@@ -1715,27 +2021,38 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
                                         </div>
                                       </div>
 
-                                      <div className="text-left flex flex-col items-end shrink-0">
-                                        <div className={`text-xs sm:text-sm font-black ${
-                                          isCancelled ? 'text-rose-600 line-through' : 'text-emerald-700'
-                                        }`}>
+                                      <div className="text-left flex flex-col items-end shrink-0 gap-1">
+                                        <div className={`text-xs sm:text-sm font-black ${amountClass}`}>
                                           +{Number(p.amount).toLocaleString()} ج.م
                                         </div>
-                                        <span className={`text-[9px] font-black px-2 py-0.5 rounded-full mt-0.5 ${
-                                          isCancelled
-                                            ? 'bg-rose-100 text-rose-800'
-                                            : isPending
-                                            ? 'bg-amber-100 text-amber-900 border border-amber-200'
-                                            : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                                        }`}>
-                                          {isCancelled ? 'ملغي ✕' : isPending ? 'قيد التحصيل ⏳' : 'مسدد ✓'}
-                                        </span>
+                                        <div className="flex items-center gap-1">
+                                          {p.fileUrl && (
+                                            <button
+                                              type="button"
+                                              onClick={() => setPreviewImageUrl(p.fileUrl!)}
+                                              className={`p-1 px-2 rounded-lg transition inline-flex items-center gap-1 text-[9.5px] cursor-pointer font-black border shadow-2xs ${
+                                                isDarkRed
+                                                  ? 'bg-red-950 text-amber-300 border-red-700 hover:bg-red-800'
+                                                  : isUncollected
+                                                  ? 'bg-rose-100 text-rose-900 border-rose-300 hover:bg-rose-200'
+                                                  : 'bg-emerald-100 text-emerald-900 border-emerald-300 hover:bg-emerald-200'
+                                              }`}
+                                              title="معاينة صورة الإيصال المرفقة"
+                                            >
+                                              <Eye className="w-3 h-3" />
+                                              <span>صورة</span>
+                                            </button>
+                                          )}
+                                          <span className={`text-[9px] font-black px-2 py-0.5 rounded-full ${statusBadgeClass}`}>
+                                            {statusBadgeText}
+                                          </span>
+                                        </div>
                                       </div>
                                     </div>
 
                                     {/* Additional notes or details if present */}
                                     {p.notes && (
-                                      <div className="text-[9.5px] text-slate-600 bg-slate-50 p-2 rounded-xl border border-slate-100 font-bold leading-relaxed">
+                                      <div className={`text-[9.5px] p-2 rounded-xl border font-bold leading-relaxed ${notesBoxClass}`}>
                                         📝 {p.notes}
                                       </div>
                                     )}
@@ -1793,6 +2110,52 @@ export const BuildingMap: React.FC<BuildingMapProps> = ({
           }
         }}
       />
+
+      {/* Receipt Image Attachment Lightbox Preview - Highest z-index to always render on top of all modals */}
+      {previewImageUrl && (
+        <div 
+          className="fixed inset-0 z-[300] bg-slate-950/85 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 animate-in fade-in duration-200"
+          onClick={() => setPreviewImageUrl(null)}
+        >
+          <div 
+            className="bg-white rounded-3xl max-w-lg w-full max-h-[92vh] overflow-hidden flex flex-col shadow-2xl relative animate-in fade-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+            dir="rtl"
+          >
+            <div className="flex items-center justify-between p-3.5 border-b border-slate-100 bg-slate-50">
+              <h3 className="text-xs sm:text-sm font-black text-slate-900 flex items-center gap-2">
+                <Eye className="w-4 h-4 text-blue-900" />
+                <span>معاينة صورة الإيصال المرفقة</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setPreviewImageUrl(null)}
+                className="p-1 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-3 overflow-auto flex items-center justify-center bg-slate-100 min-h-[250px] max-h-[72vh]">
+              <img 
+                src={previewImageUrl} 
+                alt="صورة الإيصال" 
+                className="max-h-[70vh] w-auto max-w-full object-contain rounded-xl shadow-xs" 
+              />
+            </div>
+            <div className="p-3 bg-white border-t border-slate-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setPreviewImageUrl(null)}
+                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-black transition cursor-pointer"
+              >
+                إغلاق
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+
+export const BuildingMap = React.memo(BuildingMapComponent);

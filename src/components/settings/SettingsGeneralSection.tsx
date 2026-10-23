@@ -47,7 +47,7 @@ interface SettingsGeneralSectionProps {
   onSaveConfig?: (updatedConfig: AppConfig) => void;
 }
 
-export const SettingsGeneralSection: React.FC<SettingsGeneralSectionProps> = ({
+const SettingsGeneralSectionComponent: React.FC<SettingsGeneralSectionProps> = ({
   config,
   isAdmin,
   accountingStartDate,
@@ -319,6 +319,16 @@ export const SettingsGeneralSection: React.FC<SettingsGeneralSectionProps> = ({
     return periods.find(p => p.id === activePeriodId) || null;
   }, [periods, activePeriodId]);
 
+  // Fast helper to compute elapsed months without heavy financial iteration
+  const getPeriodMonthsCount = (startDate?: string, endDate?: string) => {
+    const start = parseYearMonth(startDate);
+    const end = parseYearMonth(endDate);
+    if (start && end) {
+      return Math.max(1, (end.year - start.year) * 12 + (end.month - start.month) + 1);
+    }
+    return 1;
+  };
+
   return (
     <div className="space-y-4 text-right">
       {/* Toast Feedback */}
@@ -438,17 +448,7 @@ export const SettingsGeneralSection: React.FC<SettingsGeneralSectionProps> = ({
           <div className="space-y-3">
             {periods.map((p) => {
               const isActive = p.id === activePeriodId;
-              const isClosingExpanded = expandedClosingId === p.id;
-              const summary = computePeriodClosingSummary(
-                p,
-                payments,
-                expenses,
-                residents,
-                config.defaultMonthlyFee,
-                config.activityDefaultFees,
-                config.activityFeePeriods,
-                config.customUnitFeePeriods
-              );
+              const monthsCount = getPeriodMonthsCount(p.startDate, p.endDate);
 
               return (
                 <div 
@@ -488,7 +488,7 @@ export const SettingsGeneralSection: React.FC<SettingsGeneralSectionProps> = ({
                           <span>{formatPeriodDateRange(p.startDate, p.endDate)}</span>
                         </span>
                         <span>•</span>
-                        <span className="text-blue-900 font-black">({summary.monthsCount} شهر)</span>
+                        <span className="text-blue-900 font-black">({monthsCount} شهر)</span>
                         {p.notes && (
                           <>
                             <span>•</span>
@@ -797,3 +797,5 @@ export const SettingsGeneralSection: React.FC<SettingsGeneralSectionProps> = ({
     </div>
   );
 };
+
+export const SettingsGeneralSection = React.memo(SettingsGeneralSectionComponent);

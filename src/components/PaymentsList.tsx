@@ -2600,7 +2600,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                                   <Trash2 className="w-4 h-4" />
                                 </button>
                               )}
-                              {(resObj || residents.find(r => isSameFlatNumber(r.flatNumber, p.flatNumber))) && (
+                              {role === 'ADMIN' && (resObj || residents.find(r => isSameFlatNumber(r.flatNumber, p.flatNumber))) && (
                                 <button
                                   type="button"
                                   onClick={(e) => {

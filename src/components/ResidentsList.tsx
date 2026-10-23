@@ -732,11 +732,11 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                     const occ = res.history && res.history.length > 0 
                       ? getLatestOccupantFromHistory(res, activeAccountingPeriod) 
                       : getLatestOccupantFromHistory(res);
-                    const displayOwnerName = occ ? (occ.ownerName || res.name) : res.name;
-                    const displayOwnerPhone = occ ? occ.ownerPhone : res.phone;
-                    const displayTenantName = occ ? occ.tenantName : (res.ownershipType === 'إيجار' ? res.tenantName : undefined);
-                    const displayTenantPhone = occ ? occ.tenantPhone : (displayTenantName ? res.tenantPhone : undefined);
-                    const isRented = Boolean(displayTenantName && displayTenantName.trim());
+                    const displayOwnerName = occ?.ownerName || res.name;
+                    const displayOwnerPhone = (occ?.ownerPhone?.trim()) || (res.ownerPhone?.trim()) || (res.phone?.trim()) || '';
+                    const displayTenantName = (occ?.tenantName?.trim()) || (res.tenantName?.trim()) || '';
+                    const displayTenantPhone = (occ?.tenantPhone?.trim()) || (res.tenantPhone?.trim()) || '';
+                    const isRented = Boolean(displayTenantName && displayTenantName.trim()) || res.ownershipType === 'إيجار';
 
                     return (
                       <div
@@ -788,8 +788,10 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                           {displayOwnerPhone && (
                             <div className="flex flex-col items-start gap-1 font-mono text-[10px]" dir="ltr">
                               {displayOwnerPhone.split(/[,/;|\n]+/).map((part, pIdx) => {
-                                const cleanPhone = formatMobileNumber(part);
-                                if (!cleanPhone) return null;
+                                const trimmed = part.trim();
+                                if (!trimmed) return null;
+                                const cleanPhone = formatMobileNumber(trimmed) || trimmed.replace(/\D/g, '') || trimmed;
+                                const displayPhone = formatPhoneForDisplay(trimmed) || trimmed;
                                 return (
                                   <a
                                     key={pIdx}
@@ -800,7 +802,7 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                                     dir="ltr"
                                   >
                                     <Phone className="w-3 h-3 text-blue-900 shrink-0" />
-                                    <span>{formatPhoneForDisplay(part)}</span>
+                                    <span>{displayPhone}</span>
                                   </a>
                                 );
                               })}
@@ -819,8 +821,10 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                               {displayTenantPhone && (
                                 <div className="flex flex-col items-start gap-1 font-mono text-[10px]" dir="ltr">
                                   {displayTenantPhone.split(/[,/;|\n]+/).map((part, pIdx) => {
-                                    const cleanPhone = formatMobileNumber(part);
-                                    if (!cleanPhone) return null;
+                                    const trimmed = part.trim();
+                                    if (!trimmed) return null;
+                                    const cleanPhone = formatMobileNumber(trimmed) || trimmed.replace(/\D/g, '') || trimmed;
+                                    const displayPhone = formatPhoneForDisplay(trimmed) || trimmed;
                                     return (
                                       <a
                                         key={pIdx}
@@ -831,7 +835,7 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                                         dir="ltr"
                                       >
                                         <Phone className="w-2.5 h-2.5 text-amber-700 shrink-0" />
-                                        <span>{formatPhoneForDisplay(part)}</span>
+                                        <span>{displayPhone}</span>
                                       </a>
                                     );
                                   })}
@@ -899,6 +903,7 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
               const tableColSpan = Object.keys(visibleColumns).filter(key => {
                 if (!visibleColumns[key]) return false;
                 if (key === 'membership' && role !== 'ADMIN') return false;
+                if (key === 'unitHistory' && role !== 'ADMIN') return false;
                 if (key === 'actions' && (isReadOnly || role === 'ASSISTANT')) return false;
                 return true;
               }).length;
@@ -927,7 +932,7 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                       {!isReadOnly && role !== 'ASSISTANT' && visibleColumns.actions && (
                         <th className="w-16 sm:w-20 px-1 py-1.5 text-center whitespace-nowrap">الإجراءات</th>
                       )}
-                      {visibleColumns.unitHistory && (
+                      {role === 'ADMIN' && visibleColumns.unitHistory && (
                         <th className="w-20 sm:w-24 px-1 py-1.5 text-center whitespace-nowrap">سجل الوحدة</th>
                       )}
                       {role === 'ADMIN' && visibleColumns.membership && (
@@ -1007,11 +1012,11 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                         const occ = res.history && res.history.length > 0 
                           ? getLatestOccupantFromHistory(res, activeAccountingPeriod) 
                           : getLatestOccupantFromHistory(res);
-                        const displayOwnerName = occ ? (occ.ownerName || res.name) : res.name;
-                        const displayOwnerPhone = occ ? occ.ownerPhone : res.phone;
-                        const displayTenantName = occ ? occ.tenantName : (res.ownershipType === 'إيجار' ? res.tenantName : undefined);
-                        const displayTenantPhone = occ ? occ.tenantPhone : (displayTenantName ? res.tenantPhone : undefined);
-                        const hasTenant = Boolean(displayTenantName && displayTenantName.trim());
+                        const displayOwnerName = occ?.ownerName || res.name;
+                        const displayOwnerPhone = (occ?.ownerPhone?.trim()) || (res.ownerPhone?.trim()) || (res.phone?.trim()) || '';
+                        const displayTenantName = (occ?.tenantName?.trim()) || (res.tenantName?.trim()) || '';
+                        const displayTenantPhone = (occ?.tenantPhone?.trim()) || (res.tenantPhone?.trim()) || '';
+                        const hasTenant = Boolean(displayTenantName && displayTenantName.trim()) || res.ownershipType === 'إيجار';
 
                         return (
                           <tr 
@@ -1065,8 +1070,10 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                                   {displayOwnerPhone ? (
                                     <div className="flex flex-wrap items-center gap-0.5">
                                       {displayOwnerPhone.split(/[,/;|\n]+/).map((part, pIdx) => {
-                                        const cleanPhone = formatMobileNumber(part);
-                                        if (!cleanPhone) return null;
+                                        const trimmed = part.trim();
+                                        if (!trimmed) return null;
+                                        const cleanPhone = formatMobileNumber(trimmed) || trimmed.replace(/\D/g, '') || trimmed;
+                                        const displayPhone = formatPhoneForDisplay(trimmed) || trimmed;
                                         return (
                                           <a
                                             key={pIdx}
@@ -1077,7 +1084,7 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                                             dir="ltr"
                                           >
                                             <Phone className="w-2.5 h-2.5 text-blue-900 shrink-0" />
-                                            <span dir="ltr">{formatPhoneForDisplay(part)}</span>
+                                            <span dir="ltr">{displayPhone}</span>
                                           </a>
                                         );
                                       })}
@@ -1091,8 +1098,10 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                                     displayTenantPhone ? (
                                       <div className="flex flex-wrap items-center gap-0.5 pt-0.5 border-t border-slate-100 w-full">
                                         {displayTenantPhone.split(/[,/;|\n]+/).map((part, pIdx) => {
-                                          const cleanPhone = formatMobileNumber(part);
-                                          if (!cleanPhone) return null;
+                                          const trimmed = part.trim();
+                                          if (!trimmed) return null;
+                                          const cleanPhone = formatMobileNumber(trimmed) || trimmed.replace(/\D/g, '') || trimmed;
+                                          const displayPhone = formatPhoneForDisplay(trimmed) || trimmed;
                                           return (
                                             <a
                                               key={pIdx}
@@ -1103,7 +1112,7 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                                               dir="ltr"
                                             >
                                               <Phone className="w-2.5 h-2.5 text-amber-800 shrink-0" />
-                                              <span dir="ltr">{formatPhoneForDisplay(part)}</span>
+                                              <span dir="ltr">{displayPhone}</span>
                                             </a>
                                           );
                                         })}
@@ -1171,7 +1180,7 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                             )}
 
                             {/* Unit History Record */}
-                            {visibleColumns.unitHistory && (
+                            {role === 'ADMIN' && visibleColumns.unitHistory && (
                               <td className="w-20 sm:w-24 px-1 py-1.5 whitespace-nowrap text-center">
                                 <button
                                   type="button"
@@ -1431,10 +1440,14 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                               </span>
                               {(res.ownershipType === 'إيجار' ? res.tenantLastLoginAt : res.lastLoginAt) ? (
                                 <span className="text-[10px] text-slate-500 font-bold bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100" dir="ltr">
-                                  {new Date(res.ownershipType === 'إيجار' ? res.tenantLastLoginAt! : res.lastLoginAt!).toLocaleDateString('ar-EG', {
-                                    dateStyle: 'short',
-                                    timeStyle: 'short'
-                                  })}
+                                  {(() => {
+                                    const d = new Date(res.ownershipType === 'إيجار' ? res.tenantLastLoginAt! : res.lastLoginAt!);
+                                    try {
+                                      return d.toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' });
+                                    } catch {
+                                      return `${d.toLocaleDateString('ar-EG')} ${d.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}`;
+                                    }
+                                  })()}
                                 </span>
                               ) : (
                                 <span className="text-[9px] text-slate-400 font-bold">دخول مباشر</span>

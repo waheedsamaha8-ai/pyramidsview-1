@@ -66,6 +66,7 @@ export interface Resident {
   ownershipType?: 'تمليك' | 'إيجار' | string;
   tenantName?: string;
   tenantPhone?: string;
+  ownerPhone?: string;
   monthlyFee?: number;
   initialBalance?: number;
   isExempt?: boolean;

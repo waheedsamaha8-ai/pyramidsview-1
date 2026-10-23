@@ -82,7 +82,7 @@ const monthNamesArabic = [
   'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'
 ];
 
-export const Dashboard: React.FC<DashboardProps> = ({
+const DashboardComponent: React.FC<DashboardProps> = ({
   currentYear,
   setCurrentYear,
   currentMonth,
@@ -589,3 +589,5 @@ export const Dashboard: React.FC<DashboardProps> = ({
     </div>
   );
 };
+
+export const Dashboard = React.memo(DashboardComponent);

@@ -474,6 +474,8 @@ export function isMasterDistributionPayment(p: Payment, allPayments?: Payment[])
 
 /**
  * Unified check for whether a payment record represents a valid completed/collected payment.
+ * Note: A distributed master payment represents the active, valid collection for its own designated month
+ * with its allocated monthly amount, and MUST be counted as a valid paid payment.
  */
 export function isValidPaidPayment(p: Payment): boolean {
   if (!p) return false;
@@ -490,11 +492,6 @@ export function isValidPaidPayment(p: Payment): boolean {
     return false;
   }
 
-  // Exclude master distribution containers because their child payments carry the active monthly amounts
-  if (isMasterDistributionPayment(p)) {
-    return false;
-  }
-
   return true;
 }
 
@@ -508,6 +505,14 @@ export function parsePaymentYear(p: Payment, defaultYear?: number): number | nul
     const y = Number(s);
     if (!isNaN(y) && y > 1900 && y < 2200) {
       return y;
+    }
+  }
+  // Also check if p.month has YYYY-MM
+  if (p.month !== undefined && p.month !== null) {
+    const ymMatch = String(p.month).match(/((?:19|20)\d{2})[-\/\.]\d{1,2}/);
+    if (ymMatch) {
+      const y = parseInt(ymMatch[1], 10);
+      if (y > 1900 && y < 2200) return y;
     }
   }
   if (p.date) {
@@ -530,10 +535,21 @@ export function parsePaymentMonth(p: Payment): number | null {
     const raw = String(p.month).trim();
     if (raw) {
       const s = raw.replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d).toString());
+
+      // 1. Check for YYYY-MM or YYYY/MM (e.g. "2026-01" or "2026-1")
+      const ymMatch = s.match(/(?:19|20)\d{2}[-\/\.](\d{1,2})/);
+      if (ymMatch) {
+        const m = parseInt(ymMatch[1], 10);
+        if (m >= 1 && m <= 12) return m;
+      }
+
+      // 2. Direct integer check (handles '1', '01', '12', etc.)
       const parsedInt = parseInt(s, 10);
       if (!isNaN(parsedInt) && parsedInt >= 1 && parsedInt <= 12) {
         return parsedInt;
       }
+
+      // 3. Arabic months
       const arabicMonths = [
         'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
         'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'
@@ -543,13 +559,14 @@ export function parsePaymentMonth(p: Payment): number | null {
           return i + 1;
         }
       }
-      const numMatch = s.match(/\b([1-9]|1[0-2])\b/);
+
+      // 4. Regex for month number with or without leading zero
+      const numMatch = s.match(/\b0?([1-9]|1[0-2])\b/);
       if (numMatch) {
         const m = parseInt(numMatch[1], 10);
         if (m >= 1 && m <= 12) return m;
       }
-      // If p.month was explicitly provided but does not match any valid month,
-      // it should NOT fallback to the transaction collection date!
+
       return null;
     }
   }
@@ -1253,7 +1270,17 @@ export function calculateUnitClaimBreakdown(
     };
   }
 
-  const allResidentPayments = getPaymentsForResident(resident, payments);
+  let allResidentPayments = getPaymentsForResident(resident, payments);
+  if (activePaymentForClaim) {
+    const exists = allResidentPayments.some(p => p.id && String(p.id) === String(activePaymentForClaim.id));
+    if (!exists) {
+      allResidentPayments = [activePaymentForClaim, ...allResidentPayments];
+    } else {
+      allResidentPayments = allResidentPayments.map(p => 
+        p.id && String(p.id) === String(activePaymentForClaim.id) ? activePaymentForClaim : p
+      );
+    }
+  }
 
   let startYear = 2026;
   let startMonth = 1;
@@ -1398,17 +1425,36 @@ export function calculateUnitClaimBreakdown(
       }
 
       const monthSubsPayments = allResidentPayments.filter(p => {
-        return isPaymentForYearAndMonth(p, y, m) && isMonthlySubscriptionType(p.paymentType) &&
+        const matchesTarget = (y === yNum && m === mNum && activePaymentForClaim && String(p.id) === String(activePaymentForClaim.id)) ||
+          isPaymentForYearAndMonth(p, y, m);
+        return matchesTarget && isMonthlySubscriptionType(p.paymentType) &&
           p.status !== 'cancelled' && p.status !== 'لاغي';
       });
 
-      const hasCollected = monthSubsPayments.some(p =>
+      let hasCollected = monthSubsPayments.some(p =>
         isValidPaidPayment(p) && (p.amount > 0 || p.isManuallyPaid)
       );
 
-      const subsCollected = monthSubsPayments
+      let subsCollected = monthSubsPayments
         .filter(isValidPaidPayment)
         .reduce((sum, p) => sum + (p.amount || 0), 0);
+
+      // التأكد التام من شمول تحصيل الشهر الحالي في المبالغ المسددة وحتى الشهر الحالي
+      if (y === yNum && m === mNum) {
+        if (isCurrentMonthSubsPaid) {
+          subsCollected = Math.max(subsCollected, feeForMonth, curMonthSubsValidPaid);
+          hasCollected = true;
+        } else if (curMonthSubsValidPaid > subsCollected) {
+          subsCollected = curMonthSubsValidPaid;
+        } else if (subsCollected === 0 && (hasCurMonthManuallyPaid || (activePaymentForClaim?.isManuallyPaid && isValidPaidPayment(activePaymentForClaim)))) {
+          subsCollected = feeForMonth;
+          hasCollected = true;
+        } else if (activePaymentForClaim && isValidPaidPayment(activePaymentForClaim) && (activePaymentForClaim.amount > 0 || activePaymentForClaim.isManuallyPaid)) {
+          subsCollected = Math.max(subsCollected, activePaymentForClaim.amount || feeForMonth);
+          hasCollected = true;
+        }
+      }
+
       priorSubsPaid += subsCollected;
 
       if (!isPastNoFee) {
@@ -1433,6 +1479,18 @@ export function calculateUnitClaimBreakdown(
   const unassignedSubsAmt = unassignedSubsPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
   priorSubsPaid += unassignedSubsAmt;
 
+  // التحقق من الشهور غير المسددة
+  const unpaidPastMonths = pastMonthsList.filter(pm => !pm.hasPayment);
+  const unpaidPriorMonthsBeforeCurrent = pastMonthsList.filter(pm => !(pm.year === yNum && pm.month === mNum) && !pm.hasPayment);
+
+  // إذا كانت الوحدة مسددة للشهر الحالي ومسددة لجميع الشهور السابقة حتى الشهر الحالي،
+  // فإن المبالغ المسددة حتى الشهر الحالي تساوي بالضرورة إجمالي المبالغ المستحقة حتى الشهر الحالي
+  if (isCurrentMonthSubsPaid && unpaidPriorMonthsBeforeCurrent.length === 0) {
+    if (priorSubsPaid < priorSubsDue) {
+      priorSubsPaid = priorSubsDue;
+    }
+  }
+
   const priorSubsDiff = Math.round(priorSubsDue - priorSubsPaid);
   let priorSubsDiffType: 'arrears' | 'surplus' | 'zero' = 'zero';
   let priorSubsStatusText = '';
@@ -1448,8 +1506,7 @@ export function calculateUnitClaimBreakdown(
     priorSubsStatusText = 'لا توجد متأخرات (مسدد بالكامل 0 ج.م)';
   }
 
-  const unpaidPastMonths = pastMonthsList.filter(pm => !pm.hasPayment);
-  const monthlyDelayedMonthsCount = unpaidPastMonths.length;
+  const monthlyDelayedMonthsCount = priorSubsDiff > 0 ? unpaidPastMonths.length : 0;
   const monthlyDelayedAmount = priorSubsDiff > 0 ? priorSubsDiff : 0;
   const monthlyArrearsLineText = monthlyDelayedAmount > 0
     ? `متأخرات اشتراك شهري - بقيمة (${Math.round(monthlyDelayedAmount).toLocaleString()} ج.م) .`
@@ -1477,6 +1534,21 @@ export function calculateUnitClaimBreakdown(
       }
     }
   });
+
+  // التأكد من شمول التحصيلات الأخرى للشهر الحالي ضمن إجمالي المسدد للتحصيلات الأخرى
+  if (curMonthOtherPaid > 0) {
+    const curMonthOtherAlreadyCounted = allResidentPayments.filter(p => {
+      const pYear = parsePaymentYear(p, yNum);
+      const pMonth = parsePaymentMonth(p);
+      return pYear === yNum && pMonth === mNum && !isMonthlySubscriptionType(p.paymentType) && isValidPaidPayment(p);
+    }).reduce((s, p) => s + (p.amount || 0), 0);
+
+    if (curMonthOtherPaid > curMonthOtherAlreadyCounted) {
+      const diff = curMonthOtherPaid - curMonthOtherAlreadyCounted;
+      priorOtherPaid += diff;
+      priorOtherDue += diff;
+    }
+  }
 
   const priorOtherDiff = Math.round(priorOtherDue - priorOtherPaid);
   let priorOtherDiffType: 'arrears' | 'surplus' | 'zero' = 'zero';

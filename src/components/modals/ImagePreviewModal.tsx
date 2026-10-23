@@ -143,7 +143,7 @@ export const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
   const isActuallyLoading = isLoading || imageUrl === 'loading';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-2 sm:p-4 md:p-6" dir="rtl">
+    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/90 backdrop-blur-xs p-2 sm:p-4 md:p-6" dir="rtl">
       <div className="w-full max-w-6xl md:max-w-7xl h-[92vh] max-h-[92vh] bg-slate-900 text-white rounded-3xl p-3 sm:p-5 relative flex flex-col shadow-2xl overflow-hidden border border-slate-800 animate-scale-up">
         {/* Header Toolbar */}
         <div className="flex items-center justify-between pb-3 border-b border-slate-800 z-10 shrink-0">

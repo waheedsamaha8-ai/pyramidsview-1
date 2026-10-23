@@ -266,7 +266,10 @@ export function formatPhoneForDisplay(phone: string | number | null | undefined)
 
 function formatSinglePhoneForDisplay(part: string): string {
   const formatted = formatMobileNumber(part);
-  if (!formatted) return '';
+  if (!formatted) {
+    const raw = part.trim();
+    return raw ? '\u202A' + raw + '\u202C' : '';
+  }
   if (formatted.startsWith('+') || formatted.startsWith('00') || formatted.match(/^\d+$/)) {
     return '\u202A' + formatted + '\u202C';
   }

@@ -25,7 +25,7 @@ interface SettingsTabProps {
   residents?: Resident[];
 }
 
-export const SettingsTab: React.FC<SettingsTabProps> = ({
+const SettingsTabComponent: React.FC<SettingsTabProps> = ({
   config,
   role,
   userEmail,
@@ -281,3 +281,5 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
     </div>
   );
 };
+
+export const SettingsTab = React.memo(SettingsTabComponent);

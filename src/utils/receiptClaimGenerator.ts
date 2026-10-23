@@ -123,6 +123,16 @@ export function getReceiptClaimMetadata(data: ReceiptClaimData, residents: Resid
     isCurrentMonthOtherPaid: true,
     currentMonthOtherDue: 0,
     otherLineText: `تحصيلات اخري - شهر ${monthName} ${data.year} و قدره 0 ج.م - (مسدد بالكامل ✓) .`,
+    priorSubsDue: isReceipt ? (data.amount || displayMonthlyFee) : displayMonthlyFee,
+    priorSubsPaid: isReceipt ? (data.amount || displayMonthlyFee) : 0,
+    priorSubsDiff: isReceipt ? 0 : unpaidMonthsDues,
+    priorSubsDiffType: (isReceipt ? 'zero' : 'arrears') as 'zero' | 'arrears' | 'surplus',
+    priorSubsStatusText: isReceipt ? 'لا توجد متأخرات (مسدد بالكامل 0 ج.م)' : (unpaidMonthsDues > 0 ? `متأخرات اشتراك شهري بقيمة (${unpaidMonthsDues.toLocaleString()} ج.م)` : 'لا توجد متأخرات (0 ج.م)'),
+    priorOtherDue: 0,
+    priorOtherPaid: 0,
+    priorOtherDiff: 0,
+    priorOtherDiffType: 'zero' as 'zero' | 'arrears' | 'surplus',
+    priorOtherStatusText: 'لا توجد متأخرات (0 ج.م)',
     monthlyDelayedMonthsCount: unpaidMonthsCount,
     monthlyDelayedAmount: unpaidMonthsDues,
     monthlyArrearsLineText: unpaidMonthsCount > 0 ? `متأخرات اشتراك شهري - تأخير ${unpaidMonthsCount} شهور بقيمة (${Math.round(unpaidMonthsDues).toLocaleString()} ج.م) .` : `متأخرات اشتراك شهري - لا يوجد تأخير (0 ج.م) .`,
@@ -130,6 +140,7 @@ export function getReceiptClaimMetadata(data: ReceiptClaimData, residents: Resid
     otherDelayedAmount: 0,
     otherArrearsLineText: `متأخرات تحصيلات اخري - لا توجد متأخرات (0 ج.م) .`,
     previousDebtAmount: carriedDebt,
+    previousSurplusAmount: 0,
     previousDebtLineText: `مديونيات سابقة - بقيمة (${Math.round(carriedDebt).toLocaleString()} ج.م) .`,
     totalDueForPayment: isReceipt ? data.amount : (unpaidMonthsDues + carriedDebt),
     totalDueLineText: `اجمالي المبالغ المستحقه للسداد : ${Math.round(isReceipt ? data.amount : (unpaidMonthsDues + carriedDebt)).toLocaleString()} ج. م  (المبالغ المستحقة عن الشهر الحالي + المتأخرات + المديونيات)`,
@@ -188,9 +199,7 @@ export function generateReceiptClaimCanvas(
 
   const hasTenant = meta.occupantInfo.hasTenant;
   const occupantExtraHeight = hasTenant ? 24 : 0;
-  const height = (isReceipt 
-    ? (showCarriedDebt ? 740 : 680) 
-    : 810) + occupantExtraHeight;
+  const height = 980 + occupantExtraHeight;
 
   const canvas = document.createElement('canvas');
   const dpr = 2; // High-resolution Retina
@@ -419,112 +428,120 @@ export function generateReceiptClaimCanvas(
 
   currentY += tableHeight + 14;
 
-  // 5. Debt Notice Box (Detailed unified categorization)
-  if (isReceipt) {
-    if (meta.totalUnitDebt > 0) {
-      const debtBoxHeight = 66;
-      drawRoundRect(padding, currentY, contentWidth, debtBoxHeight, 14, '#fef2f2', '#fecaca', 1);
+  // 5. Complete 6-Part Breakdown Box (Mirroring the screen completely)
+  const cb = meta.claimBreakdown;
+  const debtBoxHeight = 310;
+  const isAllPaidZero = isReceipt && cb.totalArrearsAndDebts === 0;
 
-      ctx.textAlign = 'right';
-      ctx.fillStyle = '#991b1b';
-      ctx.font = `bold 11.5px ${fontFamily}`;
-      ctx.fillText('⚠️ بيان تفصيلي بالمديونيات والمتأخرات المتبقية على الوحدة:', width - padding - 16, currentY + 20);
+  const boxBg = isReceipt 
+    ? (isAllPaidZero ? '#f0fdf4' : '#fffbeb')
+    : (cb.totalArrearsAndDebts > 0 ? '#fef2f2' : '#f0fdf4');
+  const boxBorder = isReceipt
+    ? (isAllPaidZero ? '#86efac' : '#fde68a')
+    : (cb.totalArrearsAndDebts > 0 ? '#fca5a5' : '#86efac');
 
-      ctx.font = `bold 11px ${fontFamily}`;
-      const delayedMonthsText = meta.unpaidMonthsCount === 1
-        ? 'تأخير شهر واحد'
-        : meta.unpaidMonthsCount === 2
-        ? 'تأخير شهرين'
-        : meta.unpaidMonthsCount <= 10
-        ? `تأخير ${meta.unpaidMonthsCount} أشهر`
-        : `تأخير ${meta.unpaidMonthsCount} شهراً`;
+  drawRoundRect(padding, currentY, contentWidth, debtBoxHeight, 16, boxBg, boxBorder, 1.5);
 
-      let detailLine = `• متأخرات ${meta.paymentCategory}: ${delayedMonthsText} (${Math.round(meta.currentArrears).toLocaleString()} ج.م)`;
-      if (meta.oldCarriedDebts > 0) {
-        detailLine += ` + مديونية قديمة مرحلة (${Math.round(meta.oldCarriedDebts).toLocaleString()} ج.م)`;
-      }
-      ctx.fillText(detailLine, width - padding - 16, currentY + 38);
+  // Header inside Box
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#0f172a';
+  ctx.font = `bold 12.5px ${fontFamily}`;
+  const boxTitle = isReceipt && isAllPaidZero
+    ? '📋 بيان وتفصيل المبالغ المستحقة (الحساب مسدد بالكامل ✓):'
+    : '📋 بيان وتفصيل المبالغ المستحقة على الوحدة:';
+  ctx.fillText(boxTitle, width - padding - 16, currentY + 22);
 
-      ctx.fillText(
-        `• إجمالي المديونية المتبقية على الوحدة: ${Math.round(meta.totalUnitDebt).toLocaleString()} ج.م (المتأخرات الحالية + المديونيات القديمة)`,
-        width - padding - 16,
-        currentY + 54
-      );
+  // Badge on the left of Header
+  ctx.textAlign = 'left';
+  ctx.font = `bold 11px ${fontFamily}`;
+  ctx.fillStyle = '#334155';
+  ctx.fillText(`الوحدة ${data.unitNumber}`, padding + 16, currentY + 22);
 
-      currentY += debtBoxHeight + 12;
-    } else {
-      const debtBoxHeight = 44;
-      drawRoundRect(padding, currentY, contentWidth, debtBoxHeight, 14, '#f0fdf4', '#bbf7d0', 1);
+  let innerY = currentY + 34;
 
-      ctx.textAlign = 'right';
-      ctx.fillStyle = '#166534';
-      ctx.font = `bold 11.5px ${fontFamily}`;
-      ctx.fillText('✨ موقف المديونيات: لا توجد أي مديونيات قديمة أو متأخرات على الوحدة، والحساب مسدد بالكامل حتى تاريخه 👍', width - padding - 16, currentY + 27);
+  // Row 1: حالة الشهر الحالي
+  drawRoundRect(padding + 10, innerY, contentWidth - 20, 48, 10, '#ffffff', '#e2e8f0', 1);
+  ctx.textAlign = 'right';
+  ctx.font = `bold 11px ${fontFamily}`;
+  ctx.fillStyle = '#1e3a8a';
+  ctx.fillText(`1️⃣ حالة الشهر الحالي (${monthName} ${data.year}):`, width - padding - 22, innerY + 16);
+  ctx.font = `normal 10px ${fontFamily}`;
+  ctx.fillStyle = '#1e293b';
+  ctx.fillText(`• ${cb.subsLineText}`, width - padding - 24, innerY + 31);
+  ctx.fillText(`• ${cb.otherLineText}`, width - padding - 24, innerY + 43);
+  innerY += 54;
 
-      currentY += debtBoxHeight + 12;
-    }
-  } else {
-    // Detailed Claim Breakdown
-    const cb = meta.claimBreakdown;
-    const debtBoxHeight = 188;
-    drawRoundRect(padding, currentY, contentWidth, debtBoxHeight, 14, '#fef2f2', '#fecaca', 1);
+  // Row 2: الاشتراكات الشهرية
+  drawRoundRect(padding + 10, innerY, contentWidth - 20, 52, 10, '#ffffff', '#e2e8f0', 1);
+  ctx.textAlign = 'right';
+  ctx.font = `bold 11px ${fontFamily}`;
+  ctx.fillStyle = '#b45309';
+  ctx.fillText(`2️⃣ الاشتراكات الشهرية (من بداية الفترة المحاسبية وحتى الشهر الحالي):`, width - padding - 22, innerY + 16);
+  ctx.font = `normal 10px ${fontFamily}`;
+  ctx.fillStyle = '#475569';
+  ctx.fillText(`• إجمالي المستحق: ${cb.priorSubsDue.toLocaleString()} ج.م  |  المسدد حتى الشهر الحالي: ${cb.priorSubsPaid.toLocaleString()} ج.م`, width - padding - 24, innerY + 31);
+  ctx.fillStyle = cb.priorSubsDiff > 0 ? '#b91c1c' : (cb.priorSubsDiff < 0 ? '#047857' : '#475569');
+  ctx.font = `bold 10px ${fontFamily}`;
+  ctx.fillText(`• الفرق بينهما: ${cb.priorSubsStatusText}`, width - padding - 24, innerY + 45);
+  innerY += 58;
 
-    ctx.textAlign = 'right';
-    ctx.fillStyle = '#991b1b';
-    ctx.font = `bold 12px ${fontFamily}`;
-    ctx.fillText('⚠️ بيان وتفصيل المبالغ المستحقة على الوحدة:', width - padding - 16, currentY + 20);
+  // Row 3: التحصيلات الأخرى
+  drawRoundRect(padding + 10, innerY, contentWidth - 20, 52, 10, '#ffffff', '#e2e8f0', 1);
+  ctx.textAlign = 'right';
+  ctx.font = `bold 11px ${fontFamily}`;
+  ctx.fillStyle = '#7e22ce';
+  ctx.fillText(`3️⃣ التحصيلات الأخرى (من بداية الفترة المحاسبية وحتى الشهر الحالي):`, width - padding - 22, innerY + 16);
+  ctx.font = `normal 10px ${fontFamily}`;
+  ctx.fillStyle = '#475569';
+  ctx.fillText(`• إجمالي المستحق: ${cb.priorOtherDue.toLocaleString()} ج.م  |  المسدد للتحصيلات الأخرى: ${cb.priorOtherPaid.toLocaleString()} ج.م`, width - padding - 24, innerY + 31);
+  ctx.fillStyle = cb.priorOtherDiff > 0 ? '#b91c1c' : (cb.priorOtherDiff < 0 ? '#047857' : '#475569');
+  ctx.font = `bold 10px ${fontFamily}`;
+  ctx.fillText(`• الفرق بينهما: ${cb.priorOtherStatusText}`, width - padding - 24, innerY + 45);
+  innerY += 58;
 
-    ctx.font = `bold 10px ${fontFamily}`;
-    ctx.fillStyle = '#0f172a';
-    ctx.fillText('حالة الشهر الحالي:', width - padding - 16, currentY + 36);
+  // Row 4: مديونيات سابقة
+  drawRoundRect(padding + 10, innerY, contentWidth - 20, 34, 10, '#ffffff', '#e2e8f0', 1);
+  ctx.textAlign = 'right';
+  ctx.font = `bold 11px ${fontFamily}`;
+  ctx.fillStyle = '#334155';
+  ctx.fillText(`4️⃣ مديونيات سابقة أو مرحل أو رصيد افتتاحي:`, width - padding - 22, innerY + 21);
+  ctx.textAlign = 'left';
+  ctx.font = `bold 10.5px ${fontFamily}`;
+  ctx.fillStyle = cb.previousDebtAmount > 0 ? '#b91c1c' : (cb.previousSurplusAmount > 0 ? '#047857' : '#475569');
+  const prevText = cb.previousDebtAmount > 0 
+    ? `${cb.previousDebtAmount.toLocaleString()} ج.م (مديونيات سابقة)` 
+    : (cb.previousSurplusAmount > 0 ? `+${cb.previousSurplusAmount.toLocaleString()} ج.م (رصيد دائن مرحل)` : '0 ج.م (لا توجد مديونيات)');
+  ctx.fillText(prevText, padding + 22, innerY + 21);
+  innerY += 40;
 
-    ctx.font = `bold 9.5px ${fontFamily}`;
-    ctx.fillStyle = '#7f1d1d';
-    ctx.fillText(`• ${cb.subsLineText}`, width - padding - 16, currentY + 50);
-    ctx.fillText(`• ${cb.otherLineText}`, width - padding - 16, currentY + 64);
-    ctx.fillText(`• ${cb.monthlyArrearsLineText}`, width - padding - 16, currentY + 78);
-    ctx.fillText(`• ${cb.otherArrearsLineText}`, width - padding - 16, currentY + 92);
-    ctx.fillText(`• ${cb.previousDebtLineText}`, width - padding - 16, currentY + 106);
+  // Rows 5 & 6: Summary Rectangle
+  drawRoundRect(padding + 10, innerY, contentWidth - 20, 52, 10, '#ffffff', '#f59e0b', 1.5);
+  ctx.textAlign = 'right';
+  ctx.font = `bold 11px ${fontFamily}`;
+  ctx.fillStyle = '#0f172a';
+  ctx.fillText(`5️⃣ إجمالي المستحق عن هذا الشهر:`, width - padding - 22, innerY + 18);
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#1e3a8a';
+  ctx.fillText(`${cb.currentMonthTotalDue.toLocaleString()} ج.م`, padding + 22, innerY + 18);
 
-    ctx.font = `bold 10px ${fontFamily}`;
-    ctx.fillStyle = '#991b1b';
-    ctx.fillText(`• ${cb.totalDueLineText}`, width - padding - 16, currentY + 122);
+  // Dashed line
+  ctx.save();
+  ctx.beginPath();
+  ctx.setLineDash([3, 3]);
+  ctx.moveTo(padding + 18, innerY + 26);
+  ctx.lineTo(width - padding - 18, innerY + 26);
+  ctx.strokeStyle = '#fcd34d';
+  ctx.stroke();
+  ctx.restore();
 
-    // Inner rectangle for the two totals requested by the user
-    const rectX = padding + 12;
-    const rectY = currentY + 132;
-    const rectW = contentWidth - 24;
-    const rectH = 46;
-    drawRoundRect(rectX, rectY, rectW, rectH, 8, '#ffffff', '#f87171', 1.5);
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#0f172a';
+  ctx.fillText(`6️⃣ إجمالي المتأخرات والمديونيات:`, width - padding - 22, innerY + 42);
+  ctx.textAlign = 'left';
+  ctx.fillStyle = cb.totalArrearsAndDebts > 0 ? '#b91c1c' : '#047857';
+  ctx.fillText(`${cb.totalArrearsAndDebts > 0 ? `${cb.totalArrearsAndDebts.toLocaleString()} ج.م` : '0 ج.م (خالص بالكامل)'}`, padding + 22, innerY + 42);
 
-    ctx.font = `bold 10px ${fontFamily}`;
-    ctx.fillStyle = '#0f172a';
-    ctx.textAlign = 'right';
-    ctx.fillText('اجمالي المبالغ المستحقة عن هذا الشهر :', rectX + rectW - 10, rectY + 18);
-    ctx.textAlign = 'left';
-    ctx.fillStyle = '#1e3a8a';
-    ctx.fillText(`${cb.currentMonthTotalDue.toLocaleString()} ج.م`, rectX + 10, rectY + 18);
-
-    // Dashed divider line in rectangle
-    ctx.save();
-    ctx.beginPath();
-    ctx.setLineDash([3, 3]);
-    ctx.moveTo(rectX + 8, rectY + 26);
-    ctx.lineTo(rectX + rectW - 8, rectY + 26);
-    ctx.strokeStyle = '#fca5a5';
-    ctx.stroke();
-    ctx.restore();
-
-    ctx.font = `bold 10px ${fontFamily}`;
-    ctx.fillStyle = '#0f172a';
-    ctx.textAlign = 'right';
-    ctx.fillText('احمالي المتأخرات و المديونيات :', rectX + rectW - 10, rectY + 38);
-    ctx.textAlign = 'left';
-    ctx.fillStyle = '#b91c1c';
-    ctx.fillText(`${cb.totalArrearsAndDebts.toLocaleString()} ج.م`, rectX + 10, rectY + 38);
-
-    currentY += debtBoxHeight + 12;
-  }
+  currentY += debtBoxHeight + 14;
 
   // 6. Encouraging / Thanking Note Box
   const noteHeight = 52;
@@ -649,6 +666,7 @@ export function getReceiptClaimPrintHtml(data: ReceiptClaimData, residents: Resi
   const periodName = data.periodName || 'الفترة المحاسبية النشطة';
   const hideCarried = Boolean(data.hideCarriedBalance);
   const cBal = hideCarried ? 0 : (data.carriedBalance || 0);
+  const cb = meta.claimBreakdown;
 
   return `
 <!DOCTYPE html>
@@ -931,8 +949,8 @@ export function getReceiptClaimPrintHtml(data: ReceiptClaimData, residents: Resi
         <div style="border-bottom: 1px dashed ${isDebt ? '#fca5a5' : '#cbd5e1'}; padding: 4px 0;">
           <div style="font-weight: 900; color: #1e3a8a;">1️⃣ حالة الشهر الحالي (${monthName} ${data.year}):</div>
           <div style="font-size: 10.5px; color: #334155; font-weight: 700; padding-right: 12px;">
-            • ${data.claimBreakdown?.subsLineText || `اشتراك شهري قدره ${Math.round(meta.displayMonthlyFee).toLocaleString()} ج.م`}<br/>
-            • ${data.claimBreakdown?.otherLineText || 'تحصيلات أخرى'}
+            • ${cb.subsLineText || `اشتراك شهري قدره ${Math.round(meta.displayMonthlyFee).toLocaleString()} ج.م`}<br/>
+            • ${cb.otherLineText || 'تحصيلات أخرى'}
           </div>
         </div>
 
@@ -942,15 +960,15 @@ export function getReceiptClaimPrintHtml(data: ReceiptClaimData, residents: Resi
           <div style="font-size: 10.5px; padding-right: 12px;">
             <div style="display: flex; justify-content: space-between;">
               <span style="color: #475569;">- إجمالي المستحق للاشتراك الشهري:</span>
-              <span style="font-weight: 900;">${(data.claimBreakdown?.priorSubsDue || 0).toLocaleString()} ج.م</span>
+              <span style="font-weight: 900;">${(cb.priorSubsDue || 0).toLocaleString()} ج.م</span>
             </div>
             <div style="display: flex; justify-content: space-between; color: #047857;">
               <span>- المبالغ المسددة من بداية الفترة المحاسبية وحتى الشهر الحالي:</span>
-              <span style="font-weight: 900;">${(data.claimBreakdown?.priorSubsPaid || 0).toLocaleString()} ج.م</span>
+              <span style="font-weight: 900;">${(cb.priorSubsPaid || 0).toLocaleString()} ج.م</span>
             </div>
-            <div style="display: flex; justify-content: space-between; font-weight: 900; color: ${(data.claimBreakdown?.priorSubsDiff || 0) > 0 ? '#b91c1c' : '#047857'};">
+            <div style="display: flex; justify-content: space-between; font-weight: 900; color: ${(cb.priorSubsDiff || 0) > 0 ? '#b91c1c' : '#047857'};">
               <span>- الفرق بينهما:</span>
-              <span style="text-decoration: underline;">${data.claimBreakdown?.priorSubsStatusText || '0 ج.م'}</span>
+              <span style="text-decoration: underline;">${cb.priorSubsStatusText || '0 ج.م'}</span>
             </div>
           </div>
         </div>
@@ -961,15 +979,15 @@ export function getReceiptClaimPrintHtml(data: ReceiptClaimData, residents: Resi
           <div style="font-size: 10.5px; padding-right: 12px;">
             <div style="display: flex; justify-content: space-between;">
               <span style="color: #475569;">- إجمالي المستحق عن التحصيلات الأخرى:</span>
-              <span style="font-weight: 900;">${(data.claimBreakdown?.priorOtherDue || 0).toLocaleString()} ج.م</span>
+              <span style="font-weight: 900;">${(cb.priorOtherDue || 0).toLocaleString()} ج.م</span>
             </div>
             <div style="display: flex; justify-content: space-between; color: #047857;">
               <span>- إجمالي المسدد للتحصيلات الأخرى:</span>
-              <span style="font-weight: 900;">${(data.claimBreakdown?.priorOtherPaid || 0).toLocaleString()} ج.م</span>
+              <span style="font-weight: 900;">${(cb.priorOtherPaid || 0).toLocaleString()} ج.م</span>
             </div>
-            <div style="display: flex; justify-content: space-between; font-weight: 900; color: ${(data.claimBreakdown?.priorOtherDiff || 0) > 0 ? '#b91c1c' : '#047857'};">
+            <div style="display: flex; justify-content: space-between; font-weight: 900; color: ${(cb.priorOtherDiff || 0) > 0 ? '#b91c1c' : '#047857'};">
               <span>- الفرق بينهما:</span>
-              <span style="text-decoration: underline;">${data.claimBreakdown?.priorOtherStatusText || '0 ج.م'}</span>
+              <span style="text-decoration: underline;">${cb.priorOtherStatusText || '0 ج.م'}</span>
             </div>
           </div>
         </div>
@@ -978,11 +996,11 @@ export function getReceiptClaimPrintHtml(data: ReceiptClaimData, residents: Resi
         <div style="border-bottom: 1px dashed ${isDebt ? '#fca5a5' : '#cbd5e1'}; padding: 4px 0;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
             <span style="font-weight: 900; color: #334155;">4️⃣ مديونيات سابقة أو مرحل من فترات محاسبية سابقة أو رصيد افتتاحي:</span>
-            <span style="font-weight: 900; color: ${(data.claimBreakdown?.previousDebtAmount || 0) > 0 ? '#b91c1c' : '#047857'};">
-              ${(data.claimBreakdown?.previousDebtAmount || 0) > 0
-                ? `${(data.claimBreakdown?.previousDebtAmount || 0).toLocaleString()} ج.م (مديونيات سابقة)`
-                : ((data.claimBreakdown?.previousSurplusAmount || 0) > 0
-                    ? `+${(data.claimBreakdown?.previousSurplusAmount || 0).toLocaleString()} ج.م (رصيد موجب دائن مرحل)`
+            <span style="font-weight: 900; color: ${(cb.previousDebtAmount || 0) > 0 ? '#b91c1c' : '#047857'};">
+              ${(cb.previousDebtAmount || 0) > 0
+                ? `${(cb.previousDebtAmount || 0).toLocaleString()} ج.م (مديونيات سابقة)`
+                : ((cb.previousSurplusAmount || 0) > 0
+                    ? `+${(cb.previousSurplusAmount || 0).toLocaleString()} ج.م (رصيد موجب دائن مرحل)`
                     : '0 ج.م (لا توجد مديونيات سابقة)')}
             </span>
           </div>
@@ -992,13 +1010,13 @@ export function getReceiptClaimPrintHtml(data: ReceiptClaimData, residents: Resi
         <div style="margin-top: 8px; background: #ffffff; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 6px 10px; font-size: 11px; display: flex; flex-direction: column; gap: 4px;">
           <div style="display: flex; justify-content: space-between; font-weight: 900;">
             <span>5️⃣ إجمالي المستحق عن هذا الشهر:</span>
-            <span style="color: #1e3a8a;">${(data.claimBreakdown?.currentMonthTotalDue || 0).toLocaleString()} ج.م</span>
+            <span style="color: #1e3a8a;">${(cb.currentMonthTotalDue || 0).toLocaleString()} ج.م</span>
           </div>
           <div style="display: flex; justify-content: space-between; font-weight: 900; border-top: 1px dashed #e2e8f0; paddingTop: 4px;">
             <span>6️⃣ إجمالي المتأخرات والمديونيات:</span>
-            <span style="color: ${(data.claimBreakdown?.totalArrearsAndDebts || 0) > 0 ? '#b91c1c' : '#047857'};">
-              ${(data.claimBreakdown?.totalArrearsAndDebts || 0) > 0
-                ? `${(data.claimBreakdown?.totalArrearsAndDebts || 0).toLocaleString()} ج.م`
+            <span style="color: ${(cb.totalArrearsAndDebts || 0) > 0 ? '#b91c1c' : '#047857'};">
+              ${(cb.totalArrearsAndDebts || 0) > 0
+                ? `${(cb.totalArrearsAndDebts || 0).toLocaleString()} ج.م`
                 : '0 ج.م (خالص بالكامل)'}
             </span>
           </div>
