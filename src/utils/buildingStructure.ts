@@ -973,18 +973,28 @@ export function getLatestOccupantFromHistory(
  * with the active occupant for the current month/period from their history records (سجل الملكية والحيازة).
  */
 export function syncResidentCurrentOccupant(r: Resident, targetDateOrPeriod?: string | number): Resident {
-  if (!r || !r.history || !Array.isArray(r.history) || r.history.length === 0) return r;
+  if (!r) return r;
+  const primaryPhone = (r.ownerPhone && r.ownerPhone.trim()) || (r.phone && r.phone.trim()) || '';
+  if (!r.history || !Array.isArray(r.history) || r.history.length === 0) {
+    return {
+      ...r,
+      ownerPhone: (r.ownerPhone && r.ownerPhone.trim()) ? r.ownerPhone : primaryPhone,
+      phone: (r.phone && r.phone.trim()) ? r.phone : primaryPhone,
+    };
+  }
   const occ = getLatestOccupantFromHistory(r, targetDateOrPeriod);
   const tenantPhonesSet = getAllTenantPhones(r);
 
-  // If r.phone matches a tenant number, strip it so owner phone is clean
-  const cleanFallbackPhone = isTenantPhone(r.phone, tenantPhonesSet) ? '' : (r.phone || '');
-  const cleanPhone = occ.ownerPhone !== undefined ? (occ.ownerPhone || '') : cleanFallbackPhone;
+  const cleanFallbackPhone = isTenantPhone(primaryPhone, tenantPhonesSet) ? '' : primaryPhone;
+  const cleanOwnerPhone = (occ.ownerPhone && occ.ownerPhone.trim()) ? occ.ownerPhone.trim() : cleanFallbackPhone;
+
+  const finalOwnerPhone = cleanOwnerPhone || primaryPhone || r.ownerPhone || r.phone || '';
 
   return {
     ...r,
     name: occ.ownerName || r.name,
-    phone: cleanPhone,
+    ownerPhone: finalOwnerPhone,
+    phone: finalOwnerPhone,
     tenantName: occ.tenantName || '',
     tenantPhone: occ.tenantPhone || '',
     ownershipType: occ.tenantName ? 'إيجار' : 'تمليك',

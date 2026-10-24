@@ -209,7 +209,7 @@ export const UnitHistoryModal: React.FC<UnitHistoryModalProps> = ({
   // --- Occupancy Helpers ---
   const handleAutoFillFromCurrentResident = () => {
     setOwnerName(resident.name || '');
-    setOwnerPhone(resident.phone || '');
+    setOwnerPhone((resident.ownerPhone && resident.ownerPhone.trim()) || (resident.phone && resident.phone.trim()) || '');
     if (resident.tenantName) {
       setTenantName(resident.tenantName || '');
       setTenantPhone(resident.tenantPhone || '');
@@ -236,7 +236,7 @@ export const UnitHistoryModal: React.FC<UnitHistoryModalProps> = ({
 
   const handleStartAdd = () => {
     setOwnerName(resident.name || '');
-    setOwnerPhone(resident.phone || '');
+    setOwnerPhone((resident.ownerPhone && resident.ownerPhone.trim()) || (resident.phone && resident.phone.trim()) || '');
     setOwnerFromDate('');
     setOwnerToDate('');
     setIsCurrentOwner(true);

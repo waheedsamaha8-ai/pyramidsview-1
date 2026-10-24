@@ -251,6 +251,61 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
 
   const activeAccountingPeriod = useMemo(() => getActiveAccountingPeriod(config), [config]);
 
+  const computedResidentsMap = useMemo(() => {
+    const map = new Map<string, {
+      fin: ReturnType<typeof calculateResidentFinancials>;
+      occ: ReturnType<typeof getLatestOccupantFromHistory>;
+      latestAct: ReturnType<typeof getLatestActivityFromHistory>;
+      displayOwnerName: string;
+      displayOwnerPhone: string;
+      displayTenantName: string;
+      displayTenantPhone: string;
+      isRented: boolean;
+      hasTenant: boolean;
+      displayNotes: string;
+    }>();
+
+    residents.forEach(res => {
+      const fin = calculateResidentFinancials(
+        res,
+        paymentIndex,
+        config?.accountingStartDate,
+        config?.defaultMonthlyFee,
+        config?.activityDefaultFees,
+        new Date().getFullYear(),
+        undefined,
+        config?.activityFeePeriods,
+        effectiveCustomFeePeriods
+      );
+      const occ = res.history && res.history.length > 0 
+        ? getLatestOccupantFromHistory(res, activeAccountingPeriod) 
+        : getLatestOccupantFromHistory(res);
+      const latestAct = getLatestActivityFromHistory(res, undefined, config?.defaultMonthlyFee, config?.activityDefaultFees);
+      const displayOwnerName = occ?.ownerName || res.name;
+      const displayOwnerPhone = (occ?.ownerPhone?.trim()) || (res.ownerPhone?.trim()) || (res.phone?.trim()) || '';
+      const displayTenantName = (occ?.tenantName?.trim()) || (res.tenantName?.trim()) || '';
+      const displayTenantPhone = (occ?.tenantPhone?.trim()) || (res.tenantPhone?.trim()) || '';
+      const isRented = Boolean(displayTenantName && displayTenantName.trim()) || res.ownershipType === 'إيجار';
+      const hasTenant = isRented;
+      const displayNotes = (res.notes || '').includes('توليد تلقائي') ? '' : (res.notes || '');
+
+      map.set(res.id, {
+        fin,
+        occ,
+        latestAct,
+        displayOwnerName,
+        displayOwnerPhone,
+        displayTenantName,
+        displayTenantPhone,
+        isRented,
+        hasTenant,
+        displayNotes,
+      });
+    });
+
+    return map;
+  }, [residents, paymentIndex, config, activeAccountingPeriod, effectiveCustomFeePeriods]);
+
   const autoSavePeriodChange = (updatedFields: Partial<CustomUnitFeePeriod>) => {
     if (!editingPeriodId) return;
     const currentPeriods = effectiveCustomFeePeriods;
@@ -724,19 +779,22 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
                     {group.residents.map((res) => {
-                    const fin = calculateResidentFinancials(res, paymentIndex, config?.accountingStartDate, config?.defaultMonthlyFee, config?.activityDefaultFees, new Date().getFullYear(), undefined, config?.activityFeePeriods, effectiveCustomFeePeriods);
+                    const comp = computedResidentsMap.get(res.id) || {
+                      fin: calculateResidentFinancials(res, paymentIndex, config?.accountingStartDate, config?.defaultMonthlyFee, config?.activityDefaultFees, new Date().getFullYear(), undefined, config?.activityFeePeriods, effectiveCustomFeePeriods),
+                      occ: getLatestOccupantFromHistory(res, activeAccountingPeriod),
+                      latestAct: getLatestActivityFromHistory(res, undefined, config?.defaultMonthlyFee, config?.activityDefaultFees),
+                      displayOwnerName: res.name,
+                      displayOwnerPhone: res.ownerPhone || res.phone || '',
+                      displayTenantName: res.tenantName || '',
+                      displayTenantPhone: res.tenantPhone || '',
+                      isRented: res.ownershipType === 'إيجار',
+                      hasTenant: res.ownershipType === 'إيجار',
+                      displayNotes: res.notes || '',
+                    };
+                    const { fin, displayOwnerName, displayOwnerPhone, displayTenantName, displayTenantPhone, isRented } = comp;
                     const isDebt = fin.netBalance < 0;
                     const isSurplus = fin.netBalance > 0;
-
                     const isSelected = selectedItemId === res.id;
-                    const occ = res.history && res.history.length > 0 
-                      ? getLatestOccupantFromHistory(res, activeAccountingPeriod) 
-                      : getLatestOccupantFromHistory(res);
-                    const displayOwnerName = occ?.ownerName || res.name;
-                    const displayOwnerPhone = (occ?.ownerPhone?.trim()) || (res.ownerPhone?.trim()) || (res.phone?.trim()) || '';
-                    const displayTenantName = (occ?.tenantName?.trim()) || (res.tenantName?.trim()) || '';
-                    const displayTenantPhone = (occ?.tenantPhone?.trim()) || (res.tenantPhone?.trim()) || '';
-                    const isRented = Boolean(displayTenantName && displayTenantName.trim()) || res.ownershipType === 'إيجار';
 
                     return (
                       <div
@@ -1001,22 +1059,23 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                         </tr>
                       ) : (
                         group.residents.map((res) => {
-                        const fin = calculateResidentFinancials(res, paymentIndex, config?.accountingStartDate, config?.defaultMonthlyFee, config?.activityDefaultFees, new Date().getFullYear(), undefined, config?.activityFeePeriods, effectiveCustomFeePeriods);
+                        const comp = computedResidentsMap.get(res.id) || {
+                          fin: calculateResidentFinancials(res, paymentIndex, config?.accountingStartDate, config?.defaultMonthlyFee, config?.activityDefaultFees, new Date().getFullYear(), undefined, config?.activityFeePeriods, effectiveCustomFeePeriods),
+                          occ: getLatestOccupantFromHistory(res, activeAccountingPeriod),
+                          latestAct: getLatestActivityFromHistory(res, undefined, config?.defaultMonthlyFee, config?.activityDefaultFees),
+                          displayOwnerName: res.name,
+                          displayOwnerPhone: res.ownerPhone || res.phone || '',
+                          displayTenantName: res.tenantName || '',
+                          displayTenantPhone: res.tenantPhone || '',
+                          isRented: res.ownershipType === 'إيجار',
+                          hasTenant: res.ownershipType === 'إيجار',
+                          displayNotes: res.notes || '',
+                        };
+                        const { fin, displayOwnerName, displayOwnerPhone, displayTenantName, displayTenantPhone, hasTenant, displayNotes } = comp;
                         const isDebt = fin.netBalance < 0;
                         const isSurplus = fin.netBalance > 0;
-                        const displayNotes = (res.notes || '').includes('توليد تلقائي') ? '' : (res.notes || '');
-
                         const isSelected = selectedItemId === res.id;
                         const status = res.accountStatus || 'ACTIVE';
-
-                        const occ = res.history && res.history.length > 0 
-                          ? getLatestOccupantFromHistory(res, activeAccountingPeriod) 
-                          : getLatestOccupantFromHistory(res);
-                        const displayOwnerName = occ?.ownerName || res.name;
-                        const displayOwnerPhone = (occ?.ownerPhone?.trim()) || (res.ownerPhone?.trim()) || (res.phone?.trim()) || '';
-                        const displayTenantName = (occ?.tenantName?.trim()) || (res.tenantName?.trim()) || '';
-                        const displayTenantPhone = (occ?.tenantPhone?.trim()) || (res.tenantPhone?.trim()) || '';
-                        const hasTenant = Boolean(displayTenantName && displayTenantName.trim()) || res.ownershipType === 'إيجار';
 
                         return (
                           <tr 
@@ -1665,11 +1724,9 @@ export const ResidentsList: React.FC<ResidentsListProps> = ({
                           ) : (
                             group.residents.map((res) => {
                               const activityDefault = getDefaultFeeForActivity(res.activityType || 'سكني');
-                              const occ = res.history && res.history.length > 0 
-                                ? getLatestOccupantFromHistory(res, activeAccountingPeriod) 
-                                : getLatestOccupantFromHistory(res);
-                              const displayOwnerName = occ ? (occ.ownerName || res.name) : res.name;
-                              const displayTenantName = occ ? occ.tenantName : (res.ownershipType === 'إيجار' ? res.tenantName : undefined);
+                              const comp = computedResidentsMap.get(res.id);
+                              const displayOwnerName = comp ? comp.displayOwnerName : res.name;
+                              const displayTenantName = comp ? comp.displayTenantName : (res.ownershipType === 'إيجار' ? res.tenantName : undefined);
                               const hasTenant = Boolean(displayTenantName && displayTenantName.trim());
                               const isSelected = selectedItemId === res.id;
 

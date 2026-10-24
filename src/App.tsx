@@ -1391,10 +1391,19 @@ export default function App() {
   const editResident = (resident: Resident) => {
     if (role === 'RESIDENT') return;
     
-    const existing = residents.find(r => r.id === resident.id);
+    const existing = residents.find(r => r.id === resident.id || isSameFlatNumber(r.flatNumber, resident.flatNumber));
     const oldFlatNumber = existing ? existing.flatNumber : resident.flatNumber;
 
-    const syncedResident = syncResidentCurrentOccupant(resident);
+    const mergedInput: Resident = existing ? {
+      ...existing,
+      ...resident,
+      history: resident.history && resident.history.length > 0 ? resident.history : existing.history,
+      activityHistory: resident.activityHistory && resident.activityHistory.length > 0 ? resident.activityHistory : existing.activityHistory,
+      ownerPhone: (resident.ownerPhone && resident.ownerPhone.trim()) || (resident.phone && resident.phone.trim()) || existing.ownerPhone || existing.phone,
+      phone: (resident.phone && resident.phone.trim()) || (resident.ownerPhone && resident.ownerPhone.trim()) || existing.phone || existing.ownerPhone,
+    } : resident;
+
+    const syncedResident = syncResidentCurrentOccupant(mergedInput);
     // Immediately persist in local state and offline cache
     const updatedResidents = residents.map((r) => (r.id === syncedResident.id || isSameFlatNumber(r.flatNumber, syncedResident.flatNumber)) ? syncedResident : r);
     setResidents(updatedResidents);
@@ -1412,7 +1421,7 @@ export default function App() {
       offlineSync.saveCachedData('config', updatedConfig);
     }
 
-    firestoreService.saveResidentToFirestore(resident)
+    firestoreService.saveResidentToFirestore(syncedResident)
       .then(() => {
         if (!isSameFlatNumber(oldFlatNumber, resident.flatNumber)) {
           return firestoreService.saveConfigToFirestore(updatedConfig);
@@ -1420,7 +1429,7 @@ export default function App() {
       })
       .catch(err => {
         logError(err, 'editResident');
-        offlineSync.enqueueAction('EDIT_RESIDENT', resident);
+        offlineSync.enqueueAction('EDIT_RESIDENT', syncedResident);
       });
 
     addNotification('تعديل بيانات ساكن', `تم حفظ التعديلات للوحدة ${resident.flatNumber} (${resident.name}) بنجاح.`, 'success', 'registration');

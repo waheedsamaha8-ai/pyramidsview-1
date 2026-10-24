@@ -61,7 +61,8 @@ export const AddEditResidentModal: React.FC<AddEditResidentModalProps> = ({
       setFlatNumber(String(resident.flatNumber));
       setName(resident.name);
       setActivityType(resident.activityType || 'سكني');
-      const parts = (resident.phone || '').split(/[,/;|\n]+/).map(p => p.trim()).filter(Boolean);
+      const rawOwnerPhone = (resident.ownerPhone && resident.ownerPhone.trim()) || (resident.phone && resident.phone.trim()) || '';
+      const parts = rawOwnerPhone.split(/[,/;|\n]+/).map(p => p.trim()).filter(Boolean);
       setPhoneNumbers(parts.length > 0 ? parts : ['']);
 
       const cleanNotes = (resident.notes || '').includes('توليد تلقائي') ? '' : (resident.notes || '');
@@ -215,23 +216,26 @@ export const AddEditResidentModal: React.FC<AddEditResidentModalProps> = ({
       : '';
 
     const isEditMode = Boolean(resident && resident.id);
+    const effectivePhone = finalPhone || (resident?.ownerPhone && resident.ownerPhone.trim()) || (resident?.phone && resident.phone.trim()) || '';
     const residentData: Resident = {
+      ...(resident || {}),
       id: isEditMode ? resident!.id : `res_${Date.now()}`,
       flatNumber: flatStr,
       name: name.trim(),
       activityType,
-      phone: finalPhone,
+      phone: effectivePhone,
+      ownerPhone: effectivePhone,
       notes: notes.trim(),
       ownershipType,
       tenantName: ownershipType === 'إيجار' ? tenantName.trim() : '',
       tenantPhone: finalTenantPhone,
       monthlyFee: monthlyFee !== '' ? Number(monthlyFee) : (defaultMonthlyFee || 400),
       initialBalance: finalInitialBalance,
-      email: email.trim() || `flat${flatStr}@pyramids.com`,
-      password: password.trim() || `pyr${flatStr}#2026`,
+      email: email.trim() || resident?.email || `flat${flatStr}@pyramids.com`,
+      password: password.trim() || resident?.password || `pyr${flatStr}#2026`,
       accountStatus: resident?.accountStatus || 'ACTIVE',
-      tenantEmail: ownershipType === 'إيجار' ? (tenantEmail.trim() || `tenant${flatStr}@pyramids.com`) : '',
-      tenantPassword: ownershipType === 'إيجار' ? (tenantPassword.trim() || `pyr${flatStr}#2026`) : '',
+      tenantEmail: ownershipType === 'إيجار' ? (tenantEmail.trim() || resident?.tenantEmail || `tenant${flatStr}@pyramids.com`) : '',
+      tenantPassword: ownershipType === 'إيجار' ? (tenantPassword.trim() || resident?.tenantPassword || `pyr${flatStr}#2026`) : '',
       tenantAccountStatus: resident?.tenantAccountStatus || 'ACTIVE',
     };
 

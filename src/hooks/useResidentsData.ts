@@ -95,9 +95,16 @@ export function useResidentsData({
     const assignedResidentIds = new Set<string>();
     const groups: { floor: FloorConfig; residents: Resident[] }[] = [];
 
+    const floorUnitsMap = new Map<string, Set<string>>();
+    effectiveFloorConfigs.forEach(floor => {
+      const units = getUnitNumbersForFloor(floor, residents);
+      const unitSet = new Set(units.map(u => String(u).trim()));
+      floorUnitsMap.set(floor.id, unitSet);
+    });
+
     effectiveFloorConfigs.forEach((floor) => {
-      const unitNumbers = getUnitNumbersForFloor(floor, residents);
-      const floorResidents = sortedFiltered.filter(r => unitNumbers.some(u => isSameFlatNumber(u, r.flatNumber)));
+      const unitSet = floorUnitsMap.get(floor.id) || new Set();
+      const floorResidents = sortedFiltered.filter(r => unitSet.has(String(r.flatNumber).trim()));
       floorResidents.forEach(r => assignedResidentIds.add(r.id));
       if (floorResidents.length > 0 || !searchTerm.trim()) {
         groups.push({ floor, residents: floorResidents });
