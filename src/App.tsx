@@ -1684,9 +1684,11 @@ export default function App() {
     registerDeletedPaymentIds(cleanId);
     offlineSync.purgeEntityFromQueue(cleanId);
 
-    const updatedPayments = filterAndDeduplicatePayments(payments.filter((p) => String(p.id) !== cleanId));
-    setPayments(updatedPayments);
-    offlineSync.saveCachedData('payments', updatedPayments);
+    setPayments(prev => {
+      const updatedPayments = filterAndDeduplicatePayments(prev.filter((p) => String(p.id) !== cleanId));
+      offlineSync.saveCachedData('payments', updatedPayments);
+      return updatedPayments;
+    });
 
     try {
       await firestoreService.deletePaymentFromFirestore(cleanId);

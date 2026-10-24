@@ -142,9 +142,19 @@ export function useAppSync({
         const incomingMap = new Map(cleanPayments.map(p => [String(p.id), p]));
         const merged = cleanPayments.slice();
         
-        // Retain optimistic recent items that might not have reached Firestore snapshot yet
+        // Retain ONLY optimistic un-uploaded items that are actively in this device's offline queue
+        const offlineQueue = offlineSync.getOfflineQueue();
+        const pendingQueueIds = new Set<string>();
+        for (let i = 0; i < offlineQueue.length; i++) {
+          const act = offlineQueue[i];
+          if ((act.type === 'ADD_PAYMENT' || act.type === 'EDIT_PAYMENT') && act.payload?.id) {
+            pendingQueueIds.add(String(act.payload.id));
+          }
+        }
+
         prev.forEach(p => {
-          if (!incomingMap.has(String(p.id)) && String(p.id).startsWith('pay_')) {
+          const pId = String(p.id);
+          if (!incomingMap.has(pId) && pendingQueueIds.has(pId)) {
             merged.push(p);
           }
         });
@@ -236,8 +246,38 @@ export function useAppSync({
     }
     const interval = isApiServerAvailable ? setInterval(fetchLatestChatAndComplaints, 15000) : null;
 
+    // Ultra-fast instant sync triggers for mobile <-> desktop continuity
+    const handleDeviceResumeOrFocus = () => {
+      if (!isMounted) return;
+      offlineSync.syncOfflineQueue().catch(() => {});
+      if (isApiServerAvailable) {
+        fetchLatestChatAndComplaints();
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        handleDeviceResumeOrFocus();
+      }
+    };
+
+    window.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleDeviceResumeOrFocus);
+    window.addEventListener('online', handleDeviceResumeOrFocus);
+
+    // Heartbeat every 15 seconds to ensure real-time consistency
+    const syncHeartbeat = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        offlineSync.syncOfflineQueue().catch(() => {});
+      }
+    }, 15000);
+
     return () => {
       isMounted = false;
+      window.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleDeviceResumeOrFocus);
+      window.removeEventListener('online', handleDeviceResumeOrFocus);
+      if (syncHeartbeat) clearInterval(syncHeartbeat);
       unsubChat();
       unsubComplaints();
       unsubMaintenance();

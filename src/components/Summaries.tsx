@@ -1,10 +1,11 @@
 import React, { useMemo, useState, useRef } from 'react';
 import { Resident, Payment, Expense, UserRole, FloorConfig, AppConfig } from '../types';
-import { Calendar, Check, AlertCircle, RefreshCw, X, ExternalLink, Trash2, PlusCircle, CreditCard, Clock, Layers, Receipt, Edit, Save, Minus, Sparkles, RotateCcw, FileText, Filter, History, Image as ImageIcon } from 'lucide-react';
+import { Calendar, Check, AlertCircle, RefreshCw, X, ExternalLink, Trash2, PlusCircle, Plus, CreditCard, Clock, Layers, Receipt, Edit, Save, Minus, Sparkles, RotateCcw, FileText, Filter, History, Image as ImageIcon } from 'lucide-react';
 import { BuildingMap } from './BuildingMap';
 import { UnitHistoryModal } from './modals/UnitHistoryModal';
+import { PaymentFormModal } from './modals/PaymentFormModal';
 import { deriveFloorConfigsFromResidents, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber, getHistoricalOccupantForDate, getHistoricalActivityForDate } from '../utils/buildingStructure';
-import { getPrescribedFeeForMonth, isPaymentForYearAndMonth, isMonthlySubscriptionType } from '../utils/financialCalculations';
+import { getPrescribedFeeForMonth, isPaymentForYearAndMonth, isMonthlySubscriptionType, registerDeletedPaymentIds, getDeletedPaymentIds } from '../utils/financialCalculations';
 
 interface SummariesProps {
   residents: Resident[];
@@ -64,6 +65,15 @@ const SummariesComponent: React.FC<SummariesProps> = ({
     monthName: string;
     payments: Payment[];
   } | null>(null);
+
+  const [paymentModalState, setPaymentModalState] = useState<{
+    isOpen: boolean;
+    payment?: Payment | null;
+    resident?: Resident | null;
+    month?: string;
+  }>({ isOpen: false });
+
+  const [localDeletedPaymentIds, setLocalDeletedPaymentIds] = useState<Set<string>>(() => new Set());
 
   const [newAmount, setNewAmount] = useState<string>('200');
   const [newDueAmount, setNewDueAmount] = useState<string>('');
@@ -316,11 +326,12 @@ const SummariesComponent: React.FC<SummariesProps> = ({
     return map;
   }, [sortedResidents, currentYear, defaultMonthlyFee, activityDefaultFees, config?.activityFeePeriods]);
 
-  // Precompute resident year totals for Section 3 table (single pass O(payments.length))
   const residentYearTotalsMap = useMemo(() => {
     const map = new Map<string, number>();
+    const globallyDeleted = getDeletedPaymentIds();
     for (let i = 0; i < payments.length; i++) {
       const p = payments[i];
+      if (!p || !p.id || localDeletedPaymentIds.has(String(p.id)) || globallyDeleted.has(String(p.id))) continue;
       if (
         p.residentId &&
         Number(p.year) === Number(currentYear) &&
@@ -334,7 +345,7 @@ const SummariesComponent: React.FC<SummariesProps> = ({
       }
     }
     return map;
-  }, [payments, currentYear, selectedPaymentTypeFilter]);
+  }, [payments, currentYear, selectedPaymentTypeFilter, localDeletedPaymentIds]);
 
   // 4. Pre-index payments by resident and month for lightning-fast O(1) table rendering and instant modal opening
   const precomputedData = useMemo(() => {
@@ -343,8 +354,12 @@ const SummariesComponent: React.FC<SummariesProps> = ({
     const masterSet = new Set<string>();
     const originalAggregatedSet = new Set<string>();
 
+    const globallyDeleted = getDeletedPaymentIds();
+    const isPaymentDeleted = (id: string) => localDeletedPaymentIds.has(String(id)) || globallyDeleted.has(String(id));
+
     for (let i = 0; i < payments.length; i++) {
       const p = payments[i];
+      if (!p || !p.id || isPaymentDeleted(p.id)) continue;
       if (p.distributionSourceId && String(p.distributionSourceId) !== String(p.id)) {
         childSet.add(String(p.id));
       }
@@ -366,6 +381,7 @@ const SummariesComponent: React.FC<SummariesProps> = ({
     const paymentsByResidentAndMonth = new Map<string, Payment[]>();
     for (let i = 0; i < payments.length; i++) {
       const p = payments[i];
+      if (!p || !p.id || isPaymentDeleted(p.id)) continue;
       if (Number(p.year) !== Number(currentYear)) continue;
       const mStr = String(parseInt(p.month, 10)).padStart(2, '0');
       
@@ -384,7 +400,7 @@ const SummariesComponent: React.FC<SummariesProps> = ({
     }
 
     return { childSet, masterSet, originalAggregatedSet, paymentsByResidentAndMonth };
-  }, [payments, currentYear]);
+  }, [payments, currentYear, localDeletedPaymentIds]);
 
   const isChildDistributedPayment = (pay: Payment): boolean => {
     return precomputedData.childSet.has(String(pay.id));
@@ -553,12 +569,14 @@ const SummariesComponent: React.FC<SummariesProps> = ({
     const currentMonthNum = parseInt(pay.month, 10) || 1;
     const normalizedMonth = String(currentMonthNum).padStart(2, '0');
 
-    const isDist = isMasterDistributionPayment(pay);
     const masterPay = findMasterPayment(pay);
+    const masterId = String(masterPay.id);
+    const isMaster = isMasterDistributionPayment(pay) || Boolean(pay.isDistributed) || (Array.isArray(masterPay.distributedPaymentIds) && masterPay.distributedPaymentIds.length > 0);
+    const isChild = isChildDistributedPayment(pay) || Boolean(pay.distributionSourceId);
+    const isDistGroup = isMaster || isChild;
 
-    if (isDist) {
+    if (isDistGroup) {
       // Find all distributed child payments from this source
-      const masterId = String(masterPay.id);
       const childPayments = payments.filter(p => 
         String(p.id) !== masterId && (
           String(p.distributionSourceId || '') === masterId ||
@@ -572,6 +590,11 @@ const SummariesComponent: React.FC<SummariesProps> = ({
         .sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
       setSelectedMonths(allDistributedMonths.length > 0 ? allDistributedMonths : [normalizedMonth]);
       setIsDistributing(true);
+
+      // Load master payment status and receipt details for unified group editing
+      setEditPaymentStatus(masterPay.status || pay.status || 'collected');
+      setEditReceiptNumber(masterPay.receiptNumber || pay.receiptNumber || '');
+      setEditNotes(masterPay.notes ? masterPay.notes.replace(/\(سداد مجمع.*?\)/g, '').replace(/\(تم التحصيل.*?\)/g, '').replace(/\(استحقاق.*?\)/g, '').trim() : (pay.notes || ''));
     } else {
       setEditAmount(String(pay.amount));
       const coveredMonthsCount = fee > 0 ? Math.max(1, Math.round(pay.amount / fee)) : 1;
@@ -737,6 +760,12 @@ const SummariesComponent: React.FC<SummariesProps> = ({
     );
     const existingChildIds = existingChildPayments.map((p) => String(p.id));
 
+    // Determine target payment status and manual collection flag
+    const isPendingStatus = editPaymentStatus === 'pending' || editPaymentStatus === 'لم يتم التحصيل';
+    const isCancelledStatus = editPaymentStatus === 'cancelled' || editPaymentStatus === 'لاغي';
+    const paymentStatusToUse = isPendingStatus ? 'pending' : (isCancelledStatus ? 'cancelled' : (editPaymentStatus || 'collected'));
+    const isManuallyPaidToUse = paymentStatusToUse === 'collected';
+
     if (isDistributing && (selectedMonths.length > 1 || (selectedMonths.length === 1 && selectedMonths[0] !== pay.month))) {
       const count = selectedMonths.length;
       const basePerMonth = Math.floor(parsedAmount / count);
@@ -778,19 +807,17 @@ const SummariesComponent: React.FC<SummariesProps> = ({
         const primaryMonthName = monthNamesArabic[parseInt(pay.month || masterPay.month, 10) - 1];
         const recNum = (editReceiptNumber || masterPay.receiptNumber || '').trim();
         const allocatedAmount = isMaster ? (basePerMonth + remainder) : basePerMonth;
+        const statusNoteSuffix = isPendingStatus ? ' (غير محصل / معلق)' : '';
 
         const noteText = isMaster
           ? (sortedMonths.length === 1
               ? (cleanCustomNote
-                  ? `${cleanCustomNote} (سداد عن شهر ${monthNamesArabic[parseInt(masterMonth, 10) - 1]}${masterMonth !== pay.month ? ` - تم التحصيل في شهر ${primaryMonthName} ${currentYear}` : ''})`
-                  : `سداد عن شهر ${monthNamesArabic[parseInt(masterMonth, 10) - 1]}${masterMonth !== pay.month ? ` (تم التحصيل في شهر ${primaryMonthName} ${currentYear})` : ''}`)
+                  ? `${cleanCustomNote} (${isPendingStatus ? 'استحقاق' : 'سداد'} عن شهر ${monthNamesArabic[parseInt(masterMonth, 10) - 1]}${masterMonth !== pay.month ? ` - تم التسجيل في شهر ${primaryMonthName} ${currentYear}` : ''}${statusNoteSuffix})`
+                  : `${isPendingStatus ? 'استحقاق' : 'سداد'} عن شهر ${monthNamesArabic[parseInt(masterMonth, 10) - 1]}${masterMonth !== pay.month ? ` (تم التسجيل في شهر ${primaryMonthName} ${currentYear})` : ''}${statusNoteSuffix}`)
               : (cleanCustomNote
-                  ? `${cleanCustomNote} (سداد مجمع عن شهور: ${sortedMonths.map(x => monthNamesArabic[parseInt(x, 10) - 1]).join('، ')}${!sortedMonths.includes(pay.month) ? ` - تم التحصيل في شهر ${primaryMonthName} ${currentYear}` : ''} - القيمة الموزعة للشهر: ${allocatedAmount.toLocaleString()} ج.م)`
-                  : `سداد مجمع عن شهور: ${sortedMonths.map(x => monthNamesArabic[parseInt(x, 10) - 1]).join('، ')}${!sortedMonths.includes(pay.month) ? ` (تم التحصيل في شهر ${primaryMonthName} ${currentYear})` : ''} (القيمة الموزعة للشهر: ${allocatedAmount.toLocaleString()} ج.م)`))
-          : `تم السداد في شهر ${primaryMonthName} ${currentYear} بإيصال رقم ${recNum || '—'} (القيمة الموزعة للشهر: ${allocatedAmount.toLocaleString()} ج.م)${cleanCustomNote ? ` (${cleanCustomNote})` : ''}`;
-
-        // Distributed payments represent actual collections across months, so status must be 'collected'
-        const paymentStatusToUse = (editPaymentStatus === 'pending' || editPaymentStatus === 'لم يتم التحصيل') ? 'collected' : (editPaymentStatus || 'collected');
+                  ? `${cleanCustomNote} (${isPendingStatus ? 'استحقاق' : 'سداد'} مجمع عن شهور: ${sortedMonths.map(x => monthNamesArabic[parseInt(x, 10) - 1]).join('، ')}${!sortedMonths.includes(pay.month) ? ` - تم التسجيل في شهر ${primaryMonthName} ${currentYear}` : ''} - القيمة الموزعة للشهر: ${allocatedAmount.toLocaleString()} ج.م${statusNoteSuffix})`
+                  : `${isPendingStatus ? 'استحقاق' : 'سداد'} مجمع عن شهور: ${sortedMonths.map(x => monthNamesArabic[parseInt(x, 10) - 1]).join('، ')}${!sortedMonths.includes(pay.month) ? ` (تم التسجيل في شهر ${primaryMonthName} ${currentYear})` : ''} (القيمة الموزعة للشهر: ${allocatedAmount.toLocaleString()} ج.م${statusNoteSuffix})`))
+          : `${isPendingStatus ? 'مستحق غير محصل مسجل' : 'تم السداد'} في شهر ${primaryMonthName} ${currentYear} بإيصال رقم ${recNum || '—'} (القيمة الموزعة للشهر: ${allocatedAmount.toLocaleString()} ج.م)${cleanCustomNote ? ` (${cleanCustomNote})` : ''}`;
 
         return {
           id: newId,
@@ -808,7 +835,7 @@ const SummariesComponent: React.FC<SummariesProps> = ({
           fileId: masterPay.fileId || '',
           fileUrl: masterPay.fileUrl || '',
           date: masterPay.date || new Date().toISOString().split('T')[0],
-          isManuallyPaid: true,
+          isManuallyPaid: isManuallyPaidToUse,
           isManuallyEdited: true,
           status: paymentStatusToUse as any,
           isAggregatedCollection: isMaster,
@@ -852,6 +879,57 @@ const SummariesComponent: React.FC<SummariesProps> = ({
 
       setEditingPaymentId(null);
       setIsDistributing(false);
+    } else if (existingChildIds.length > 0) {
+      // Payment has existing child payments; propagate status, receipt, and notes to ALL slots in the distributed group
+      const cleanCustomNote = (editNotes || '').trim();
+      const recNum = (editReceiptNumber || masterPay.receiptNumber || '').trim();
+
+      const updatedMaster: Payment = {
+        ...masterPay,
+        amount: parsedAmount,
+        expectedAmount: dueToSave !== undefined ? dueToSave : masterPay.expectedAmount,
+        dueAmount: dueToSave !== undefined ? dueToSave : (masterPay as any).dueAmount,
+        paymentType: editPaymentType || masterPay.paymentType || 'اشتراك شهري',
+        status: paymentStatusToUse as any,
+        receiptNumber: recNum,
+        notes: cleanCustomNote || masterPay.notes,
+        isManuallyPaid: isManuallyPaidToUse,
+        isManuallyEdited: true,
+      };
+
+      const updatedChildren: Payment[] = existingChildPayments.map((child) => ({
+        ...child,
+        paymentType: editPaymentType || child.paymentType || 'اشتراك شهري',
+        status: paymentStatusToUse as any,
+        receiptNumber: recNum,
+        isManuallyPaid: isManuallyPaidToUse,
+        isManuallyEdited: true,
+      }));
+
+      const allUpdated = [updatedMaster, ...updatedChildren];
+
+      if (onDistributePayment) {
+        onDistributePayment(masterPay.id, allUpdated, []);
+      } else if (onEditPayment) {
+        allUpdated.forEach((p) => onEditPayment(p));
+      }
+
+      // Update currently viewed modal cell immediately
+      const thisMonthPayments = allUpdated.filter((p) => p.month === selectedCell?.month);
+      setSelectedCell((prev) =>
+        prev
+          ? {
+              ...prev,
+              payments: [
+                ...prev.payments.filter((p) => String(p.id) !== masterId && !existingChildIds.includes(String(p.id))),
+                ...thisMonthPayments,
+              ],
+            }
+          : null
+      );
+
+      setEditingPaymentId(null);
+      setIsDistributing(false);
     } else {
       // Single payment update (or undistributed single payment)
       const cleanCustomNote = (editNotes || '').trim();
@@ -861,10 +939,10 @@ const SummariesComponent: React.FC<SummariesProps> = ({
         expectedAmount: dueToSave,
         dueAmount: dueToSave,
         paymentType: editPaymentType,
-        status: (editPaymentStatus as any) || 'collected',
+        status: paymentStatusToUse as any,
         receiptNumber: (editReceiptNumber || '').trim(),
         notes: cleanCustomNote || undefined,
-        isManuallyPaid: true,
+        isManuallyPaid: isManuallyPaidToUse,
         isManuallyEdited: true,
         isDistributed: false,
         distributedPaymentIds: [],
@@ -1477,23 +1555,30 @@ const SummariesComponent: React.FC<SummariesProps> = ({
       {selectedCell && (() => {
         // Instant optimistic merge: combines parent payments state with local optimistic cell updates to eliminate lag & flickering
         const activeCellPayments = (() => {
+          const deletedIds = getDeletedPaymentIds();
           const map = new Map<string, Payment>();
           payments.forEach((p) => {
+            const pId = String(p.id);
             if (
+              !localDeletedPaymentIds.has(pId) &&
+              !deletedIds.has(pId) &&
               p.residentId === selectedCell.resident.id &&
               p.month === selectedCell.month &&
               p.year === currentYear
             ) {
-              map.set(String(p.id), p);
+              map.set(pId, p);
             }
           });
           (selectedCell.payments || []).forEach((p) => {
+            const pId = String(p.id);
             if (
+              !localDeletedPaymentIds.has(pId) &&
+              !deletedIds.has(pId) &&
               p.residentId === selectedCell.resident.id &&
               p.month === selectedCell.month &&
               p.year === currentYear
             ) {
-              map.set(String(p.id), p);
+              map.set(pId, p);
             }
           });
           return Array.from(map.values());
@@ -1617,323 +1702,6 @@ const SummariesComponent: React.FC<SummariesProps> = ({
                           key={pay.id} 
                           className={`px-2.5 py-1.5 border rounded-lg shadow-2xs transition ${cardThemeClass}`}
                         >
-                          {isEditing ? (
-                            /* Inline Edit & Distribution Form */
-                            <div className="space-y-2.5 w-full text-right bg-white p-2.5 sm:p-3 rounded-xl border border-slate-200 shadow-sm" dir="rtl">
-                              <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
-                                <h5 className="text-[11px] font-black text-blue-950 flex items-center gap-1.5">
-                                  <Edit className="w-3.5 h-3.5 text-blue-900" />
-                                  <span>تعديل بيانات الدفعة:</span>
-                                </h5>
-                                <span className="text-[9.5px] font-bold text-slate-500">
-                                  شهر {pay.month} ({monthNamesArabic[parseInt(pay.month, 10) - 1]})
-                                </span>
-                              </div>
-
-                              {/* Basic Inputs */}
-                              {(() => {
-                                const editDueFee = getDefaultFeeForResident(selectedCell.resident, pay.month || selectedCell.month, currentYear);
-                                return (
-                                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                                    {/* خانة المبلغ المستحق */}
-                                    <div className="space-y-0.5">
-                                      <label className="text-[9px] font-black text-amber-800 block truncate">المبلغ المستحق (ج.م)</label>
-                                      <div className="relative">
-                                        <input
-                                          type="number"
-                                          min="0"
-                                          placeholder="المستحق"
-                                          value={editDueAmount}
-                                          onChange={(e) => setEditDueAmount(e.target.value)}
-                                          className="w-full pl-6 pr-1.5 sm:pr-2.5 py-1 bg-amber-50/90 border border-amber-300 focus:border-amber-500 rounded-lg text-xs font-black text-amber-950 text-right outline-none transition h-[28px]"
-                                          title="تعديل قيمة المبلغ المستحق يدوياً لهذه الدفعة (المصدر الأول للمبلغ المستحق)"
-                                        />
-                                        <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[8px] sm:text-[9px] text-amber-700 font-bold">ج.م</span>
-                                      </div>
-                                    </div>
-                                    <div className="space-y-0.5">
-                                      <label className="text-[9px] font-black text-slate-600 block">المبلغ المدفوع (ج.م) *</label>
-                                      <input
-                                        type="number"
-                                        min="1"
-                                        value={editAmount}
-                                        onChange={(e) => setEditAmount(e.target.value)}
-                                        className="w-full px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs text-right font-black focus:border-blue-500 outline-none h-[28px]"
-                                      />
-                                    </div>
-                                    <div className="space-y-0.5">
-                                      <label className="text-[9px] font-bold text-slate-600 block">نوع الدفعة</label>
-                                      <select
-                                        value={editPaymentType}
-                                        onChange={(e) => setEditPaymentType(e.target.value)}
-                                        className="w-full px-1.5 py-1 bg-white border border-slate-200 rounded-lg text-xs text-right font-bold focus:border-blue-500 outline-none cursor-pointer h-[28px]"
-                                      >
-                                        {(paymentTypes && paymentTypes.length > 0 ? paymentTypes : ['اشتراك شهري', 'صيانة طارئة', 'تحصيلات اخرى']).map(type => (
-                                          <option key={type} value={type}>{type}</option>
-                                        ))}
-                                      </select>
-                                    </div>
-                                    <div className="space-y-0.5">
-                                      <label className="text-[9px] font-bold text-slate-600 block">حالة الدفعة</label>
-                                      <select
-                                        value={editPaymentStatus}
-                                        onChange={(e) => setEditPaymentStatus(e.target.value)}
-                                        className="w-full px-1.5 py-1 bg-white border border-slate-200 rounded-lg text-xs text-right font-bold focus:border-blue-500 outline-none cursor-pointer h-[28px]"
-                                      >
-                                        <option value="collected">مسدد</option>
-                                        <option value="pending">لم يحصل</option>
-                                        <option value="cancelled">لاغي</option>
-                                      </select>
-                                    </div>
-                                    <div className="space-y-0.5">
-                                      <label className="text-[9px] font-bold text-slate-600 block">رقم الإيصال</label>
-                                      <input
-                                        type="text"
-                                        placeholder="اختياري"
-                                        value={editReceiptNumber}
-                                        onChange={(e) => setEditReceiptNumber(e.target.value)}
-                                        className="w-full px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs text-right font-bold focus:border-blue-500 outline-none font-mono h-[28px]"
-                                      />
-                                    </div>
-                                  </div>
-                                );
-                              })()}
-
-                              {/* Notes Input Field */}
-                              <div className="space-y-0.5 pt-0.5">
-                                <label className="text-[9.5px] font-black text-slate-700 flex items-center gap-1">
-                                  <FileText className="w-3.5 h-3.5 text-blue-900" />
-                                  <span>الملاحظات</span>
-                                </label>
-                                <textarea
-                                  rows={2}
-                                  placeholder="أضف أو عدّل أي ملاحظات خاصة بهذه الدفعة (مثال: سداد نقدي، تحويل بنكي، فودافون كاش)..."
-                                  value={editNotes}
-                                  onChange={(e) => setEditNotes(e.target.value)}
-                                  className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-right font-medium focus:border-blue-500 outline-none leading-relaxed placeholder:text-slate-400"
-                                />
-                              </div>
-
-                              {/* Multi-Month Aggregated Distribution Section */}
-                              {(() => {
-                                const fee = selectedCell ? getDefaultFeeForResident(selectedCell.resident, pay.month || selectedCell.month, currentYear) : 400;
-                                const parsedAmt = parseFloat(editAmount) || pay.amount;
-                                const coveredCount = fee > 0 ? Math.max(1, Math.round(parsedAmt / fee)) : 1;
-
-                                const count = selectedMonths.length || 1;
-                                const basePerMonth = Math.floor(parsedAmt / count);
-                                const remainder = parsedAmt - (basePerMonth * count);
-                                const sortedSelected = [...selectedMonths].sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
-
-                                return (
-                                  <div className="space-y-2 pt-1 border-t border-slate-100">
-                                    {/* Toggle Distribution Button */}
-                                    <button
-                                      type="button"
-                                      onClick={() => setIsDistributing(!isDistributing)}
-                                      className={`w-full py-1.5 px-3 rounded-xl font-black text-xs flex items-center justify-between border transition shadow-xs cursor-pointer ${
-                                        isDistributing
-                                          ? 'bg-blue-900 text-white border-blue-900 shadow-blue-900/10'
-                                          : 'bg-blue-50/80 text-blue-900 border-blue-200 hover:bg-blue-100/70'
-                                      }`}
-                                    >
-                                      <span className="flex items-center gap-1.5">
-                                        <Calendar className="w-3.5 h-3.5 shrink-0" />
-                                        <span>توزيع هذا المبلغ المجمع على شهور السنة ({currentYear})</span>
-                                      </span>
-                                      <span className={`px-2 py-0.5 rounded-md text-[10px] font-black ${
-                                        isDistributing ? 'bg-white text-blue-900' : 'bg-blue-200 text-blue-950'
-                                      }`}>
-                                        {isDistributing ? `مفعل (${selectedMonths.length} شهور)` : 'انقر لتوزيع المبلغ ⚡'}
-                                      </span>
-                                    </button>
-
-                                    {/* Interactive Month Selection Grid */}
-                                    {isDistributing && (
-                                      <div className="p-3 bg-gradient-to-b from-blue-50/90 to-slate-50 border border-blue-200/80 rounded-xl space-y-2.5">
-                                        {/* Status & Advice Header */}
-                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-white p-2.5 rounded-lg border border-blue-100 shadow-2xs">
-                                          <div className="space-y-0.5 text-right">
-                                            <div className="font-black text-blue-950 text-xs flex items-center gap-1.5">
-                                              <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                                              <span>اشتراك الوحدة: <span className="text-emerald-700">{fee} ج.م/شهر</span></span>
-                                              <span className="text-slate-300">|</span>
-                                              <span>المبلغ المراد توزيعه: <span className="text-blue-900">{parsedAmt} ج.م</span></span>
-                                            </div>
-                                            <p className="text-[10px] text-slate-500 font-bold">
-                                              هذا المبلغ يغطي <span className="font-black text-blue-900 underline">{coveredCount} شهور</span> بالكامل. اختر الشهور المراد تحويلها إلى مسددة:
-                                            </p>
-                                          </div>
-
-                                          {/* Quick Selection Buttons */}
-                                          <div className="flex items-center gap-1 flex-wrap shrink-0">
-                                            <button
-                                              type="button"
-                                              onClick={() => selectAutoCoveredMonths(pay.month, parsedAmt, fee)}
-                                              className="px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-900 rounded-md text-[9.5px] font-black cursor-pointer transition shadow-2xs"
-                                              title={`تحديد ${coveredCount} شهور تلقائياً`}
-                                            >
-                                              تلقائي ({coveredCount} شهور)
-                                            </button>
-                                            <button
-                                              type="button"
-                                              onClick={() => selectUnpaidMonths(selectedCell.resident.id, pay.month)}
-                                              className="px-2 py-1 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-md text-[9.5px] font-black cursor-pointer transition shadow-2xs"
-                                              title="تحديد كل الشهور غير المسددة"
-                                            >
-                                              الشهور غير المسددة
-                                            </button>
-                                            <button
-                                              type="button"
-                                              onClick={() => setSelectedMonths([...months])}
-                                              className="px-2 py-1 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-md text-[9.5px] font-black cursor-pointer transition shadow-2xs"
-                                            >
-                                              كامل السنة (12)
-                                            </button>
-                                            <button
-                                              type="button"
-                                              onClick={() => setSelectedMonths([pay.month])}
-                                              className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-md text-[9.5px] font-bold cursor-pointer transition"
-                                            >
-                                              شهر واحد
-                                            </button>
-                                          </div>
-                                        </div>
-
-                                        {/* 12 Months Grid */}
-                                        <div className="grid grid-cols-2 min-[400px]:grid-cols-3 sm:grid-cols-4 gap-1.5">
-                                          {months.map((m, idx) => {
-                                            const isChecked = selectedMonths.includes(m);
-                                            const status = getSubscriptionStatus(selectedCell.resident.id, m);
-                                            const isCurrentPayMonth = (m === pay.month);
-                                            const hasOtherPayment = status.paid && !isCurrentPayMonth;
-
-                                            const isFirstInSorted = (sortedSelected.length > 0 && m === sortedSelected[0]);
-                                            const monthAllocated = isFirstInSorted ? (basePerMonth + remainder) : basePerMonth;
-
-                                            return (
-                                              <div
-                                                key={m}
-                                                onClick={() => toggleMonthSelection(m)}
-                                                className={`p-2 rounded-lg border text-right transition cursor-pointer select-none flex flex-col justify-between gap-1 shadow-2xs ${
-                                                  isChecked
-                                                    ? 'bg-emerald-50/95 border-emerald-400 ring-2 ring-emerald-500/20 text-emerald-950'
-                                                    : hasOtherPayment
-                                                    ? 'bg-slate-50/80 border-slate-200 text-slate-500 opacity-80'
-                                                    : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300'
-                                                }`}
-                                              >
-                                                <div className="flex items-center justify-between">
-                                                  <span className="text-[11px] font-black truncate">
-                                                    {m} - {monthNamesArabic[idx]}
-                                                  </span>
-                                                  <div className={`w-4 h-4 rounded flex items-center justify-center border transition shrink-0 ${
-                                                    isChecked ? 'bg-emerald-600 border-emerald-600 text-white' : 'border-slate-300 bg-white'
-                                                  }`}>
-                                                    {isChecked && <Check className="w-3 h-3 stroke-[3.5]" />}
-                                                  </div>
-                                                </div>
-
-                                                <div className="flex items-center justify-between text-[9px] pt-1 border-t border-slate-100">
-                                                  {isChecked ? (
-                                                    <span className="font-black text-emerald-800">
-                                                      نصيب: {monthAllocated} ج.م
-                                                    </span>
-                                                  ) : hasOtherPayment ? (
-                                                    <span className="font-bold text-blue-700 bg-blue-50 px-1 rounded text-[8px]">
-                                                      مسدد سابقاً ✓
-                                                    </span>
-                                                  ) : (
-                                                    <span className="font-bold text-red-700 bg-red-50 px-1 rounded text-[8px]">
-                                                      غير مسدد ⚠️
-                                                    </span>
-                                                  )}
-                                                </div>
-                                              </div>
-                                            );
-                                          })}
-                                        </div>
-
-                                        {/* Summary & Live Preview */}
-                                        {selectedMonths.length > 0 && (
-                                          <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-2.5 text-xs text-emerald-950 space-y-1">
-                                            <div className="flex items-center justify-between font-black">
-                                              <span>عدد الشهور المختارة: <span className="underline">{selectedMonths.length} شهور</span></span>
-                                              <span>نصيب كل شهر: <span className="underline">{basePerMonth} ج.م</span> {remainder > 0 && `(+${remainder} ج.م للشهر الأول)`}</span>
-                                            </div>
-                                            <p className="text-[10px] text-emerald-800 font-bold leading-relaxed">
-                                              ✓ ستتحول الشهور المحددة فوراً إلى <span className="font-black text-emerald-950 underline">مسددة باللون الأخضر</span> في جدول كشف التحصيل وخريطة السداد التفاعلية.
-                                            </p>
-                                          </div>
-                                        )}
-                                      </div>
-                                    )}
-                                  </div>
-                                );
-                              })()}
-
-                              {/* Edit Action Buttons (All on a single row) */}
-                              <div className="flex items-center gap-1.5 pt-2 border-t border-slate-100 w-full flex-nowrap">
-                                {(isMasterDistributionPayment(pay) || isChildDistributedPayment(pay)) && (
-                                  confirmCancelId === pay.id ? (
-                                    <div className="flex-1 flex items-center justify-between gap-1 bg-rose-50 border border-rose-300 p-1 rounded-lg min-w-0">
-                                      <span className="text-[9px] sm:text-[10px] font-black text-rose-900 truncate">تأكيد الاستعادة والإلغاء؟</span>
-                                      <div className="flex items-center gap-1 shrink-0">
-                                        <button
-                                          type="button"
-                                          onClick={() => handleCancelDistribution(pay)}
-                                          className="px-2 py-0.5 bg-rose-600 hover:bg-rose-700 text-white font-black text-[9.5px] sm:text-[10.5px] rounded cursor-pointer transition shadow-2xs whitespace-nowrap"
-                                        >
-                                          تأكيد ↩️
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => setConfirmCancelId(null)}
-                                          className="px-1.5 py-0.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-[9.5px] sm:text-[10.5px] rounded cursor-pointer transition whitespace-nowrap"
-                                        >
-                                          تراجع
-                                        </button>
-                                      </div>
-                                    </div>
-                                  ) : (
-                                    <button
-                                      type="button"
-                                      onClick={() => setConfirmCancelId(pay.id)}
-                                      className="flex-1 px-1.5 sm:px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-900 border border-rose-200 rounded-lg text-[9.5px] sm:text-xs font-black cursor-pointer transition flex items-center justify-center gap-1 active:scale-95 shadow-2xs whitespace-nowrap min-w-0"
-                                      title="إلغاء توزيع هذا السداد وحذف الدفعات التابعة وإرجاع كامل المبلغ لهذا الشهر"
-                                    >
-                                      <RotateCcw className="w-3 h-3 text-rose-700 shrink-0" />
-                                      <span className="truncate">إلغاء التوزيع واستعادة المبلغ ↩️</span>
-                                    </button>
-                                  )
-                                )}
-                                <button
-                                  type="button"
-                                  onClick={() => handleSavePayment(pay)}
-                                  className="flex-1 px-1.5 sm:px-3 py-1.5 bg-blue-900 hover:bg-blue-950 active:scale-95 text-white font-black text-[9.5px] sm:text-xs rounded-lg flex items-center justify-center gap-1 shadow-xs cursor-pointer transition whitespace-nowrap min-w-0"
-                                >
-                                  <Save className="w-3 h-3 shrink-0" />
-                                  <span className="truncate">
-                                    {isDistributing && (selectedMonths.length > 1 || (selectedMonths.length === 1 && selectedMonths[0] !== pay.month))
-                                      ? `تطبيق وتوزيع (${selectedMonths.length}) شهور 💾`
-                                      : 'حفظ التعديل'}
-                                  </span>
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setEditingPaymentId(null);
-                                    setIsDistributing(false);
-                                    setConfirmCancelId(null);
-                                  }}
-                                  className="px-2.5 sm:px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-[10px] sm:text-xs rounded-lg cursor-pointer transition whitespace-nowrap shrink-0"
-                                >
-                                  إلغاء
-                                </button>
-                              </div>
-                            </div>
-                          ) : (
-                            /* Regular Compact View with Notes */
                             <div className="flex flex-col gap-1 w-full">
                               <div className="flex items-center justify-between gap-2 w-full flex-wrap sm:flex-nowrap">
                                 <div className="flex items-center gap-1.5 flex-wrap flex-1 min-w-0">
@@ -2008,7 +1776,14 @@ const SummariesComponent: React.FC<SummariesProps> = ({
                                       {isMasterDistributionPayment(pay) && isCollected && role !== 'ASSISTANT' && (
                                         <button
                                           type="button"
-                                          onClick={() => handleStartEdit(pay, true)}
+                                          onClick={() => {
+                                          setPaymentModalState({
+                                            isOpen: true,
+                                            payment: pay,
+                                            resident: selectedCell.resident,
+                                            month: pay.month || selectedCell.month,
+                                          });
+                                        }}
                                           className="px-2 py-0.5 rounded-md transition cursor-pointer flex items-center gap-1 text-[9.5px] font-black shadow-2xs active:scale-95 border bg-emerald-50 hover:bg-emerald-100 text-emerald-950 border-emerald-400 ring-2 ring-emerald-500/20"
                                           title="دفعة تحصيل مجمع رئيسية - انقر لتعديل الشهور الموزعة"
                                         >
@@ -2021,7 +1796,14 @@ const SummariesComponent: React.FC<SummariesProps> = ({
                                       {/* Edit Button for ALL registered payments */}
                                       <button
                                         type="button"
-                                        onClick={() => handleStartEdit(pay, false)}
+                                        onClick={() => {
+                                          setPaymentModalState({
+                                            isOpen: true,
+                                            payment: pay,
+                                            resident: selectedCell.resident,
+                                            month: pay.month || selectedCell.month,
+                                          });
+                                        }}
                                         className="px-2 py-1 text-blue-900 hover:text-blue-950 hover:bg-blue-100/70 rounded-lg transition cursor-pointer flex items-center gap-1 text-[10px] font-black border border-blue-200 bg-blue-50/80 shadow-3xs active:scale-95"
                                         title="تعديل الدفعة والملاحظات"
                                       >
@@ -2035,18 +1817,21 @@ const SummariesComponent: React.FC<SummariesProps> = ({
                                           <span className="text-[8.5px] text-red-700 font-extrabold">تأكيد؟</span>
                                           <button
                                             type="button"
-                                            onClick={() => {
-                                              if (onDeletePayment) {
-                                                onDeletePayment(pay.id);
-                                              } else {
-                                                onCellClick(selectedCell.resident.id, selectedCell.month, true, pay.id);
-                                              }
-                                              setSelectedCell(prev => prev ? {
-                                                ...prev,
-                                                payments: prev.payments.filter(p => p.id !== pay.id)
-                                              } : null);
-                                              setDeleteConfirmId(null);
-                                            }}
+onClick={() => {
+                                                const cleanId = String(pay.id);
+                                                registerDeletedPaymentIds(cleanId);
+                                                setLocalDeletedPaymentIds(prev => new Set(prev).add(cleanId));
+                                                if (onDeletePayment) {
+                                                  onDeletePayment(cleanId);
+                                                } else {
+                                                  onCellClick(selectedCell.resident.id, selectedCell.month, true, cleanId);
+                                                }
+                                                setSelectedCell(prev => prev ? {
+                                                  ...prev,
+                                                  payments: (prev.payments || []).filter(p => String(p.id) !== cleanId)
+                                                } : null);
+                                                setDeleteConfirmId(null);
+                                              }}
                                             className="px-1.5 py-0.5 bg-red-600 text-white font-black text-[8.5px] rounded hover:bg-red-700 transition cursor-pointer"
                                           >
                                             نعم
@@ -2068,18 +1853,21 @@ const SummariesComponent: React.FC<SummariesProps> = ({
                                               message: `هل أنت متأكد من حذف هذه الدفعة نهائياً بقيمة ${pay.amount.toLocaleString()} ج.م للوحدة ${selectedCell?.resident.flatNumber} (${pay.paymentType || 'اشتراك شهري'})؟ لا يمكن التراجع عن هذا الإجراء.`,
                                               confirmLabel: 'تأكيد الحذف نهائياً',
                                               confirmClass: 'bg-rose-600 hover:bg-rose-700 text-white',
-                                              onConfirm: () => {
-                                                if (onDeletePayment) {
-                                                  onDeletePayment(pay.id);
-                                                } else {
-                                                  onCellClick(selectedCell!.resident.id, selectedCell!.month, true, pay.id);
+onConfirm: () => {
+                                                  const cleanId = String(pay.id);
+                                                  registerDeletedPaymentIds(cleanId);
+                                                  setLocalDeletedPaymentIds(prev => new Set(prev).add(cleanId));
+                                                  if (onDeletePayment) {
+                                                    onDeletePayment(cleanId);
+                                                  } else {
+                                                    onCellClick(selectedCell!.resident.id, selectedCell!.month, true, cleanId);
+                                                  }
+                                                  setSelectedCell(prev => prev ? {
+                                                    ...prev,
+                                                    payments: (prev.payments || []).filter(p => String(p.id) !== cleanId)
+                                                  } : null);
+                                                  setActionConfirm(null);
                                                 }
-                                                setSelectedCell(prev => prev ? {
-                                                  ...prev,
-                                                  payments: prev.payments.filter(p => p.id !== pay.id)
-                                                } : null);
-                                                setActionConfirm(null);
-                                              }
                                             });
                                           }}
                                           className="px-2 py-1 text-rose-700 hover:text-rose-900 hover:bg-rose-100/70 rounded-lg transition cursor-pointer flex items-center gap-1 text-[10px] font-black border border-rose-200 bg-rose-50/80 shadow-3xs active:scale-95"
@@ -2103,7 +1891,6 @@ const SummariesComponent: React.FC<SummariesProps> = ({
                               </div>
                             )}
                           </div>
-                          )}
                         </div>
                       );
                     })}
@@ -2112,151 +1899,24 @@ const SummariesComponent: React.FC<SummariesProps> = ({
               </div>
             </div>
 
-            {/* Quick Payment Input Form */}
+            {/* Add Payment Button (replaces bottom quick input form) */}
             {!isReadOnly && role !== 'ASSISTANT' && (
-              <div className="px-3 py-2 bg-emerald-50/50 border-t border-slate-100 space-y-1.5 shrink-0">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-[10.5px] font-black text-emerald-950 flex items-center gap-1">
-                    <PlusCircle className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>تسجيل دفعة جديدة لشهر {selectedCell.monthName} {currentYear}:</span>
-                  </h4>
-                  <span className="text-[9.5px] text-emerald-700 font-bold bg-emerald-100/70 px-1.5 py-0.5 rounded">
-                    وحدة {selectedCell.resident.flatNumber}
-                  </span>
-                </div>
-
-                {/* الصف الأول: خانة المبلغ المستحق بجانب خانة المبلغ المدفوع وبجانبهم خانة نوع الدفعة */}
-                <div className="grid grid-cols-3 gap-1.5 sm:gap-2 items-end">
-                  {/* خانة المبلغ المستحق */}
-                  <div className="space-y-0.5">
-                    <label className="text-[9px] font-bold text-amber-800 block truncate">المبلغ المستحق (ج.م)</label>
-                    <div className="relative">
-                      <input
-                        type="number"
-                        min="0"
-                        placeholder="المستحق"
-                        value={newDueAmount}
-                        onChange={(e) => setNewDueAmount(e.target.value)}
-                        className="w-full pl-6 pr-1.5 sm:pr-2.5 py-1 bg-amber-50/90 border border-amber-300 focus:border-amber-500 rounded-lg text-[11px] sm:text-xs font-black text-amber-950 text-right outline-none transition h-[30px]"
-                        title="المبلغ المستحق (يمكن تعديله يدوياً ليكون المصدر الأول للمبلغ المستحق)"
-                      />
-                      <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[8.5px] sm:text-[9.5px] text-amber-700 font-bold">ج.م</span>
-                    </div>
-                  </div>
-
-                  {/* خانة المبلغ المدفوع */}
-                  <div className="space-y-0.5">
-                    <label className="text-[9px] font-bold text-slate-500 block truncate">المبلغ المدفوع (ج.م) *</label>
-                    <div className="relative">
-                      <input
-                        type="number"
-                        min="1"
-                        placeholder="المبلغ المدفوع"
-                        value={newAmount}
-                        onChange={(e) => setNewAmount(e.target.value)}
-                        className="w-full pl-6 pr-1.5 sm:pr-2.5 py-1 bg-white border border-slate-200 focus:border-emerald-500 rounded-lg text-[11px] sm:text-xs font-bold text-right outline-none transition h-[30px]"
-                      />
-                      <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[8.5px] sm:text-[9.5px] text-slate-400 font-bold">ج.م</span>
-                    </div>
-                  </div>
-
-                  {/* خانة نوع الدفعة */}
-                  <div className="space-y-0.5">
-                    <label className="text-[9px] font-bold text-slate-500 block truncate">نوع الدفعة</label>
-                    <select
-                      value={newPaymentType}
-                      onChange={(e) => setNewPaymentType(e.target.value)}
-                      className="w-full px-1 sm:px-2 py-1 bg-white border border-slate-200 focus:border-emerald-500 rounded-lg text-[11px] sm:text-xs font-bold text-right outline-none transition cursor-pointer h-[30px]"
-                    >
-                      {(paymentTypes && paymentTypes.length > 0 ? paymentTypes : ['اشتراك شهري', 'صيانة طارئة', 'تحصيلات اخرى']).map(type => (
-                        <option key={type} value={type}>{type}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                {/* الصف الثاني: تحتهم خانة الملاحظات وزر تسجيل الدفعة الآن */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 sm:gap-2 items-end pt-0.5">
-                  <div className="sm:col-span-2 space-y-0.5">
-                    <label className="text-[9px] font-bold text-slate-500 block truncate">الملاحظات</label>
-                    <input
-                      type="text"
-                      placeholder="ملاحظات الدفعة (اختياري)..."
-                      value={newNotes}
-                      onChange={(e) => setNewNotes(e.target.value)}
-                      className="w-full px-2.5 py-1 bg-white border border-slate-200 focus:border-emerald-500 rounded-lg text-[11px] sm:text-xs font-medium text-right outline-none transition placeholder:text-slate-400 h-[30px]"
-                    />
-                  </div>
-
-                  <div className="sm:col-span-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const parsedAmount = parseFloat(newAmount);
-                        if (isNaN(parsedAmount) || parsedAmount <= 0) {
-                          alert('يرجى إدخال قيمة دفعة صالحة أكبر من الصفر.');
-                          return;
-                        }
-
-                        const parsedDue = parseFloat(newDueAmount);
-                        const expectedDueToSave = (!isNaN(parsedDue) && parsedDue >= 0) ? parsedDue : undefined;
-
-                        const pType = newPaymentType || 'اشتراك شهري';
-                        const payDate = new Date().toISOString().split('T')[0];
-                        const notesText = newNotes.trim() ? newNotes.trim() : `سداد اشتراك شهر ${selectedCell.monthName} ${currentYear}`;
-
-                        const newPay: Payment = {
-                          id: `pay_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-                          year: currentYear,
-                          month: selectedCell.month,
-                          residentId: selectedCell.resident.id,
-                          residentName: selectedCell.resident.name,
-                          flatNumber: selectedCell.resident.flatNumber,
-                          paymentType: pType,
-                          amount: parsedAmount,
-                          expectedAmount: expectedDueToSave,
-                          dueAmount: expectedDueToSave,
-                          notes: notesText,
-                          date: payDate,
-                          isManuallyPaid: true,
-                          isManuallyEdited: true,
-                          status: 'collected',
-                        };
-
-                        setActionConfirm({
-                          title: 'تأكيد تسجيل الدفعة',
-                          message: `هل أنت متأكد من تسجيل دفعة جديدة بقيمة ${parsedAmount.toLocaleString()} ج.م للوحدة ${selectedCell.resident.flatNumber} (${selectedCell.resident.name}) لشهر ${selectedCell.monthName} ${currentYear}؟`,
-                          confirmLabel: 'تأكيد التسجيل الآن',
-                          confirmClass: 'bg-emerald-600 hover:bg-emerald-700 text-white',
-                          onConfirm: () => {
-                            if (onAddPayment) {
-                              onAddPayment(newPay);
-                            } else {
-                              onCellClick(selectedCell.resident.id, selectedCell.month, false, undefined, parsedAmount, pType);
-                            }
-
-                            // Update local modal list dynamically so the user immediately sees it with 0ms latency
-                            setSelectedCell(prev => prev ? {
-                              ...prev,
-                              payments: [...prev.payments, newPay],
-                            } : null);
-
-                            // Reset inputs
-                            setNewNotes('');
-                            const defaultAmt = getDefaultFeeForResident(selectedCell.resident, selectedCell.month, currentYear);
-                            setNewAmount(String(defaultAmt));
-                            setNewDueAmount(String(defaultAmt));
-                            setActionConfirm(null);
-                          }
-                        });
-                      }}
-                      className="w-full h-[30px] px-1 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-[10px] sm:text-xs font-black rounded-lg shadow-2xs transition cursor-pointer flex items-center justify-center gap-1 leading-tight"
-                    >
-                      <PlusCircle className="w-3.5 h-3.5 shrink-0" />
-                      <span className="truncate">تسجيل الدفعة الآن</span>
-                    </button>
-                  </div>
-                </div>
+              <div className="p-2.5 sm:p-3 bg-slate-50 border-t border-slate-100 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPaymentModalState({
+                      isOpen: true,
+                      payment: null,
+                      resident: selectedCell.resident,
+                      month: selectedCell.month,
+                    });
+                  }}
+                  className="w-full py-2.5 px-3 bg-blue-900 hover:bg-blue-950 active:scale-98 text-white rounded-xl text-xs sm:text-sm font-black transition flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+                >
+                  <Plus className="w-4 h-4 shrink-0" />
+                  <span>إضافة تحصيل</span>
+                </button>
               </div>
             )}
 
@@ -2321,6 +1981,73 @@ const SummariesComponent: React.FC<SummariesProps> = ({
             onEditResident(updatedResident);
           }
         }}
+      />
+
+      {/* Payment Form Modal (Add / Edit / Multi-month distribution dialog) */}
+      <PaymentFormModal
+        isOpen={paymentModalState.isOpen}
+        onClose={() => setPaymentModalState({ isOpen: false, payment: null })}
+        initialPayment={paymentModalState.payment}
+        initialResident={paymentModalState.resident || (selectedCell ? selectedCell.resident : null)}
+        initialMonth={paymentModalState.month || (selectedCell ? selectedCell.month : undefined)}
+        residents={residents}
+        payments={payments}
+        paymentTypes={availablePaymentTypes}
+        role={role}
+        currentYear={currentYear}
+        floorConfigs={effectiveFloorConfigs}
+        config={config}
+        defaultMonthlyFee={defaultMonthlyFee}
+        activityDefaultFees={activityDefaultFees}
+        onAdd={(payment, base64Image) => {
+          if (onAddPayment) {
+            onAddPayment(payment, base64Image);
+          }
+          if (selectedCell && payment.residentId === selectedCell.resident.id && payment.month === selectedCell.month) {
+            setSelectedCell(prev => prev ? {
+              ...prev,
+              payments: [...(prev.payments || []).filter(p => String(p.id) !== String(payment.id)), payment],
+            } : null);
+          }
+        }}
+        onEdit={(payment, base64Image) => {
+          if (onEditPayment) {
+            onEditPayment(payment, base64Image);
+          }
+          if (selectedCell) {
+            setSelectedCell(prev => prev ? {
+              ...prev,
+              payments: (prev.payments || []).map(p => String(p.id) === String(payment.id) ? payment : p),
+            } : null);
+          }
+        }}
+        onDistributePayment={(originalPaymentId, distributedPayments, deletedPaymentIds) => {
+          if (deletedPaymentIds && deletedPaymentIds.length > 0) {
+            deletedPaymentIds.forEach(id => {
+              const cleanId = String(id);
+              registerDeletedPaymentIds(cleanId);
+              setLocalDeletedPaymentIds(prev => new Set(prev).add(cleanId));
+            });
+          }
+          if (onDistributePayment) {
+            onDistributePayment(originalPaymentId, distributedPayments, deletedPaymentIds);
+          }
+          if (selectedCell) {
+            const deletedSet = new Set((deletedPaymentIds || []).map(String));
+            deletedSet.add(String(originalPaymentId));
+            setSelectedCell(prev => {
+              if (!prev) return null;
+              const kept = (prev.payments || []).filter(p => !deletedSet.has(String(p.id)));
+              const added = distributedPayments.filter(p => p.residentId === prev.resident.id && p.month === prev.month && p.year === currentYear);
+              return {
+                ...prev,
+                payments: [...kept, ...added],
+              };
+            });
+          }
+        }}
+        onEditResident={onEditResident}
+        onPreviewImage={onPreviewImage}
       />
     </div>
   );
