@@ -178,9 +178,24 @@ export const PaymentFormModal: React.FC<PaymentFormModalProps> = ({
       setNotes(cleanNotes);
 
       const rawDue = initialPayment.expectedAmount ?? initialPayment.dueAmount ?? masterPay.expectedAmount ?? (masterPay as any).dueAmount;
-      const initialDue = (rawDue !== undefined && !isNaN(Number(rawDue)) && Number(rawDue) > 0)
+      const prescribedFee = resObj ? getPrescribedFeeForMonth(
+        resObj,
+        currentYear,
+        parseInt(initialPayment.month || defaultMonthStr, 10),
+        payments,
+        defaultMonthlyFee,
+        activityDefaultFees,
+        config?.activityFeePeriods,
+        config?.customUnitFeePeriods
+      ).monthlyFee : (defaultMonthlyFee || 400);
+
+      let initialDue = (rawDue !== undefined && !isNaN(Number(rawDue)) && Number(rawDue) > 0)
         ? Number(rawDue)
-        : (resObj ? getResidentMonthlyFee(resObj, defaultMonthlyFee, activityDefaultFees, `${currentYear}-${initialPayment.month || defaultMonthStr}`, payments, config?.activityFeePeriods) : defaultMonthlyFee);
+        : (prescribedFee > 0 ? prescribedFee : (defaultMonthlyFee || 400));
+
+      if (isDistGroup && childPayments.length > 0 && prescribedFee > 0 && initialDue >= prescribedFee * (childPayments.length + 1)) {
+        initialDue = prescribedFee;
+      }
       setDueAmount(initialDue);
 
       if (isDistGroup) {
@@ -264,29 +279,33 @@ export const PaymentFormModal: React.FC<PaymentFormModalProps> = ({
     const fee = prescribed.monthlyFee > 0 ? prescribed.monthlyFee : (defaultMonthlyFee || 400);
     setTargetActivityType(prescribed.activityType || selectedRes.activityType || 'سكني');
 
-    const totalMonthsCount = (isAggregatedCollection && coveredMonths.length > 0) ? coveredMonths.length : 1;
-    const calcDue = fee * totalMonthsCount;
-    setDueAmount(calcDue);
+    // Due amount is strictly for the collection month (never multiplied by covered months)
+    setDueAmount(fee);
     if (!initialPayment) {
-      setAmount(calcDue);
+      const totalMonthsCount = (isAggregatedCollection && coveredMonths.length > 0) ? coveredMonths.length : 1;
+      setAmount(fee * totalMonthsCount);
     }
   };
 
   const handleActivityTypeChange = (newAct: string) => {
     setTargetActivityType(newAct);
     const fee = getActivityDefaultFee(newAct, `${currentYear}-${month}`);
-    const totalMonthsCount = (isAggregatedCollection && coveredMonths.length > 0) ? coveredMonths.length : 1;
-    const calcDue = fee * totalMonthsCount;
-    setDueAmount(calcDue);
-    setAmount(calcDue);
+    // Due amount is for the single collection month
+    setDueAmount(fee);
+    if (!initialPayment) {
+      const totalMonthsCount = (isAggregatedCollection && coveredMonths.length > 0) ? coveredMonths.length : 1;
+      setAmount(fee * totalMonthsCount);
+    }
   };
 
   const applyDefaultFeeForActivity = (actType: string) => {
     const fee = getActivityDefaultFee(actType, `${currentYear}-${month}`);
-    const totalMonthsCount = (isAggregatedCollection && coveredMonths.length > 0) ? coveredMonths.length : 1;
-    const calcDue = fee * totalMonthsCount;
-    setDueAmount(calcDue);
-    setAmount(calcDue);
+    // Due amount is for the single collection month
+    setDueAmount(fee);
+    if (!initialPayment) {
+      const totalMonthsCount = (isAggregatedCollection && coveredMonths.length > 0) ? coveredMonths.length : 1;
+      setAmount(fee * totalMonthsCount);
+    }
   };
 
   const toggleCoveredMonth = (mStr: string) => {
@@ -300,23 +319,23 @@ export const PaymentFormModal: React.FC<PaymentFormModalProps> = ({
     }
     setCoveredMonths(next);
 
-    const selectedRes = residents.find(r => r.id === residentId);
-    if (selectedRes) {
-      const prescribed = getPrescribedFeeForMonth(
-        selectedRes,
-        currentYear,
-        parseInt(month, 10),
-        payments,
-        defaultMonthlyFee,
-        activityDefaultFees,
-        config?.activityFeePeriods,
-        config?.customUnitFeePeriods
-      );
-      const fee = prescribed.monthlyFee > 0 ? prescribed.monthlyFee : (defaultMonthlyFee || 400);
-      const calcDue = fee * next.length;
-      setDueAmount(calcDue);
-      if (!initialPayment) {
-        setAmount(calcDue);
+    // CRITICAL: Do NOT change dueAmount when selecting/toggling months!
+    // dueAmount represents the single collection month fee and is only changed manually.
+    if (!initialPayment) {
+      const selectedRes = residents.find(r => r.id === residentId);
+      if (selectedRes) {
+        const prescribed = getPrescribedFeeForMonth(
+          selectedRes,
+          currentYear,
+          parseInt(month, 10),
+          payments,
+          defaultMonthlyFee,
+          activityDefaultFees,
+          config?.activityFeePeriods,
+          config?.customUnitFeePeriods
+        );
+        const fee = prescribed.monthlyFee > 0 ? prescribed.monthlyFee : (defaultMonthlyFee || 400);
+        setAmount(fee * next.length);
       }
     }
   };
@@ -366,21 +385,21 @@ export const PaymentFormModal: React.FC<PaymentFormModalProps> = ({
   };
 
   const updateAmountForMonthsCount = (count: number) => {
-    const selectedRes = residents.find(r => r.id === residentId);
-    if (selectedRes) {
-      const prescribed = getPrescribedFeeForMonth(
-        selectedRes,
-        currentYear,
-        parseInt(month, 10),
-        payments,
-        defaultMonthlyFee,
-        activityDefaultFees,
-        config?.activityFeePeriods,
-        config?.customUnitFeePeriods
-      );
-      const fee = prescribed.monthlyFee > 0 ? prescribed.monthlyFee : (defaultMonthlyFee || 400);
-      setDueAmount(fee * count);
-      if (!initialPayment) {
+    // CRITICAL: Do NOT change dueAmount when selecting months count!
+    if (!initialPayment) {
+      const selectedRes = residents.find(r => r.id === residentId);
+      if (selectedRes) {
+        const prescribed = getPrescribedFeeForMonth(
+          selectedRes,
+          currentYear,
+          parseInt(month, 10),
+          payments,
+          defaultMonthlyFee,
+          activityDefaultFees,
+          config?.activityFeePeriods,
+          config?.customUnitFeePeriods
+        );
+        const fee = prescribed.monthlyFee > 0 ? prescribed.monthlyFee : (defaultMonthlyFee || 400);
         setAmount(fee * count);
       }
     }
@@ -543,6 +562,17 @@ export const PaymentFormModal: React.FC<PaymentFormModalProps> = ({
           const recNum = (receiptNumber || '').trim();
           const baseUserNotes = notes ? notes.replace(/\(سداد.*?\)/g, '').replace(/\(استحقاق.*?\)/g, '').trim() : '';
           const noteText = `${isCollected ? 'تم السداد' : 'مستحق غير محصل مسجل'} في شهر ${primaryMonthName} ${currentYear} بإيصال رقم ${recNum || '—'} (القيمة الموزعة للشهر: ${basePerMonth.toLocaleString()} ج.م)${baseUserNotes ? ` (${baseUserNotes})` : ''}`;
+          const childPrescribed = getPrescribedFeeForMonth(
+            resident,
+            currentYear,
+            parseInt(m, 10),
+            payments,
+            defaultMonthlyFee,
+            activityDefaultFees,
+            config?.activityFeePeriods,
+            config?.customUnitFeePeriods
+          );
+          const childDue = (numDueAmount !== undefined && numDueAmount > 0) ? numDueAmount : (childPrescribed.monthlyFee || defaultMonthlyFee || 400);
           return {
             id: otherIds[idx],
             year: currentYear,
@@ -552,8 +582,8 @@ export const PaymentFormModal: React.FC<PaymentFormModalProps> = ({
             flatNumber: resident.flatNumber,
             paymentType,
             amount: basePerMonth,
-            expectedAmount: numDueAmount,
-            dueAmount: numDueAmount,
+            expectedAmount: childDue,
+            dueAmount: childDue,
             receiptNumber: recNum,
             notes: noteText,
             fileId: base64Image ? '' : (existingFileUrl ? (initialPayment.fileId || '') : ''),
@@ -670,6 +700,17 @@ export const PaymentFormModal: React.FC<PaymentFormModalProps> = ({
           const recNum = (receiptNumber || '').trim();
           const baseUserNotes = notes ? notes.replace(/\(سداد.*?\)/g, '').replace(/\(استحقاق.*?\)/g, '').trim() : '';
           const noteText = `${isCollected ? 'تم السداد' : 'مستحق غير محصل مسجل'} في شهر ${primaryMonthName} ${currentYear} بإيصال رقم ${recNum || '—'} (القيمة الموزعة للشهر: ${basePerMonth.toLocaleString()} ج.م)${baseUserNotes ? ` (${baseUserNotes})` : ''}`;
+          const childPrescribed = getPrescribedFeeForMonth(
+            resident,
+            currentYear,
+            parseInt(m, 10),
+            payments,
+            defaultMonthlyFee,
+            activityDefaultFees,
+            config?.activityFeePeriods,
+            config?.customUnitFeePeriods
+          );
+          const childDue = (numDueAmount !== undefined && numDueAmount > 0) ? numDueAmount : (childPrescribed.monthlyFee || defaultMonthlyFee || 400);
           return {
             id: otherIds[idx],
             year: currentYear,
@@ -679,8 +720,8 @@ export const PaymentFormModal: React.FC<PaymentFormModalProps> = ({
             flatNumber: resident.flatNumber,
             paymentType,
             amount: basePerMonth,
-            expectedAmount: numDueAmount,
-            dueAmount: numDueAmount,
+            expectedAmount: childDue,
+            dueAmount: childDue,
             receiptNumber: recNum,
             notes: noteText,
             fileId: '',
@@ -900,9 +941,12 @@ export const PaymentFormModal: React.FC<PaymentFormModalProps> = ({
                       config?.customUnitFeePeriods
                     );
                     const fee = prescribed.monthlyFee > 0 ? prescribed.monthlyFee : (defaultMonthlyFee || 400);
-                    const totalCount = (isAggregatedCollection && coveredMonths.length > 0) ? coveredMonths.length : 1;
-                    setDueAmount(fee * totalCount);
-                    if (!initialPayment) setAmount(fee * totalCount);
+                    // Due amount is for THIS single collection month (never multiplied by covered months!)
+                    setDueAmount(fee);
+                    if (!initialPayment) {
+                      const totalCount = (isAggregatedCollection && coveredMonths.length > 0) ? coveredMonths.length : 1;
+                      setAmount(fee * totalCount);
+                    }
                   }
                 }}
                 disabled={role === 'ASSISTANT' && !!initialPayment}

@@ -1115,11 +1115,11 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       const targetMonthNum = parseInt(month, 10) || 1;
       const prescribed = getPrescribedFeeForMonth(selectedRes, targetYearNum, targetMonthNum, payments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods, customUnitFeePeriods);
       const fee = prescribed.monthlyFee;
-      const totalMonthsCount = (isAggregatedCollection && coveredMonths.length > 0) ? coveredMonths.length : 1;
-      const calcDue = fee * totalMonthsCount;
-      setDueAmount(calcDue);
+      // Due amount is strictly for the collection month
+      setDueAmount(fee);
       if (!selectedPayment) {
-        setAmount(calcDue);
+        const totalMonthsCount = (isAggregatedCollection && coveredMonths.length > 0) ? coveredMonths.length : 1;
+        setAmount(fee * totalMonthsCount);
       }
     }
   };
@@ -1132,11 +1132,11 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       const targetMonthNum = parseInt(month, 10) || 1;
       const prescribed = getPrescribedFeeForMonth(selectedRes, targetYearNum, targetMonthNum, payments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods, customUnitFeePeriods);
       const fee = prescribed.monthlyFee;
-      const totalMonthsCount = (isAggregatedCollection && coveredMonths.length > 0) ? coveredMonths.length : 1;
-      const calcDue = fee * totalMonthsCount;
-      setDueAmount(calcDue);
+      // Due amount is for the single collection month
+      setDueAmount(fee);
       if (!selectedPayment) {
-        setAmount(calcDue);
+        const totalMonthsCount = (isAggregatedCollection && coveredMonths.length > 0) ? coveredMonths.length : 1;
+        setAmount(fee * totalMonthsCount);
       }
     }
   };
@@ -1148,11 +1148,11 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       const targetMonthNum = parseInt(month, 10) || 1;
       const prescribed = getPrescribedFeeForMonth(selectedRes, targetYearNum, targetMonthNum, payments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods, customUnitFeePeriods);
       const fee = prescribed.monthlyFee > 0 ? prescribed.monthlyFee : (getActivityDefaultFee(act, `${targetYearNum}-${targetMonthNum}`) || defaultMonthlyFee || 400);
-      const totalMonthsCount = (isAggregatedCollection && coveredMonths.length > 0) ? coveredMonths.length : 1;
-      const calcDue = fee * totalMonthsCount;
-      if (calcDue > 0) {
-        setDueAmount(calcDue);
-        setAmount(calcDue);
+      // Due amount is for the single collection month
+      setDueAmount(fee);
+      if (!selectedPayment) {
+        const totalMonthsCount = (isAggregatedCollection && coveredMonths.length > 0) ? coveredMonths.length : 1;
+        setAmount(fee * totalMonthsCount);
       }
     }
   };
@@ -1167,6 +1167,8 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
     }
     setCoveredMonths(updated);
 
+    // CRITICAL: Do NOT change dueAmount when selecting/toggling months!
+    // dueAmount represents the single collection month fee and is only changed manually.
     const selectedRes = residents.find(r => r.id === residentId);
     if (selectedRes && (!paymentType || paymentType === 'اشتراك شهري' || paymentType.includes('اشتراك'))) {
       const targetYearNum = Number(currentYear) || new Date().getFullYear();
@@ -1174,15 +1176,12 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       const prescribed = getPrescribedFeeForMonth(selectedRes, targetYearNum, targetMonthNum, payments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods, customUnitFeePeriods);
       const baseFee = prescribed.monthlyFee > 0 ? prescribed.monthlyFee : (defaultMonthlyFee || 400);
       const totalMonthsCount = updated.length > 0 ? updated.length : 1;
-      const calcDue = baseFee * totalMonthsCount;
-      if (calcDue > 0) {
-        setDueAmount(calcDue);
-      }
+      const calcAmt = baseFee * totalMonthsCount;
       if (!selectedPayment) {
-        if (calcDue > 0) setAmount(calcDue);
+        if (calcAmt > 0) setAmount(calcAmt);
       } else {
         if (amount === '' || Number(amount) <= 0) {
-          if (calcDue > 0) setAmount(calcDue);
+          if (calcAmt > 0) setAmount(calcAmt);
         }
       }
     }
@@ -1194,6 +1193,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
     )).sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
     setCoveredMonths(uniqueSorted);
 
+    // CRITICAL: Do NOT change dueAmount when selecting months count!
     const selectedRes = residents.find(r => r.id === residentId);
     if (selectedRes && (!paymentType || paymentType === 'اشتراك شهري' || paymentType.includes('اشتراك'))) {
       const targetYearNum = Number(currentYear) || new Date().getFullYear();
@@ -1201,15 +1201,12 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       const prescribed = getPrescribedFeeForMonth(selectedRes, targetYearNum, targetMonthNum, payments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods, customUnitFeePeriods);
       const baseFee = prescribed.monthlyFee > 0 ? prescribed.monthlyFee : (defaultMonthlyFee || 400);
       const totalMonthsCount = uniqueSorted.length > 0 ? uniqueSorted.length : 1;
-      const calcDue = baseFee * totalMonthsCount;
-      if (calcDue > 0) {
-        setDueAmount(calcDue);
-      }
+      const calcAmt = baseFee * totalMonthsCount;
       if (!selectedPayment) {
-        if (calcDue > 0) setAmount(calcDue);
+        if (calcAmt > 0) setAmount(calcAmt);
       } else {
         if (amount === '' || Number(amount) <= 0) {
-          if (calcDue > 0) setAmount(calcDue);
+          if (calcAmt > 0) setAmount(calcAmt);
         }
       }
     }
@@ -1267,10 +1264,10 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
           const targetMonthNum = parseInt(month, 10) || 1;
           const prescribed = getPrescribedFeeForMonth(selectedRes, targetYearNum, targetMonthNum, payments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods, customUnitFeePeriods);
           const fee = prescribed.monthlyFee;
+          // Due amount is strictly for the single collection month
+          setDueAmount(fee);
           const totalMonthsCount = (isAggregatedCollection && coveredMonths.length > 0) ? coveredMonths.length : 1;
-          const calcDue = fee * totalMonthsCount;
-          setDueAmount(calcDue);
-          setAmount(calcDue);
+          setAmount(fee * totalMonthsCount);
         } else {
           // For "تحصيلات اخرى" and other non-subscription collection types
           if (dueAmount === '' || dueAmount === 0 || typeof dueAmount !== 'number') {
@@ -1471,9 +1468,17 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
         initialTotalAmount = baseFee * (recoveredCoveredMonths.length || 1);
       }
       setAmount(initialTotalAmount);
-      const initialDueAmount = (payment.expectedAmount !== undefined && payment.expectedAmount !== null)
-        ? payment.expectedAmount
-        : ((masterPayment.expectedAmount !== undefined && masterPayment.expectedAmount !== null) ? masterPayment.expectedAmount : defaultCalculatedDue);
+      let initialDueAmount: number | '' = (payment.expectedAmount !== undefined && payment.expectedAmount !== null)
+        ? Number(payment.expectedAmount)
+        : ((masterPayment.expectedAmount !== undefined && masterPayment.expectedAmount !== null) 
+            ? Number(masterPayment.expectedAmount) 
+            : (typeof defaultCalculatedDue === 'number' ? defaultCalculatedDue : ''));
+
+      if (recoveredCoveredMonths.length > 1 && typeof defaultCalculatedDue === 'number' && defaultCalculatedDue > 0) {
+        if (typeof initialDueAmount === 'number' && initialDueAmount >= defaultCalculatedDue * recoveredCoveredMonths.length) {
+          initialDueAmount = defaultCalculatedDue;
+        }
+      }
       setDueAmount(initialDueAmount);
 
       setReceiptNumber(payment.receiptNumber || masterPayment.receiptNumber || '');
@@ -1699,6 +1704,8 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       const recNum = (receiptNumber || '').trim();
       const baseUserNotes = notes ? notes.replace(/\(سداد.*?\)/g, '').trim() : '';
       const noteText = `تم السداد في شهر ${primaryMonthName} ${currentYear} بإيصال رقم ${recNum || '—'} (القيمة الموزعة للشهر: ${basePerMonth.toLocaleString()} ج.م)${baseUserNotes ? ` (${baseUserNotes})` : ''}`;
+      const childPrescribed = getPrescribedFeeForMonth(resident, Number(currentYear) || new Date().getFullYear(), parseInt(m, 10) || 1, payments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods, customUnitFeePeriods);
+      const childDue = (numDueAmount !== undefined && numDueAmount > 0) ? numDueAmount : childPrescribed.monthlyFee;
       return {
         id: otherIds[idx],
         year: currentYear,
@@ -1708,6 +1715,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
         flatNumber: resident.flatNumber,
         paymentType: targetType,
         amount: basePerMonth,
+        expectedAmount: childDue,
         receiptNumber: recNum,
         notes: noteText,
         fileId: base64Image ? '' : (existingFileUrl ? (selectedPayment?.fileId || '') : ''),
@@ -2045,6 +2053,8 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
           const recNum = (receiptNumber || '').trim();
           const baseUserNotes = notes ? notes.replace(/\(سداد.*?\)/g, '').trim() : '';
           const noteText = `تم السداد في شهر ${primaryMonthName} ${currentYear} بإيصال رقم ${recNum || '—'} (القيمة الموزعة للشهر: ${basePerMonth.toLocaleString()} ج.م)${baseUserNotes ? ` (${baseUserNotes})` : ''}`;
+          const childPrescribed = getPrescribedFeeForMonth(resident, Number(currentYear) || new Date().getFullYear(), parseInt(m, 10) || 1, payments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods, customUnitFeePeriods);
+          const childDue = (numDueAmount !== undefined && numDueAmount > 0) ? numDueAmount : childPrescribed.monthlyFee;
           return {
             id: otherIds[idx],
             year: currentYear,
@@ -2054,6 +2064,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
             flatNumber: resident.flatNumber,
             paymentType,
             amount: basePerMonth,
+            expectedAmount: childDue,
             receiptNumber: recNum,
             notes: noteText,
             fileId: base64Image ? '' : (existingFileUrl ? (selectedPayment?.fileId || '') : ''),
@@ -3288,16 +3299,17 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                         const targetMonthNum = parseInt(newM, 10) || 1;
                         const prescribed = getPrescribedFeeForMonth(selectedRes, targetYearNum, targetMonthNum, payments, defaultMonthlyFee, activityDefaultFees, activityFeePeriods, customUnitFeePeriods);
                         const fee = prescribed.monthlyFee > 0 ? prescribed.monthlyFee : (defaultMonthlyFee || 400);
-                        const totalMonthsCount = (isAggregatedCollection && coveredMonths.length > 0) ? coveredMonths.length : 1;
-                        const calcDue = fee * totalMonthsCount;
-                        if (calcDue > 0) {
-                          setDueAmount(calcDue);
+                        // Due amount is for THIS single collection month (never multiplied by covered months!)
+                        if (fee > 0) {
+                          setDueAmount(fee);
                         }
+                        const totalMonthsCount = (isAggregatedCollection && coveredMonths.length > 0) ? coveredMonths.length : 1;
+                        const calcAmt = fee * totalMonthsCount;
                         if (!selectedPayment) {
-                          if (calcDue > 0) setAmount(calcDue);
+                          if (calcAmt > 0) setAmount(calcAmt);
                         } else {
                           if (amount === '' || Number(amount) <= 0) {
-                            if (calcDue > 0) setAmount(calcDue);
+                            if (calcAmt > 0) setAmount(calcAmt);
                           }
                         }
                       }
