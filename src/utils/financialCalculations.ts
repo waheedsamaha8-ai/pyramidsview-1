@@ -1788,22 +1788,31 @@ export function unregisterDeletedPaymentIds(ids: string | string[]): void {
   }
 }
 
+export function restoreActivePaymentsFromDeletedSet(activePayments: Payment[]): void {
+  if (!Array.isArray(activePayments) || activePayments.length === 0) return;
+  const activeIds = activePayments
+    .map(p => p ? String(p.id).trim() : '')
+    .filter(Boolean);
+  if (activeIds.length > 0) {
+    unregisterDeletedPaymentIds(activeIds);
+  }
+}
+
 /**
- * Filter out deleted payments and deduplicate remaining payment records.
- * Guarantees that deleted payments NEVER resurface and eliminates duplicate payment records.
+ * Filter out deleted payments and deduplicate remaining payment records safely.
+ * Guarantees that active and distributed payments are NEVER accidentally deleted or hidden.
  */
 export function filterAndDeduplicatePayments(list: Payment[]): Payment[] {
   if (!Array.isArray(list) || list.length === 0) return [];
 
   const deletedSet = getDeletedPaymentIds();
 
-  // 1. Filter out deleted payment IDs & deleted flags
+  // 1. Filter out explicitly deleted payment IDs & deleted flags
   const validList = list.filter(p => {
     if (!p) return false;
     const cleanId = String(p.id || '').trim();
     if (!cleanId) return false;
     if (deletedSet.has(cleanId)) return false;
-    if (p.distributionSourceId && deletedSet.has(String(p.distributionSourceId).trim())) return false;
     if ((p as any).isDeleted || p.status === 'deleted') return false;
     return true;
   });
@@ -1816,13 +1825,18 @@ export function filterAndDeduplicatePayments(list: Payment[]): Payment[] {
     if (!existing) {
       byIdMap.set(cleanId, p);
     } else {
-      // Merge image or prefer record with higher detail
+      // Merge properties safely
       const merged: Payment = {
         ...existing,
         ...p,
         fileUrl: p.fileUrl || existing.fileUrl,
         receiptNumber: p.receiptNumber || existing.receiptNumber,
         notes: p.notes || existing.notes,
+        isDistributed: existing.isDistributed || p.isDistributed,
+        distributedPaymentIds: (Array.isArray(existing.distributedPaymentIds) && existing.distributedPaymentIds.length > 0)
+          ? existing.distributedPaymentIds
+          : p.distributedPaymentIds,
+        distributionSourceId: existing.distributionSourceId || p.distributionSourceId,
       };
       byIdMap.set(cleanId, merged);
     }
@@ -1832,10 +1846,9 @@ export function filterAndDeduplicatePayments(list: Payment[]): Payment[] {
 
   // 3. Deduplicate active subscription payments by business fingerprint
   const fingerprintMap = new Map<string, Payment>();
-  const duplicatesToPurgeInFirestore: string[] = [];
 
   for (const p of uniqueByIdList) {
-    // Cancelled or non-subscription payments are preserved as-is
+    // Cancelled or non-subscription payments are preserved as-is by unique ID
     if (p.status === 'cancelled' || p.status === 'لاغي' || !p.flatNumber) {
       fingerprintMap.set(String(p.id), p);
       continue;
@@ -1848,16 +1861,19 @@ export function filterAndDeduplicatePayments(list: Payment[]): Payment[] {
     const receiptStr = (p.receiptNumber || '').trim();
     const amountVal = Math.round(Number(p.amount) || 0);
 
-    // Business fingerprint
-    const fpKey = `${flatKey}_${yearNum}_${monthNum}_${typeStr}_${amountVal}_${receiptStr}`;
+    // Differentiate master vs child vs single records to prevent accidental collisions
+    const distTag = p.isDistributed 
+      ? 'master' 
+      : (p.distributionSourceId ? `child_${p.distributionSourceId}` : `single_${p.id}`);
+
+    const fpKey = `${flatKey}_${yearNum}_${monthNum}_${typeStr}_${amountVal}_${receiptStr}_${distTag}`;
 
     const existing = fingerprintMap.get(fpKey);
     if (!existing) {
       fingerprintMap.set(fpKey, p);
     } else {
-      // If two records share the exact same business fingerprint:
-      const isExistingDist = existing.isDistributed || Boolean(existing.distributionSourceId) || (Array.isArray(existing.distributedPaymentIds) && existing.distributedPaymentIds.length > 0);
-      const isCurrentDist = p.isDistributed || Boolean(p.distributionSourceId) || (Array.isArray(p.distributedPaymentIds) && p.distributedPaymentIds.length > 0);
+      const isExistingDist = existing.isDistributed || Boolean(existing.distributionSourceId);
+      const isCurrentDist = p.isDistributed || Boolean(p.distributionSourceId);
 
       let winner = existing;
       let loser = p;
@@ -1875,8 +1891,6 @@ export function filterAndDeduplicatePayments(list: Payment[]): Payment[] {
         }
       }
 
-      duplicatesToPurgeInFirestore.push(String(loser.id));
-
       const mergedWinner: Payment = {
         ...winner,
         fileUrl: winner.fileUrl || loser.fileUrl,
@@ -1886,13 +1900,6 @@ export function filterAndDeduplicatePayments(list: Payment[]): Payment[] {
 
       fingerprintMap.set(fpKey, mergedWinner);
     }
-  }
-
-  // Purge duplicate loser IDs asynchronously in background
-  if (duplicatesToPurgeInFirestore.length > 0) {
-    import('../services/firestoreService').then(srv => {
-      duplicatesToPurgeInFirestore.forEach(id => srv.deletePaymentFromFirestore(id).catch(() => {}));
-    }).catch(() => {});
   }
 
   return Array.from(fingerprintMap.values());

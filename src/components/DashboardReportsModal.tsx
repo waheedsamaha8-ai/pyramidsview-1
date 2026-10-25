@@ -615,7 +615,7 @@ export const DashboardReportsModal: React.FC<DashboardReportsModalProps> = ({
                                       {p.amount.toLocaleString()} ج.م
                                     </td>
                                     <td className="p-2 text-center font-mono text-[11px] text-slate-600">
-                                      {p.receiptNumber ? `#${p.receiptNumber}` : 'مسدد'}
+                                      {(p.amount === 0 || p.expectedAmount === 0 || p.status === 'exempt' || p.status === 'معفي' || (p.notes && (p.notes.includes('معفي') || p.notes.includes('معفية') || p.notes.includes('غير مستحق') || p.notes.includes('غير مستحقة')))) ? '⚪ معفي' : p.receiptNumber ? `مسدد ✓ (#${p.receiptNumber})` : 'مسدد ✓'}
                                     </td>
                                     <td className="p-2 text-center text-slate-600 text-[11px] max-w-[170px] truncate" title={p.notes || ''}>
                                       {p.notes && p.notes.trim() ? p.notes.trim() : '—'}

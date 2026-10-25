@@ -30,7 +30,7 @@ import {
 import * as offlineSync from './offlineSync';
 import { DEFAULT_BUILDING_ID } from './buildingStore';
 import { deduplicateResidents, isSameFlatNumber } from '../utils/buildingStructure';
-import { filterAndDeduplicatePayments, registerDeletedPaymentIds } from '../utils/financialCalculations';
+import { filterAndDeduplicatePayments, registerDeletedPaymentIds, restoreActivePaymentsFromDeletedSet } from '../utils/financialCalculations';
 
 // Helper to recursively sanitize undefined values before saving to Firestore (handles arrays & nested objects)
 function sanitizeForFirestore(data: any): any {
@@ -366,6 +366,7 @@ export async function getPaymentsFromFirestore(): Promise<Payment[]> {
       } catch {}
     }
 
+    restoreActivePaymentsFromDeletedSet(payments);
     const cleanPayments = filterAndDeduplicatePayments(payments);
     offlineSync.saveCachedData(cacheKey, cleanPayments);
     return cleanPayments;

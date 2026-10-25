@@ -100,6 +100,7 @@ import {
   filterAndDeduplicatePayments, 
   registerDeletedPaymentIds, 
   unregisterDeletedPaymentIds,
+  restoreActivePaymentsFromDeletedSet,
   parsePaymentYear,
   parsePaymentMonth,
   parseExpenseYear,
@@ -1180,6 +1181,7 @@ export default function App() {
       }
 
       if (loadedPayments) {
+        restoreActivePaymentsFromDeletedSet(loadedPayments);
         const cleanPayments = filterAndDeduplicatePayments(loadedPayments);
         setPayments(cleanPayments);
         offlineSync.saveCachedData('payments', cleanPayments);

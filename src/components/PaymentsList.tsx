@@ -4336,14 +4336,6 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                       const ownerName = historical.ownerName || res?.name || p.residentName;
                       const tenantName = historical.tenantName !== undefined ? historical.tenantName : (res?.ownershipType === 'إيجار' ? res?.tenantName : '');
 
-                      const isUncollected = 
-                        p.status === 'pending' || 
-                        p.status === 'لم يتم التحصيل' || 
-                        p.status === 'uncollected' ||
-                        p.status === 'unpaid' ||
-                        p.status === 'غير مسدد' ||
-                        p.status === 'لم يسدد' ||
-                        p.status === 'معلق';
                       const isCancelled = 
                         p.status === 'cancelled' || 
                         p.status === 'لاغي' || 
@@ -4351,8 +4343,34 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                         p.status === 'ملغي' || 
                         p.status === 'مرفوض';
 
+                      const isExempt = 
+                        p.status === 'معفي' || 
+                        p.status === 'exempt' || 
+                        p.status === 'غير مستحق' ||
+                        getEffectiveDisplayAmount(p) === 0 ||
+                        p.amount === 0 ||
+                        (p.notes && (
+                          p.notes.includes('معفي') ||
+                          p.notes.includes('معفية') ||
+                          p.notes.includes('غير مستحق') ||
+                          p.notes.includes('غير مستحقة') ||
+                          p.notes.includes('غير مطلوب') ||
+                          p.notes.includes('غير مطلوبة') ||
+                          p.notes.includes('مغلق')
+                        ));
+
+                      const isUncollected = !isCancelled && !isExempt && (
+                        p.status === 'pending' || 
+                        p.status === 'لم يتم التحصيل' || 
+                        p.status === 'uncollected' ||
+                        p.status === 'unpaid' ||
+                        p.status === 'غير مسدد' ||
+                        p.status === 'لم يسدد' ||
+                        p.status === 'معلق'
+                      );
+
                       return (
-                        <tr key={p.id} className={`border-b border-slate-200 ${isCancelled ? 'bg-slate-200/80 text-slate-700' : (isUncollected && p.amount === 0) ? 'bg-slate-100/80 text-slate-600' : isUncollected ? 'bg-rose-50/70' : ''}`}>
+                        <tr key={p.id} className={`border-b border-slate-200 ${isCancelled ? 'bg-slate-200/80 text-slate-700' : isExempt ? 'bg-slate-100/80 text-slate-600' : isUncollected ? 'bg-rose-50/70' : ''}`}>
                           <td className="border border-slate-300 p-2 text-center font-bold text-slate-500">{rowCounter}</td>
                           <td className="border border-slate-300 p-2 text-center font-black text-blue-900">وحدة {p.flatNumber}</td>
                           <td className="border border-slate-300 p-2 font-bold text-slate-900">
@@ -4373,7 +4391,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                           <td className={`border border-slate-300 p-2 text-center font-black ${
                             isCancelled
                               ? 'text-slate-600 line-through opacity-80'
-                              : (isUncollected && p.amount === 0)
+                              : isExempt
                               ? 'text-slate-600'
                               : isUncollected
                               ? 'text-rose-900'
@@ -4381,19 +4399,20 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                           }`}>
                             {Math.round(getEffectiveDisplayAmount(p)).toLocaleString()} ج.م
                           </td>
-                          <td className="border border-slate-300 p-2 text-center font-mono font-bold text-xs">
+                          <td className="border border-slate-300 p-2 text-center font-bold text-xs">
                             {isCancelled ? (
                               <span className="px-1.5 py-0.5 bg-slate-300 text-slate-800 rounded font-black border border-slate-400">🚫 لاغي</span>
+                            ) : isExempt ? (
+                              <span className="px-1.5 py-0.5 bg-slate-200 text-slate-700 rounded font-black border border-slate-300">⚪ معفي</span>
                             ) : isUncollected ? (
-                              p.amount === 0 ? (
-                                <span className="px-1.5 py-0.5 bg-slate-200 text-slate-700 rounded font-black border border-slate-300">⚪ معفي</span>
-                              ) : (
-                                <span className="px-1.5 py-0.5 bg-amber-100 text-amber-900 rounded font-black border border-amber-200">⏳ معلق</span>
-                              )
+                              <span className="px-1.5 py-0.5 bg-amber-100 text-amber-900 rounded font-black border border-amber-200">⏳ معلق</span>
                             ) : p.receiptNumber ? (
-                              `#${p.receiptNumber}`
+                              <div className="flex items-center justify-center gap-1 font-sans">
+                                <span className="text-emerald-800 font-black">مسدد ✓</span>
+                                <span className="text-slate-600 font-bold font-mono text-[11px]">({`#${p.receiptNumber}`})</span>
+                              </div>
                             ) : (
-                              <span className="text-emerald-800 font-black">✓ مسدد</span>
+                              <span className="text-emerald-800 font-black font-sans">مسدد ✓</span>
                             )}
                           </td>
                         </tr>

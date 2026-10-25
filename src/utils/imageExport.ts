@@ -59,13 +59,52 @@ let cachedSanitizedCss: string | null = null;
 let lastStylesheetCount = 0;
 
 /**
- * Sanitizes stylesheet text or style attributes by replacing all oklch, oklab, etc. with standard rgb() strings.
+ * Sanitizes stylesheet text or style attributes by replacing all oklch, oklab, color-mix, etc. with standard rgb() strings.
+ * Uses a scanner with depth tracking for balanced parentheses.
  */
 export function sanitizeStyleText(cssText: string): string {
-  if (!cssText || !/(oklch|oklab|lab|lch|hwb|color)\(/i.test(cssText)) {
+  if (!cssText || typeof cssText !== 'string' || !/(oklch|oklab|lab|lch|hwb|color|color-mix)\(/i.test(cssText)) {
     return cssText;
   }
-  return cssText.replace(MODERN_COLOR_REGEX, (match) => parseCssColorToRgb(match));
+
+  const keywords = ['oklch', 'oklab', 'color-mix', 'color', 'lab', 'lch', 'hwb'];
+  let result = cssText;
+
+  keywords.forEach((kw) => {
+    let searchStart = 0;
+    while (searchStart < result.length) {
+      const pattern = new RegExp(`${kw}\\(`, 'gi');
+      pattern.lastIndex = searchStart;
+      const match = pattern.exec(result);
+      if (!match) break;
+
+      const startIdx = match.index;
+      let depth = 0;
+      let endIdx = -1;
+
+      for (let i = startIdx; i < result.length; i++) {
+        if (result[i] === '(') depth++;
+        else if (result[i] === ')') {
+          depth--;
+          if (depth === 0) {
+            endIdx = i;
+            break;
+          }
+        }
+      }
+
+      if (endIdx !== -1) {
+        const fullExpr = result.substring(startIdx, endIdx + 1);
+        const rgbConverted = parseCssColorToRgb(fullExpr);
+        result = result.substring(0, startIdx) + rgbConverted + result.substring(endIdx + 1);
+        searchStart = startIdx + rgbConverted.length;
+      } else {
+        searchStart = startIdx + match[0].length;
+      }
+    }
+  });
+
+  return result;
 }
 
 export interface GeneratedImageResult {
@@ -123,6 +162,17 @@ export async function generateElementImageBlob(
 
   // Force DOM layout reflow so computed styles for all child nodes are fully calculated
   void elem.getBoundingClientRect();
+
+  // Temporarily sanitize all live <style> elements in document.head before html2canvas parses document.styleSheets
+  const originalStyleContents = new Map<HTMLStyleElement, string>();
+  const liveStyles = Array.from(document.querySelectorAll('style'));
+  liveStyles.forEach((styleEl) => {
+    const text = styleEl.textContent || '';
+    if (/(oklch|oklab|lab|lch|hwb|color|color-mix)\(/i.test(text)) {
+      originalStyleContents.set(styleEl, text);
+      styleEl.textContent = sanitizeStyleText(text);
+    }
+  });
 
   try {
     const canvas = await html2canvas(elem, {
@@ -265,6 +315,20 @@ export async function generateElementImageBlob(
                     }
                   });
 
+                  // Explicitly convert and copy background-image, background & box-shadow if present
+                  const bgImg = computed.backgroundImage;
+                  if (bgImg && bgImg !== 'none') {
+                    clonedNode.style.backgroundImage = sanitizeStyleText(bgImg);
+                  }
+                  const bg = computed.background;
+                  if (bg && bg !== 'none' && bg !== 'transparent') {
+                    clonedNode.style.background = sanitizeStyleText(bg);
+                  }
+                  const boxSh = computed.boxShadow;
+                  if (boxSh && boxSh !== 'none') {
+                    clonedNode.style.boxShadow = sanitizeStyleText(boxSh);
+                  }
+
                   // Explicitly preserve grid & flex layouts
                   if (computed.display === 'grid' || computed.display === 'inline-grid') {
                     clonedNode.style.display = computed.display;
@@ -281,11 +345,34 @@ export async function generateElementImageBlob(
               }
 
               const styleAttr = clonedNode.getAttribute('style');
-              if (styleAttr && /(oklch|oklab|lab|lch|hwb|color)\(/i.test(styleAttr)) {
+              if (styleAttr && /(oklch|oklab|lab|lch|hwb|color|color-mix)\(/i.test(styleAttr)) {
                 clonedNode.setAttribute('style', sanitizeStyleText(styleAttr));
               }
             }
           }
+
+          // 8. Sweep all cloned elements in document to ensure no inline style or property contains oklab/oklch
+          const allCloned = Array.from(clonedDoc.querySelectorAll('*')) as HTMLElement[];
+          allCloned.forEach((node) => {
+            const styleAttr = node.getAttribute('style');
+            if (styleAttr && /(oklch|oklab|lab|lch|hwb|color|color-mix)\(/i.test(styleAttr)) {
+              node.setAttribute('style', sanitizeStyleText(styleAttr));
+            }
+            if (node.style) {
+              if (node.style.backgroundImage && /(oklch|oklab|lab|lch|hwb|color|color-mix)\(/i.test(node.style.backgroundImage)) {
+                node.style.backgroundImage = sanitizeStyleText(node.style.backgroundImage);
+              }
+              if (node.style.backgroundColor && /(oklch|oklab|lab|lch|hwb|color|color-mix)\(/i.test(node.style.backgroundColor)) {
+                node.style.backgroundColor = parseCssColorToRgb(node.style.backgroundColor);
+              }
+              if (node.style.color && /(oklch|oklab|lab|lch|hwb|color|color-mix)\(/i.test(node.style.color)) {
+                node.style.color = parseCssColorToRgb(node.style.color);
+              }
+              if (node.style.borderColor && /(oklch|oklab|lab|lch|hwb|color|color-mix)\(/i.test(node.style.borderColor)) {
+                node.style.borderColor = parseCssColorToRgb(node.style.borderColor);
+              }
+            }
+          });
         }
       },
     });
@@ -316,6 +403,11 @@ export async function generateElementImageBlob(
       download,
     };
   } finally {
+    // Restore original <style> contents
+    originalStyleContents.forEach((origCss, styleEl) => {
+      styleEl.textContent = origCss;
+    });
+
     // Always restore original element styles
     if (hadHiddenClass) {
       elem.classList.add('hidden');
