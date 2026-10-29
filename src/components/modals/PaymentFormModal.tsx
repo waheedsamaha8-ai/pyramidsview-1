@@ -496,22 +496,17 @@ export const PaymentFormModal: React.FC<PaymentFormModalProps> = ({
       );
       const existingChildIds = existingChildPayments.map(p => String(p.id));
 
-      if (targetCoveredMonths.length > 1 || (targetCoveredMonths.length === 1 && targetCoveredMonths[0] !== masterPayment.month)) {
-        // Multi-month distribution
-        const masterMonth = targetCoveredMonths.includes(masterMonthNorm) ? masterMonthNorm : targetCoveredMonths[0];
-        const otherMonths = targetCoveredMonths.filter(m => m !== masterMonth);
+      if (targetCoveredMonths.length > 1 || (targetCoveredMonths.length === 1 && targetCoveredMonths[0] !== masterMonthNorm)) {
+        // Multi-month distribution or cross-month distribution
+        const isMasterInCovered = targetCoveredMonths.includes(masterMonthNorm);
+        const masterMonth = masterMonthNorm;
+        const otherMonths = isMasterInCovered
+          ? targetCoveredMonths.filter(m => m !== masterMonthNorm)
+          : targetCoveredMonths;
 
         const otherIds = otherMonths.map((m, idx) => {
           if (existingChildIds[idx]) return existingChildIds[idx];
-          const existingInMonth = payments.find(p => {
-            const isSameUnit = (p.residentId && p.residentId === residentId) || isSameFlatNumber(p.flatNumber, resident.flatNumber);
-            if (!isSameUnit) return false;
-            if (!isPaymentForYearAndMonth(p, currentYear, parseInt(m, 10))) return false;
-            if (p.status === 'cancelled' || p.status === 'لاغي') return false;
-            if (String(p.id) === String(masterPaymentId)) return false;
-            return isMonthlySubscriptionType(p.paymentType) || String(p.distributionSourceId || '') === String(masterPaymentId);
-          });
-          return existingInMonth ? String(existingInMonth.id) : `pay_${Date.now()}_${m}_${idx + 1}`;
+          return `pay_${Date.now()}_${m}_${idx + 1}`;
         });
         const deletedPaymentIds = existingChildIds.filter(id => !otherIds.includes(id));
 
@@ -519,8 +514,8 @@ export const PaymentFormModal: React.FC<PaymentFormModalProps> = ({
         const coveredNames = targetCoveredMonths.map(x => monthNamesArabic[parseInt(x, 10) - 1]).join('، ');
 
         const noteHeader = targetCoveredMonths.length === 1
-          ? `${isCollected ? 'سداد' : 'استحقاق'} عن شهر ${coveredNames}${masterMonth !== masterMonthNorm ? ` (${isCollected ? 'تم التحصيل' : 'تم التسجيل'} في شهر ${primaryMonthName} ${currentYear})` : ''}`
-          : `${isCollected ? 'سداد' : 'استحقاق'} مجمع عن شهور: ${coveredNames}${!targetCoveredMonths.includes(masterMonthNorm) ? ` (${isCollected ? 'تم التحصيل' : 'تم التسجيل'} في شهر ${primaryMonthName} ${currentYear})` : ''}`;
+          ? `${isCollected ? 'سداد' : 'استحقاق'} عن شهر ${coveredNames}${!isMasterInCovered ? ` (${isCollected ? 'تم التحصيل' : 'تم التسجيل'} في شهر ${primaryMonthName} ${currentYear} وموزع بالكامل إلى شهر ${coveredNames})` : ''}`
+          : `${isCollected ? 'سداد' : 'استحقاق'} مجمع عن شهور: ${coveredNames}${!isMasterInCovered ? ` (${isCollected ? 'تم التحصيل' : 'تم التسجيل'} في شهر ${primaryMonthName} ${currentYear})` : ''}`;
 
         const cleanNotes = (notes || '').trim()
           ? (notes.includes('سداد عن شهر') || notes.includes('سداد مجمع عن شهور') || notes.includes('استحقاق عن شهر') || notes.includes('استحقاق مجمع عن شهور') ? notes : `${notes} (${noteHeader})`)
@@ -529,7 +524,7 @@ export const PaymentFormModal: React.FC<PaymentFormModalProps> = ({
         const totalCoveredCount = targetCoveredMonths.length;
         const basePerMonth = Math.floor(numAmount / totalCoveredCount);
         const remainder = numAmount - (basePerMonth * totalCoveredCount);
-        const masterAmountAllocated = otherMonths.length > 0 ? (basePerMonth + remainder) : numAmount;
+        const masterAmountAllocated = isMasterInCovered ? (basePerMonth + remainder) : 0;
 
         const masterPaymentData: Payment = {
           id: masterPaymentId,
@@ -551,8 +546,8 @@ export const PaymentFormModal: React.FC<PaymentFormModalProps> = ({
           isManuallyEdited: true,
           status: paymentStatus,
           isAggregatedCollection: true,
-          isDistributed: otherMonths.length > 0,
-          distributedPaymentIds: otherMonths.length > 0 ? otherIds : undefined,
+          isDistributed: true,
+          distributedPaymentIds: otherIds,
           distributionSourceId: undefined,
           originalAmountBeforeDistribution: numAmount,
         };
@@ -561,7 +556,8 @@ export const PaymentFormModal: React.FC<PaymentFormModalProps> = ({
           const hist = getHistoricalOccupantForDate(resident, `${currentYear}-${m}`);
           const recNum = (receiptNumber || '').trim();
           const baseUserNotes = notes ? notes.replace(/\(سداد.*?\)/g, '').replace(/\(استحقاق.*?\)/g, '').trim() : '';
-          const noteText = `${isCollected ? 'تم السداد' : 'مستحق غير محصل مسجل'} في شهر ${primaryMonthName} ${currentYear} بإيصال رقم ${recNum || '—'} (القيمة الموزعة للشهر: ${basePerMonth.toLocaleString()} ج.م)${baseUserNotes ? ` (${baseUserNotes})` : ''}`;
+          const allocatedChildAmount = (!isMasterInCovered && idx === 0) ? (basePerMonth + remainder) : basePerMonth;
+          const noteText = `${isCollected ? 'تم السداد' : 'مستحق غير محصل مسجل'} في شهر ${primaryMonthName} ${currentYear} بإيصال رقم ${recNum || '—'} (القيمة الموزعة للشهر: ${allocatedChildAmount.toLocaleString()} ج.م)${baseUserNotes ? ` (${baseUserNotes})` : ''}`;
           const childPrescribed = getPrescribedFeeForMonth(
             resident,
             currentYear,
@@ -581,7 +577,7 @@ export const PaymentFormModal: React.FC<PaymentFormModalProps> = ({
             residentName: hist.occupantName || resident.name,
             flatNumber: resident.flatNumber,
             paymentType,
-            amount: basePerMonth,
+            amount: allocatedChildAmount,
             expectedAmount: childDue,
             dueAmount: childDue,
             receiptNumber: recNum,
@@ -649,16 +645,19 @@ export const PaymentFormModal: React.FC<PaymentFormModalProps> = ({
       const masterPaymentId = `pay_${Date.now()}`;
 
       if (targetCoveredMonths.length > 1 || (targetCoveredMonths.length === 1 && targetCoveredMonths[0] !== masterMonthNorm)) {
-        const masterMonth = targetCoveredMonths.includes(masterMonthNorm) ? masterMonthNorm : targetCoveredMonths[0];
-        const otherMonths = targetCoveredMonths.filter(m => m !== masterMonth);
+        const isMasterInCovered = targetCoveredMonths.includes(masterMonthNorm);
+        const masterMonth = masterMonthNorm;
+        const otherMonths = isMasterInCovered
+          ? targetCoveredMonths.filter(m => m !== masterMonthNorm)
+          : targetCoveredMonths;
         const otherIds = otherMonths.map((m, idx) => `pay_${Date.now()}_${m}_${idx + 1}`);
 
         const histMaster = getHistoricalOccupantForDate(resident, `${currentYear}-${masterMonth}`);
         const coveredNames = targetCoveredMonths.map(x => monthNamesArabic[parseInt(x, 10) - 1]).join('، ');
 
         const noteHeader = targetCoveredMonths.length === 1
-          ? `${isCollected ? 'سداد' : 'استحقاق'} عن شهر ${coveredNames}${masterMonth !== masterMonthNorm ? ` (${isCollected ? 'تم التحصيل' : 'تم التسجيل'} في شهر ${primaryMonthName} ${currentYear})` : ''}`
-          : `${isCollected ? 'سداد' : 'استحقاق'} مجمع عن شهور: ${coveredNames}${!targetCoveredMonths.includes(masterMonthNorm) ? ` (${isCollected ? 'تم التحصيل' : 'تم التسجيل'} في شهر ${primaryMonthName} ${currentYear})` : ''}`;
+          ? `${isCollected ? 'سداد' : 'استحقاق'} عن شهر ${coveredNames}${!isMasterInCovered ? ` (${isCollected ? 'تم التحصيل' : 'تم التسجيل'} في شهر ${primaryMonthName} ${currentYear} وموزع بالكامل إلى شهر ${coveredNames})` : ''}`
+          : `${isCollected ? 'سداد' : 'استحقاق'} مجمع عن شهور: ${coveredNames}${!isMasterInCovered ? ` (${isCollected ? 'تم التحصيل' : 'تم التسجيل'} في شهر ${primaryMonthName} ${currentYear})` : ''}`;
 
         const cleanNotes = (notes || '').trim()
           ? (notes.includes('سداد عن شهر') || notes.includes('سداد مجمع عن شهور') ? notes : `${notes} (${noteHeader})`)
@@ -667,7 +666,7 @@ export const PaymentFormModal: React.FC<PaymentFormModalProps> = ({
         const totalCoveredCount = targetCoveredMonths.length;
         const basePerMonth = Math.floor(numAmount / totalCoveredCount);
         const remainder = numAmount - (basePerMonth * totalCoveredCount);
-        const masterAmountAllocated = otherMonths.length > 0 ? (basePerMonth + remainder) : numAmount;
+        const masterAmountAllocated = isMasterInCovered ? (basePerMonth + remainder) : 0;
 
         const masterPayment: Payment = {
           id: masterPaymentId,
@@ -689,8 +688,8 @@ export const PaymentFormModal: React.FC<PaymentFormModalProps> = ({
           isManuallyEdited: true,
           status: paymentStatus,
           isAggregatedCollection: true,
-          isDistributed: otherMonths.length > 0,
-          distributedPaymentIds: otherMonths.length > 0 ? otherIds : undefined,
+          isDistributed: true,
+          distributedPaymentIds: otherIds,
           distributionSourceId: undefined,
           originalAmountBeforeDistribution: numAmount,
         };
@@ -699,7 +698,8 @@ export const PaymentFormModal: React.FC<PaymentFormModalProps> = ({
           const hist = getHistoricalOccupantForDate(resident, `${currentYear}-${m}`);
           const recNum = (receiptNumber || '').trim();
           const baseUserNotes = notes ? notes.replace(/\(سداد.*?\)/g, '').replace(/\(استحقاق.*?\)/g, '').trim() : '';
-          const noteText = `${isCollected ? 'تم السداد' : 'مستحق غير محصل مسجل'} في شهر ${primaryMonthName} ${currentYear} بإيصال رقم ${recNum || '—'} (القيمة الموزعة للشهر: ${basePerMonth.toLocaleString()} ج.م)${baseUserNotes ? ` (${baseUserNotes})` : ''}`;
+          const allocatedChildAmount = (!isMasterInCovered && idx === 0) ? (basePerMonth + remainder) : basePerMonth;
+          const noteText = `${isCollected ? 'تم السداد' : 'مستحق غير محصل مسجل'} في شهر ${primaryMonthName} ${currentYear} بإيصال رقم ${recNum || '—'} (القيمة الموزعة للشهر: ${allocatedChildAmount.toLocaleString()} ج.م)${baseUserNotes ? ` (${baseUserNotes})` : ''}`;
           const childPrescribed = getPrescribedFeeForMonth(
             resident,
             currentYear,
@@ -719,7 +719,7 @@ export const PaymentFormModal: React.FC<PaymentFormModalProps> = ({
             residentName: hist.occupantName || resident.name,
             flatNumber: resident.flatNumber,
             paymentType,
-            amount: basePerMonth,
+            amount: allocatedChildAmount,
             expectedAmount: childDue,
             dueAmount: childDue,
             receiptNumber: recNum,

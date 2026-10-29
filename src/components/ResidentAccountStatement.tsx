@@ -1378,59 +1378,59 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
               </div>
             </div>
 
-            {/* 2️⃣ الجزء الثاني: إجمالي المبالغ المستحقة للاشتراك الشهري من بداية الفترة المحاسبية وحتى الشهر الحالي */}
+            {/* 2️⃣ الجزء الثاني: إجمالي المبالغ المستحقة للاشتراك الشهري */}
             <div className="bg-white p-3 rounded-xl border border-slate-200/90 shadow-2xs space-y-2">
               <div className="text-xs font-black text-slate-900 flex items-center gap-1.5">
                 <span className="w-2.5 h-2.5 rounded-full bg-amber-600 inline-block"></span>
-                <span>2️⃣ الاشتراكات الشهرية (من بداية الفترة المحاسبية وحتى الشهر الحالي):</span>
+                <span>2️⃣ الاشتراكات الشهرية:</span>
               </div>
               <div className="text-xs text-slate-800 pr-3 space-y-1.5 font-bold">
                 <div className="flex justify-between items-center">
-                  <span className="text-slate-600">• إجمالي المبالغ المستحقة للاشتراك الشهري:</span>
+                  <span className="text-slate-600">• إجمالي المستحق:</span>
                   <span className="font-black text-slate-900">{claimBreakdown.priorSubsDue.toLocaleString()} ج.م</span>
                 </div>
                 <div className="flex justify-between items-center text-emerald-800">
-                  <span>• المبالغ المسددة من بداية الفترة المحاسبية وحتى الشهر الحالي:</span>
+                  <span>• المسدد:</span>
                   <span className="font-black">{claimBreakdown.priorSubsPaid.toLocaleString()} ج.م</span>
                 </div>
                 <div className={`flex justify-between items-center pt-1 border-t border-dashed border-slate-200 font-black ${
                   claimBreakdown.priorSubsDiff > 0 ? 'text-rose-700' : claimBreakdown.priorSubsDiff < 0 ? 'text-emerald-700' : 'text-slate-600'
                 }`}>
-                  <span>• الفرق بينهما (متأخرات أو رصيد موجب):</span>
+                  <span>• الفرق بينهما:</span>
                   <span className="underline">{claimBreakdown.priorSubsStatusText}</span>
                 </div>
               </div>
             </div>
 
-            {/* 3️⃣ الجزء الثالث: إجمالي المبالغ المستحقة عن التحصيلات الأخرى من بداية الفترة المحاسبية حتى الشهر الحالي */}
+            {/* 3️⃣ الجزء الثالث: إجمالي المبالغ المستحقة عن التحصيلات الأخرى */}
             <div className="bg-white p-3 rounded-xl border border-slate-200/90 shadow-2xs space-y-2">
               <div className="text-xs font-black text-slate-900 flex items-center gap-1.5">
                 <span className="w-2.5 h-2.5 rounded-full bg-purple-600 inline-block"></span>
-                <span>3️⃣ التحصيلات الأخرى (من بداية الفترة المحاسبية وحتى الشهر الحالي):</span>
+                <span>3️⃣ التحصيلات الأخرى:</span>
               </div>
               <div className="text-xs text-slate-800 pr-3 space-y-1.5 font-bold">
                 <div className="flex justify-between items-center">
-                  <span className="text-slate-600">• إجمالي المبالغ المستحقة عن التحصيلات الأخرى:</span>
+                  <span className="text-slate-600">• إجمالي المستحق:</span>
                   <span className="font-black text-slate-900">{claimBreakdown.priorOtherDue.toLocaleString()} ج.م</span>
                 </div>
                 <div className="flex justify-between items-center text-emerald-800">
-                  <span>• إجمالي المبالغ المسددة للتحصيلات الأخرى:</span>
+                  <span>• المسدد:</span>
                   <span className="font-black">{claimBreakdown.priorOtherPaid.toLocaleString()} ج.م</span>
                 </div>
                 <div className={`flex justify-between items-center pt-1 border-t border-dashed border-slate-200 font-black ${
                   claimBreakdown.priorOtherDiff > 0 ? 'text-rose-700' : claimBreakdown.priorOtherDiff < 0 ? 'text-emerald-700' : 'text-slate-600'
                 }`}>
-                  <span>• الفرق بينهما (متأخرات أو رصيد موجب):</span>
+                  <span>• الفرق بينهما:</span>
                   <span className="underline">{claimBreakdown.priorOtherStatusText}</span>
                 </div>
               </div>
             </div>
 
-            {/* 4️⃣ الجزء الرابع: مديونيات سابقة أو مرحل من فترات محاسبية سابقة أو رصيد افتتاحي للوحدة */}
+            {/* 4️⃣ الجزء الرابع: مديونيات سابقة */}
             <div className="bg-white p-3 rounded-xl border border-slate-200/90 shadow-2xs space-y-1.5">
               <div className="text-xs font-black text-slate-900 flex items-center gap-1.5">
                 <span className="w-2.5 h-2.5 rounded-full bg-slate-600 inline-block"></span>
-                <span>4️⃣ مديونيات سابقة أو مرحل من فترات محاسبية سابقة أو رصيد افتتاحي للوحدة:</span>
+                <span>4️⃣ مديونيات سابقة:</span>
               </div>
               <div className="text-xs text-slate-800 pr-3 font-bold flex justify-between items-center">
                 <span className="text-slate-600">• القيمة:</span>
@@ -2386,59 +2386,59 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                 </div>
               </div>
 
-              {/* 2️⃣ الجزء الثاني: إجمالي المبالغ المستحقة للاشتراك الشهري من بداية الفترة المحاسبية وحتى الشهر الحالي */}
+              {/* 2️⃣ الجزء الثاني: إجمالي المبالغ المستحقة للاشتراك الشهري */}
               <div className="bg-white p-3 rounded-xl border border-slate-200/90 shadow-2xs space-y-2">
                 <div className="text-xs font-black text-slate-900 flex items-center gap-1.5">
                   <span className="w-2.5 h-2.5 rounded-full bg-amber-600 inline-block"></span>
-                  <span>2️⃣ الاشتراكات الشهرية (من بداية الفترة المحاسبية وحتى الشهر الحالي):</span>
+                  <span>2️⃣ الاشتراكات الشهرية:</span>
                 </div>
                 <div className="text-xs text-slate-800 pr-3 space-y-1.5 font-bold">
                   <div className="flex justify-between items-center">
-                    <span className="text-slate-600">• إجمالي المبالغ المستحقة للاشتراك الشهري:</span>
+                    <span className="text-slate-600">• إجمالي المستحق:</span>
                     <span className="font-black text-slate-900">{claimBreakdown.priorSubsDue.toLocaleString()} ج.م</span>
                   </div>
                   <div className="flex justify-between items-center text-emerald-800">
-                    <span>• المبالغ المسددة من بداية الفترة المحاسبية وحتى الشهر الحالي:</span>
+                    <span>• المسدد:</span>
                     <span className="font-black">{claimBreakdown.priorSubsPaid.toLocaleString()} ج.م</span>
                   </div>
                   <div className={`flex justify-between items-center pt-1 border-t border-dashed border-slate-200 font-black ${
                     claimBreakdown.priorSubsDiff > 0 ? 'text-rose-700' : claimBreakdown.priorSubsDiff < 0 ? 'text-emerald-700' : 'text-slate-600'
                   }`}>
-                    <span>• الفرق بينهما (متأخرات أو رصيد موجب):</span>
+                    <span>• الفرق بينهما:</span>
                     <span className="underline">{claimBreakdown.priorSubsStatusText}</span>
                   </div>
                 </div>
               </div>
 
-              {/* 3️⃣ الجزء الثالث: إجمالي المبالغ المستحقة عن التحصيلات الأخرى من بداية الفترة المحاسبية حتى الشهر الحالي */}
+              {/* 3️⃣ الجزء الثالث: إجمالي المبالغ المستحقة عن التحصيلات الأخرى */}
               <div className="bg-white p-3 rounded-xl border border-slate-200/90 shadow-2xs space-y-2">
                 <div className="text-xs font-black text-slate-900 flex items-center gap-1.5">
                   <span className="w-2.5 h-2.5 rounded-full bg-purple-600 inline-block"></span>
-                  <span>3️⃣ التحصيلات الأخرى (من بداية الفترة المحاسبية وحتى الشهر الحالي):</span>
+                  <span>3️⃣ التحصيلات الأخرى:</span>
                 </div>
                 <div className="text-xs text-slate-800 pr-3 space-y-1.5 font-bold">
                   <div className="flex justify-between items-center">
-                    <span className="text-slate-600">• إجمالي المبالغ المستحقة عن التحصيلات الأخرى:</span>
+                    <span className="text-slate-600">• إجمالي المستحق:</span>
                     <span className="font-black text-slate-900">{claimBreakdown.priorOtherDue.toLocaleString()} ج.م</span>
                   </div>
                   <div className="flex justify-between items-center text-emerald-800">
-                    <span>• إجمالي المبالغ المسددة للتحصيلات الأخرى:</span>
+                    <span>• المسدد:</span>
                     <span className="font-black">{claimBreakdown.priorOtherPaid.toLocaleString()} ج.م</span>
                   </div>
                   <div className={`flex justify-between items-center pt-1 border-t border-dashed border-slate-200 font-black ${
                     claimBreakdown.priorOtherDiff > 0 ? 'text-rose-700' : claimBreakdown.priorOtherDiff < 0 ? 'text-emerald-700' : 'text-slate-600'
                   }`}>
-                    <span>• الفرق بينهما (متأخرات أو رصيد موجب):</span>
+                    <span>• الفرق بينهما:</span>
                     <span className="underline">{claimBreakdown.priorOtherStatusText}</span>
                   </div>
                 </div>
               </div>
 
-              {/* 4️⃣ الجزء الرابع: مديونيات سابقة أو مرحل من فترات محاسبية سابقة أو رصيد افتتاحي للوحدة */}
+              {/* 4️⃣ الجزء الرابع: مديونيات سابقة */}
               <div className="bg-white p-3 rounded-xl border border-slate-200/90 shadow-2xs space-y-1.5">
                 <div className="text-xs font-black text-slate-900 flex items-center gap-1.5">
                   <span className="w-2.5 h-2.5 rounded-full bg-slate-600 inline-block"></span>
-                  <span>4️⃣ مديونيات سابقة أو مرحل من فترات محاسبية سابقة أو رصيد افتتاحي للوحدة:</span>
+                  <span>4️⃣ مديونيات سابقة:</span>
                 </div>
                 <div className="text-xs text-slate-800 pr-3 font-bold flex justify-between items-center">
                   <span className="text-slate-600">• القيمة:</span>

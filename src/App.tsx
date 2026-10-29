@@ -1567,8 +1567,9 @@ export default function App() {
       )
       .map(p => String(p.id));
 
-    // Also look for any pre-existing subscription payments in the target months/units to prevent duplicate payments
-    const duplicatePaymentIds: string[] = [];
+    // CRITICAL: NEVER delete any manual or individual payment!
+    // Only previous child payments of this master payment or uncollected automated dues are replaced.
+    const autoDuesToReplace: string[] = [];
     distributedPayments.forEach(dp => {
       const cleanDpId = String(dp.id);
       const dupes = payments.filter(p => {
@@ -1580,16 +1581,24 @@ export default function App() {
         const isSameMonth = String(p.month).padStart(2, '0') === String(dp.month).padStart(2, '0');
         const isSameYear = Number(p.year) === Number(dp.year);
         if (!isSameMonth || !isSameYear) return false;
-        return isMonthlySubscriptionType(p.paymentType);
+        if (!isMonthlySubscriptionType(p.paymentType)) return false;
+        
+        // NEVER delete if payment was recorded manually or individually, has receipt, or is collected/paid
+        const isManualOrReal = Boolean(p.isManuallyPaid || p.isManuallyEdited || (p.receiptNumber && p.receiptNumber.trim() !== '') || p.status === 'collected' || p.status === 'مسدد بالكامل' || p.status === 'paid' || p.status === 'تم التحصيل');
+        if (isManualOrReal) return false;
+
+        // Only replace pure uncollected automated dues
+        const isUncollectedPending = p.status === 'pending' || p.status === 'لم يتم التحصيل' || p.status === 'uncollected' || p.status === 'unpaid';
+        return isUncollectedPending;
       });
-      dupes.forEach(d => duplicatePaymentIds.push(String(d.id)));
+      dupes.forEach(d => autoDuesToReplace.push(String(d.id)));
     });
 
     const allIdsToRemove = new Set<string>([
       ...(origPayment ? [cleanOrigId] : []),
       ...linkedChildIds,
       ...(deletedPaymentIds ? deletedPaymentIds.map(String) : []),
-      ...duplicatePaymentIds
+      ...autoDuesToReplace
     ]);
 
     const idsToDelete = Array.from(allIdsToRemove).filter(id => !distributedPayments.some(dp => String(dp.id) === id));

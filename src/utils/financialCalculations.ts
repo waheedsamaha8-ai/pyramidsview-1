@@ -1237,18 +1237,18 @@ export function calculateUnitClaimBreakdown(
       currentMonthSubsStatusText: 'غير مسدد ⚠️',
       isCurrentMonthSubsPaid: false,
       currentMonthSubsDue: defaultMonthlyFee,
-      subsLineText: `اشتراك شهري - شهر ${monthName} ${yNum} و قدره ${defaultMonthlyFee} ج.م - (غير مسدد ⚠️) .`,
+      subsLineText: `اشتراك شهري: ${defaultMonthlyFee} ج.م • المسدد: 0 ج.م - (غير مسدد ⚠️) .`,
       currentMonthOtherFee: 0,
       currentMonthOtherPaid: 0,
       currentMonthOtherStatusText: 'مسدد بالكامل ✓',
       isCurrentMonthOtherPaid: true,
       currentMonthOtherDue: 0,
-      otherLineText: `تحصيلات اخري - شهر ${monthName} ${yNum} و قدره 0 ج.م - (مسدد بالكامل ✓) .`,
+      otherLineText: `تحصيلات اخري: لا توجد تحصيلات أخرى .`,
       priorSubsDue: 0,
       priorSubsPaid: 0,
       priorSubsDiff: 0,
       priorSubsDiffType: 'zero',
-      priorSubsStatusText: 'لا توجد متأخرات (مسدد بالكامل 0 ج.م)',
+      priorSubsStatusText: 'لا توجد متأخرات (0 ج.م)',
       monthlyDelayedMonthsCount: 0,
       monthlyDelayedAmount: 0,
       monthlyArrearsLineText: `متأخرات اشتراك شهري - لا يوجد تأخير (0 ج.م) .`,
@@ -1349,7 +1349,10 @@ export function calculateUnitClaimBreakdown(
     currentMonthSubsDue = currentMonthFee;
   }
 
-  const subsLineText = `اشتراك شهري - شهر ${monthName} ${yNum} و قدره ${Math.round(currentMonthFee).toLocaleString()} ج.م - (${currentMonthSubsStatusText}) • المسدد عن التحصيلات الشهرية: ${Math.round(curMonthSubsValidPaid).toLocaleString()} ج.م .`;
+  const subsStatusExtra = (currentMonthSubsStatusText && currentMonthSubsStatusText !== 'مسدد بالكامل ✓')
+    ? ` - (${currentMonthSubsStatusText})`
+    : '';
+  const subsLineText = `اشتراك شهري: ${Math.round(currentMonthFee).toLocaleString()} ج.م • المسدد: ${Math.round(curMonthSubsValidPaid).toLocaleString()} ج.م${subsStatusExtra} .`;
 
   // 2. Current Month Other Collections
   const curMonthOtherPayments = allResidentPayments.filter(p => {
@@ -1393,9 +1396,12 @@ export function calculateUnitClaimBreakdown(
     currentMonthOtherDue = currentMonthOtherFee;
   }
 
+  const otherStatusExtra = (currentMonthOtherStatusText && currentMonthOtherStatusText !== 'مسدد بالكامل ✓' && currentMonthOtherStatusText !== 'لا يوجد تحصيلات اخري')
+    ? ` - (${currentMonthOtherStatusText})`
+    : '';
   const otherLineText = currentMonthOtherFee > 0
-    ? `تحصيلات اخري - شهر ${monthName} ${yNum} و قدره ${Math.round(currentMonthOtherFee).toLocaleString()} ج.م - (${currentMonthOtherStatusText}) • المسدد: ${Math.round(curMonthOtherPaid).toLocaleString()} ج.م .`
-    : `تحصيلات اخري - شهر ${monthName} ${yNum} - (${currentMonthOtherStatusText}) .`;
+    ? `تحصيلات اخري: ${Math.round(currentMonthOtherFee).toLocaleString()} ج.م • المسدد: ${Math.round(curMonthOtherPaid).toLocaleString()} ج.م${otherStatusExtra} .`
+    : `تحصيلات اخري: لا توجد تحصيلات أخرى .`;
 
   // 2️⃣ الاشتراكات الشهرية من بداية الفترة المحاسبية وحتى الشهر الحالي
   let priorSubsDue = 0;
@@ -1503,7 +1509,7 @@ export function calculateUnitClaimBreakdown(
     priorSubsStatusText = `رصيد موجب (فائض مسدد) بقيمة (+${Math.abs(priorSubsDiff).toLocaleString()} ج.م)`;
   } else {
     priorSubsDiffType = 'zero';
-    priorSubsStatusText = 'لا توجد متأخرات (مسدد بالكامل 0 ج.م)';
+    priorSubsStatusText = 'لا توجد متأخرات (0 ج.م)';
   }
 
   const monthlyDelayedMonthsCount = priorSubsDiff > 0 ? unpaidPastMonths.length : 0;

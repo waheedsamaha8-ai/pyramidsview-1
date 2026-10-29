@@ -2777,7 +2777,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                                       ? 'bg-red-950 text-emerald-300 border-emerald-500/80' 
                                       : 'text-emerald-800 bg-emerald-50 border-emerald-200/80'
                                   }`}>
-                                    تحصيل مجمع
+                                    {p.amount === 0 && Boolean((p as any).originalAmountBeforeDistribution) ? 'موزع لشهور أخرى' : 'تحصيل مجمع'}
                                   </span>
                                 )}
                                 <span className={`text-[9.5px] font-bold ${isDarkRed ? 'text-red-100 font-extrabold' : 'text-slate-500'}`}>
@@ -2968,7 +2968,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
                                   ? 'bg-red-950 text-emerald-300 border-emerald-500/80' 
                                   : 'bg-emerald-50 text-emerald-800 border-emerald-200'
                               }`}>
-                                تحصيل مجمع
+                                {p.amount === 0 && Boolean((p as any).originalAmountBeforeDistribution) ? 'موزع لشهور أخرى' : 'تحصيل مجمع'}
                               </span>
                             )}
                             <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold border ${

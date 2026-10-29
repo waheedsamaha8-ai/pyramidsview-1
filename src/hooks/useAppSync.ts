@@ -142,22 +142,26 @@ export function useAppSync({
         const incomingMap = new Map(cleanPayments.map(p => [String(p.id), p]));
         const merged = cleanPayments.slice();
         
-        // Retain ONLY optimistic un-uploaded items that are actively in this device's offline queue
-        const offlineQueue = offlineSync.getOfflineQueue();
-        const pendingQueueIds = new Set<string>();
-        for (let i = 0; i < offlineQueue.length; i++) {
-          const act = offlineQueue[i];
-          if ((act.type === 'ADD_PAYMENT' || act.type === 'EDIT_PAYMENT') && act.payload?.id) {
-            pendingQueueIds.add(String(act.payload.id));
+        // When online and connected to Firestore, Firestore is the pure source of truth.
+        // We only retain pending queue items if strictly offline (!navigator.onLine).
+        const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+        if (isOffline) {
+          const offlineQueue = offlineSync.getOfflineQueue();
+          const pendingQueueIds = new Set<string>();
+          for (let i = 0; i < offlineQueue.length; i++) {
+            const act = offlineQueue[i];
+            if ((act.type === 'ADD_PAYMENT' || act.type === 'EDIT_PAYMENT') && act.payload?.id) {
+              pendingQueueIds.add(String(act.payload.id));
+            }
           }
-        }
 
-        prev.forEach(p => {
-          const pId = String(p.id);
-          if (!incomingMap.has(pId) && pendingQueueIds.has(pId)) {
-            merged.push(p);
-          }
-        });
+          prev.forEach(p => {
+            const pId = String(p.id);
+            if (!incomingMap.has(pId) && pendingQueueIds.has(pId)) {
+              merged.push(p);
+            }
+          });
+        }
 
         const deduped = filterAndDeduplicatePayments(merged);
 

@@ -362,17 +362,17 @@ const ReceiptClaimModalContent: React.FC<{
       t += `• ${cb.subsLineText}\n`;
       t += `• ${cb.otherLineText}\n\n`;
 
-      t += `2️⃣ *الاشتراكات الشهرية (من بداية الفترة المحاسبية وحتى الشهر الحالي):*\n`;
-      t += `• إجمالي المبالغ المستحقة للاشتراك الشهري: ${cb.priorSubsDue.toLocaleString()} ج.م\n`;
-      t += `• المبالغ المسددة من بداية الفترة المحاسبية وحتى الشهر الحالي: ${cb.priorSubsPaid.toLocaleString()} ج.م\n`;
-      t += `• الفرق بينهما (متأخرات أو رصيد موجب): ${cb.priorSubsStatusText}\n\n`;
+      t += `2️⃣ *الاشتراكات الشهرية:*\n`;
+      t += `• إجمالي المستحق: ${cb.priorSubsDue.toLocaleString()} ج.م\n`;
+      t += `• المسدد: ${cb.priorSubsPaid.toLocaleString()} ج.م\n`;
+      t += `• الفرق بينهما: ${cb.priorSubsStatusText}\n\n`;
 
-      t += `3️⃣ *التحصيلات الأخرى (من بداية الفترة المحاسبية وحتى الشهر الحالي):*\n`;
-      t += `• إجمالي المبالغ المستحقة عن التحصيلات الأخرى: ${cb.priorOtherDue.toLocaleString()} ج.م\n`;
-      t += `• إجمالي المبالغ المسددة للتحصيلات الأخرى: ${cb.priorOtherPaid.toLocaleString()} ج.م\n`;
-      t += `• الفرق بينهما (متأخرات أو رصيد موجب): ${cb.priorOtherStatusText}\n\n`;
+      t += `3️⃣ *التحصيلات الأخرى:*\n`;
+      t += `• إجمالي المستحق: ${cb.priorOtherDue.toLocaleString()} ج.م\n`;
+      t += `• المسدد: ${cb.priorOtherPaid.toLocaleString()} ج.م\n`;
+      t += `• الفرق بينهما: ${cb.priorOtherStatusText}\n\n`;
 
-      t += `4️⃣ *مديونيات سابقة أو مرحل من فترات محاسبية سابقة أو رصيد افتتاحي للوحدة:*\n`;
+      t += `4️⃣ *مديونيات سابقة:*\n`;
       t += `• القيمة: ${cb.previousDebtAmount > 0 ? `${cb.previousDebtAmount.toLocaleString()} ج.م (مديونيات سابقة)` : (cb.previousSurplusAmount > 0 ? `+${cb.previousSurplusAmount.toLocaleString()} ج.م (رصيد موجب دائن مرحل)` : '0 ج.م (لا توجد مديونيات سابقة)')}\n\n`;
 
       t += `📦 *ملخص المستحقات والتفصيل المالي:*\n`;
@@ -407,17 +407,17 @@ const ReceiptClaimModalContent: React.FC<{
       t += `• ${cb.subsLineText}\n`;
       t += `• ${cb.otherLineText}\n\n`;
 
-      t += `2️⃣ *الاشتراكات الشهرية (من بداية الفترة المحاسبية وحتى الشهر الحالي):*\n`;
-      t += `• إجمالي المبالغ المستحقة للاشتراك الشهري: ${cb.priorSubsDue.toLocaleString()} ج.م\n`;
-      t += `• المبالغ المسددة من بداية الفترة المحاسبية وحتى الشهر الحالي: ${cb.priorSubsPaid.toLocaleString()} ج.م\n`;
-      t += `• الفرق بينهما (متأخرات أو رصيد موجب): ${cb.priorSubsStatusText}\n\n`;
+      t += `2️⃣ *الاشتراكات الشهرية:*\n`;
+      t += `• إجمالي المستحق: ${cb.priorSubsDue.toLocaleString()} ج.م\n`;
+      t += `• المسدد: ${cb.priorSubsPaid.toLocaleString()} ج.م\n`;
+      t += `• الفرق بينهما: ${cb.priorSubsStatusText}\n\n`;
 
-      t += `3️⃣ *التحصيلات الأخرى (من بداية الفترة المحاسبية وحتى الشهر الحالي):*\n`;
-      t += `• إجمالي المبالغ المستحقة عن التحصيلات الأخرى: ${cb.priorOtherDue.toLocaleString()} ج.م\n`;
-      t += `• إجمالي المبالغ المسددة للتحصيلات الأخرى: ${cb.priorOtherPaid.toLocaleString()} ج.م\n`;
-      t += `• الفرق بينهما (متأخرات أو رصيد موجب): ${cb.priorOtherStatusText}\n\n`;
+      t += `3️⃣ *التحصيلات الأخرى:*\n`;
+      t += `• إجمالي المستحق: ${cb.priorOtherDue.toLocaleString()} ج.م\n`;
+      t += `• المسدد: ${cb.priorOtherPaid.toLocaleString()} ج.م\n`;
+      t += `• الفرق بينهما: ${cb.priorOtherStatusText}\n\n`;
 
-      t += `4️⃣ *مديونيات سابقة أو مرحل من فترات محاسبية سابقة أو رصيد افتتاحي للوحدة:*\n`;
+      t += `4️⃣ *مديونيات سابقة:*\n`;
       t += `• القيمة: ${cb.previousDebtAmount > 0 ? `${cb.previousDebtAmount.toLocaleString()} ج.م (مديونيات سابقة)` : (cb.previousSurplusAmount > 0 ? `+${cb.previousSurplusAmount.toLocaleString()} ج.م (رصيد موجب دائن مرحل)` : '0 ج.م (لا توجد مديونيات سابقة)')}\n\n`;
 
       t += `📦 *ملخص المستحقات والتفصيل المالي:*\n`;
@@ -899,21 +899,21 @@ const ReceiptClaimModalContent: React.FC<{
                   <div className="bg-white p-3 rounded-xl border border-slate-200/90 shadow-2xs space-y-2">
                     <div className="text-xs font-black text-slate-900 flex items-center gap-1.5">
                       <span className="w-2.5 h-2.5 rounded-full bg-amber-600 inline-block"></span>
-                      <span>2️⃣ الاشتراكات الشهرية (من بداية الفترة المحاسبية وحتى الشهر الحالي):</span>
+                      <span>2️⃣ الاشتراكات الشهرية:</span>
                     </div>
                     <div className="text-xs text-slate-800 pr-3 space-y-1.5 font-bold">
                       <div className="flex justify-between items-center">
-                        <span className="text-slate-600">• إجمالي المبالغ المستحقة للاشتراك الشهري:</span>
+                        <span className="text-slate-600">• إجمالي المستحق:</span>
                         <span className="font-black text-slate-900">{effectiveClaimBreakdown.priorSubsDue.toLocaleString()} ج.م</span>
                       </div>
                       <div className="flex justify-between items-center text-emerald-800">
-                        <span>• المبالغ المسددة من بداية الفترة المحاسبية وحتى الشهر الحالي:</span>
+                        <span>• المسدد:</span>
                         <span className="font-black">{effectiveClaimBreakdown.priorSubsPaid.toLocaleString()} ج.م</span>
                       </div>
                       <div className={`flex justify-between items-center pt-1 border-t border-dashed border-slate-200 font-black ${
                         effectiveClaimBreakdown.priorSubsDiff > 0 ? 'text-rose-700' : effectiveClaimBreakdown.priorSubsDiff < 0 ? 'text-emerald-700' : 'text-slate-600'
                       }`}>
-                        <span>• الفرق بينهما (متأخرات أو رصيد موجب):</span>
+                        <span>• الفرق بينهما:</span>
                         <span className="underline">{effectiveClaimBreakdown.priorSubsStatusText}</span>
                       </div>
                     </div>
@@ -923,31 +923,31 @@ const ReceiptClaimModalContent: React.FC<{
                   <div className="bg-white p-3 rounded-xl border border-slate-200/90 shadow-2xs space-y-2">
                     <div className="text-xs font-black text-slate-900 flex items-center gap-1.5">
                       <span className="w-2.5 h-2.5 rounded-full bg-purple-600 inline-block"></span>
-                      <span>3️⃣ التحصيلات الأخرى (من بداية الفترة المحاسبية وحتى الشهر الحالي):</span>
+                      <span>3️⃣ التحصيلات الأخرى:</span>
                     </div>
                     <div className="text-xs text-slate-800 pr-3 space-y-1.5 font-bold">
                       <div className="flex justify-between items-center">
-                        <span className="text-slate-600">• إجمالي المبالغ المستحقة عن التحصيلات الأخرى:</span>
+                        <span className="text-slate-600">• إجمالي المستحق:</span>
                         <span className="font-black text-slate-900">{effectiveClaimBreakdown.priorOtherDue.toLocaleString()} ج.م</span>
                       </div>
                       <div className="flex justify-between items-center text-emerald-800">
-                        <span>• إجمالي المبالغ المسددة للتحصيلات الأخرى:</span>
+                        <span>• المسدد:</span>
                         <span className="font-black">{effectiveClaimBreakdown.priorOtherPaid.toLocaleString()} ج.م</span>
                       </div>
                       <div className={`flex justify-between items-center pt-1 border-t border-dashed border-slate-200 font-black ${
                         effectiveClaimBreakdown.priorOtherDiff > 0 ? 'text-rose-700' : effectiveClaimBreakdown.priorOtherDiff < 0 ? 'text-emerald-700' : 'text-slate-600'
                       }`}>
-                        <span>• الفرق بينهما (متأخرات أو رصيد موجب):</span>
+                        <span>• الفرق بينهما:</span>
                         <span className="underline">{effectiveClaimBreakdown.priorOtherStatusText}</span>
                       </div>
                     </div>
                   </div>
 
-                  {/* 4️⃣ الجزء الرابع: مديونيات سابقة أو مرحل من فترات محاسبية سابقة أو رصيد افتتاحي */}
+                  {/* 4️⃣ الجزء الرابع: مديونيات سابقة */}
                   <div className="bg-white p-3 rounded-xl border border-slate-200/90 shadow-2xs space-y-1.5">
                     <div className="text-xs font-black text-slate-900 flex items-center gap-1.5">
                       <span className="w-2.5 h-2.5 rounded-full bg-slate-600 inline-block"></span>
-                      <span>4️⃣ مديونيات سابقة أو مرحل من فترات محاسبية سابقة أو رصيد افتتاحي للوحدة:</span>
+                      <span>4️⃣ مديونيات سابقة:</span>
                     </div>
                     <div className="text-xs text-slate-800 pr-3 font-bold flex justify-between items-center">
                       <span className="text-slate-600">• القيمة:</span>
@@ -1368,16 +1368,16 @@ const ReceiptClaimModalContent: React.FC<{
               </div>
             </div>
 
-            {/* 2️⃣ الاشتراكات الشهرية من بداية الفترة المحاسبية وحتى الشهر الحالي */}
+            {/* 2️⃣ الاشتراكات الشهرية */}
             <div style={{ borderBottom: '1px dashed #cbd5e1', padding: '5px 0' }}>
-              <div style={{ fontWeight: '900', color: '#b45309' }}>2️⃣ الاشتراكات الشهرية (من بداية الفترة المحاسبية وحتى الشهر الحالي):</div>
+              <div style={{ fontWeight: '900', color: '#b45309' }}>2️⃣ الاشتراكات الشهرية:</div>
               <div style={{ fontSize: '11px', paddingRight: '10px', display: 'flex', flexDirection: 'column', gap: '2px', marginTop: '2px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: '#475569' }}>- إجمالي المبالغ المستحقة للاشتراك الشهري:</span>
+                  <span style={{ color: '#475569' }}>- إجمالي المستحق:</span>
                   <span style={{ fontWeight: '900' }}>{effectiveClaimBreakdown.priorSubsDue.toLocaleString()} ج.م</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', color: '#047857' }}>
-                  <span>- المبالغ المسددة من بداية الفترة المحاسبية وحتى الشهر الحالي:</span>
+                  <span>- المسدد:</span>
                   <span style={{ fontWeight: '900' }}>{effectiveClaimBreakdown.priorSubsPaid.toLocaleString()} ج.م</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: '900', color: effectiveClaimBreakdown.priorSubsDiff > 0 ? '#b91c1c' : '#047857' }}>
@@ -1387,16 +1387,16 @@ const ReceiptClaimModalContent: React.FC<{
               </div>
             </div>
 
-            {/* 3️⃣ التحصيلات الأخرى من بداية الفترة المحاسبية حتى الشهر الحالي */}
+            {/* 3️⃣ التحصيلات الأخرى */}
             <div style={{ borderBottom: '1px dashed #cbd5e1', padding: '5px 0' }}>
-              <div style={{ fontWeight: '900', color: '#7e22ce' }}>3️⃣ التحصيلات الأخرى (من بداية الفترة المحاسبية وحتى الشهر الحالي):</div>
+              <div style={{ fontWeight: '900', color: '#7e22ce' }}>3️⃣ التحصيلات الأخرى:</div>
               <div style={{ fontSize: '11px', paddingRight: '10px', display: 'flex', flexDirection: 'column', gap: '2px', marginTop: '2px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: '#475569' }}>- إجمالي المبالغ المستحقة عن التحصيلات الأخرى:</span>
+                  <span style={{ color: '#475569' }}>- إجمالي المستحق:</span>
                   <span style={{ fontWeight: '900' }}>{effectiveClaimBreakdown.priorOtherDue.toLocaleString()} ج.م</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', color: '#047857' }}>
-                  <span>- إجمالي المبالغ المسددة للتحصيلات الأخرى:</span>
+                  <span>- المسدد:</span>
                   <span style={{ fontWeight: '900' }}>{effectiveClaimBreakdown.priorOtherPaid.toLocaleString()} ج.م</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: '900', color: effectiveClaimBreakdown.priorOtherDiff > 0 ? '#b91c1c' : '#047857' }}>
@@ -1406,10 +1406,10 @@ const ReceiptClaimModalContent: React.FC<{
               </div>
             </div>
 
-            {/* 4️⃣ مديونيات سابقة أو مرحل من فترات محاسبية سابقة أو رصيد افتتاحي للوحدة */}
+            {/* 4️⃣ مديونيات سابقة */}
             <div style={{ borderBottom: '1px dashed #cbd5e1', padding: '5px 0' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontWeight: '900', color: '#334155' }}>4️⃣ مديونيات سابقة أو مرحل من فترات محاسبية سابقة أو رصيد افتتاحي:</span>
+                <span style={{ fontWeight: '900', color: '#334155' }}>4️⃣ مديونيات سابقة:</span>
                 <span style={{ fontWeight: '900', color: effectiveClaimBreakdown.previousDebtAmount > 0 ? '#b91c1c' : '#047857' }}>
                   {effectiveClaimBreakdown.previousDebtAmount > 0
                     ? `${effectiveClaimBreakdown.previousDebtAmount.toLocaleString()} ج.م (مديونيات سابقة)`

@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useRef } from 'react';
 import { Resident, Payment, Expense, UserRole, FloorConfig, AppConfig } from '../types';
-import { Calendar, Check, AlertCircle, RefreshCw, X, ExternalLink, Trash2, PlusCircle, Plus, CreditCard, Clock, Layers, Receipt, Edit, Save, Minus, Sparkles, RotateCcw, FileText, Filter, History, Image as ImageIcon } from 'lucide-react';
+import { Calendar, Check, AlertCircle, RefreshCw, X, ExternalLink, Trash2, PlusCircle, Plus, CreditCard, Clock, Layers, Receipt, Edit, Save, Minus, Sparkles, RotateCcw, FileText, Filter, History, Image as ImageIcon, ChevronDown, ChevronUp } from 'lucide-react';
 import { BuildingMap } from './BuildingMap';
 import { UnitHistoryModal } from './modals/UnitHistoryModal';
 import { PaymentFormModal } from './modals/PaymentFormModal';
@@ -214,6 +214,15 @@ const SummariesComponent: React.FC<SummariesProps> = ({
   const grandExpensesTotal = monthlyData.reduce((sum, d) => sum + d.expenses, 0);
   const grandBalanceTotal = grandPaymentsTotal - grandExpensesTotal;
 
+  const firstHalfPayments = monthlyData.slice(0, 6).reduce((sum, d) => sum + d.payments, 0);
+  const secondHalfPayments = monthlyData.slice(6, 12).reduce((sum, d) => sum + d.payments, 0);
+
+  const firstHalfExpenses = monthlyData.slice(0, 6).reduce((sum, d) => sum + d.expenses, 0);
+  const secondHalfExpenses = monthlyData.slice(6, 12).reduce((sum, d) => sum + d.expenses, 0);
+
+  const firstHalfBalance = firstHalfPayments - firstHalfExpenses;
+  const secondHalfBalance = secondHalfPayments - secondHalfExpenses;
+
   // 2. Derive Floor Configs and group residents by Floor for Table 3
   const effectiveFloorConfigs = useMemo(() => {
     let base: FloorConfig[] = [];
@@ -266,6 +275,29 @@ const SummariesComponent: React.FC<SummariesProps> = ({
     return groups;
   }, [effectiveFloorConfigs, residents, sortedResidents]);
 
+  // Floor collapse state for Section 3 (Monthly subscription matrix)
+  const [collapsedFloorIds, setCollapsedFloorIds] = useState<Set<string>>(() => new Set());
+
+  const toggleFloor = (floorId: string) => {
+    setCollapsedFloorIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(floorId)) {
+        next.delete(floorId);
+      } else {
+        next.add(floorId);
+      }
+      return next;
+    });
+  };
+
+  const toggleAllFloors = () => {
+    if (collapsedFloorIds.size === floorResidentGroups.length) {
+      setCollapsedFloorIds(new Set());
+    } else {
+      setCollapsedFloorIds(new Set(floorResidentGroups.map(g => g.floor.id)));
+    }
+  };
+
   // 3. Category Expenses Breakdown (Table 2)
   // Category list is fully dynamic and controlled by expenseTypes in Expense Management (config.expenseTypes)
   const categoryList = useMemo(() => {
@@ -295,9 +327,13 @@ const SummariesComponent: React.FC<SummariesProps> = ({
           .reduce((sum, e) => sum + e.amount, 0);
       });
       const totalYear = monthAmounts.reduce((a, b) => a + b, 0);
+      const firstHalfTotal = monthAmounts.slice(0, 6).reduce((a, b) => a + b, 0);
+      const secondHalfTotal = monthAmounts.slice(6, 12).reduce((a, b) => a + b, 0);
       return {
         category: cat,
         monthAmounts,
+        firstHalfTotal,
+        secondHalfTotal,
         totalYear,
       };
     });
@@ -345,6 +381,34 @@ const SummariesComponent: React.FC<SummariesProps> = ({
       }
     }
     return map;
+  }, [payments, currentYear, selectedPaymentTypeFilter, localDeletedPaymentIds]);
+
+  const residentHalfTotals = useMemo(() => {
+    const firstHalf = new Map<string, number>();
+    const secondHalf = new Map<string, number>();
+    const globallyDeleted = getDeletedPaymentIds();
+    for (let i = 0; i < payments.length; i++) {
+      const p = payments[i];
+      if (!p || !p.id || localDeletedPaymentIds.has(String(p.id)) || globallyDeleted.has(String(p.id))) continue;
+      if (
+        p.residentId &&
+        Number(p.year) === Number(currentYear) &&
+        p.status !== 'cancelled' &&
+        p.status !== 'لاغي' &&
+        p.status !== 'pending' &&
+        p.status !== 'لم يتم التحصيل' &&
+        matchesPaymentType(p.paymentType, selectedPaymentTypeFilter)
+      ) {
+        const mNum = parseInt(p.month, 10);
+        const amt = Number(p.amount) || 0;
+        if (mNum >= 1 && mNum <= 6) {
+          firstHalf.set(p.residentId, (firstHalf.get(p.residentId) || 0) + amt);
+        } else if (mNum >= 7 && mNum <= 12) {
+          secondHalf.set(p.residentId, (secondHalf.get(p.residentId) || 0) + amt);
+        }
+      }
+    }
+    return { firstHalf, secondHalf };
   }, [payments, currentYear, selectedPaymentTypeFilter, localDeletedPaymentIds]);
 
   // 4. Pre-index payments by resident and month for lightning-fast O(1) table rendering and instant modal opening
@@ -477,7 +541,7 @@ const SummariesComponent: React.FC<SummariesProps> = ({
         );
 
         const totalAmount = validCollectedPayments.reduce((sum, p) => sum + p.amount, 0);
-        const isPaid = totalAmount > 0 || validCollectedPayments.some(p => p.isManuallyPaid || p.status === 'collected' || p.status === 'paid' || p.status === 'تم التحصيل');
+        const isPaid = totalAmount > 0 || validCollectedPayments.some(p => (p.isManuallyPaid || p.status === 'collected' || p.status === 'paid' || p.status === 'تم التحصيل') && p.amount > 0);
         const isPending = !isPaid && pendingPayments.length > 0;
         const pendingAmount = pendingPayments.reduce((sum, p) => sum + p.amount, 0);
 
@@ -1013,122 +1077,153 @@ const SummariesComponent: React.FC<SummariesProps> = ({
           onWheel={handleScrollerInteraction}
           className="overflow-x-auto scrollbar-thin scrollbar-thumb-slate-200 overscroll-x-contain"
         >
-          <table className="w-full text-center border-collapse table-fixed min-w-[690px] sm:min-w-[1060px]">
+          <table className="w-[118%] sm:w-full text-center border-collapse table-fixed min-w-[340px] sm:min-w-[900px]">
             <thead>
-              <tr className="bg-slate-50/50 text-slate-500 font-extrabold text-[10px] sm:text-xs border-b border-slate-100">
-                <th className="w-[58px] min-w-[58px] sm:w-28 sm:min-w-28 px-0.5 sm:px-2 py-2 sm:py-2.5 sticky right-0 bg-white shadow-xs z-10 border-l border-slate-100 text-center sm:text-right">
+              <tr className="bg-slate-50/50 text-slate-500 font-extrabold text-[10px] sm:text-xs border-b border-slate-200">
+                <th className="w-[22%] min-w-[62px] sm:w-36 sm:min-w-36 px-0.5 sm:px-2 py-2 sm:py-2.5 sticky right-0 bg-white shadow-xs z-10 border-l border-slate-200 text-center sm:text-right">
                   <span className="block sm:hidden text-[10px]">البيان</span>
                   <span className="hidden sm:block">البيان / البند</span>
                 </th>
-                {monthNamesArabic.map((name, idx) => {
-                  const isQuarterEnd = idx === 2 || idx === 5 || idx === 8;
-                  return (
-                    <th 
-                      key={idx} 
-                      className={`w-[48px] min-w-[48px] sm:w-20 sm:min-w-20 px-0.5 py-2 sm:py-2.5 ${
-                        isQuarterEnd ? 'border-l-2 border-l-slate-200 font-extrabold text-slate-800' : ''
-                      }`}
-                    >
-                      {name}
-                    </th>
-                  );
-                })}
-                <th className="w-[56px] min-w-[56px] sm:w-24 sm:min-w-24 px-0.5 py-2 sm:py-2.5 bg-slate-100/60 border-r border-slate-100 text-slate-800 font-black">
-                  المجموع
+                {[0, 1, 2, 3, 4, 5].map((idx) => (
+                  <th key={idx} className="w-[13%] min-w-[38px] sm:w-24 sm:min-w-24 px-0.5 py-1.5 bg-slate-50/80 border-x border-slate-200 font-extrabold text-slate-800">
+                    <div className="flex flex-col items-center justify-center leading-tight">
+                      <span className="text-[10px] sm:text-xs text-emerald-800 font-black">{STATIC_MONTH_NAMES_ARABIC[idx]}</span>
+                      <span className="text-[8px] sm:text-[9.5px] text-indigo-700 font-bold">{STATIC_MONTH_NAMES_ARABIC[idx + 6]}</span>
+                    </div>
+                  </th>
+                ))}
+                <th className="w-[18%] min-w-[55px] sm:w-28 sm:min-w-28 px-0.5 py-2 sm:py-2.5 bg-slate-100/60 border-r border-slate-200 text-slate-800 font-black">
+                  مجموع 6 شهور
                 </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-[10px] sm:text-xs font-bold text-slate-800">
               {/* Row 1: Total Collections */}
-              <tr className="hover:bg-slate-50/20 transition">
-                <td className="px-0.5 sm:px-2 py-1.5 sm:py-2 sticky right-0 bg-white shadow-xs z-10 text-center sm:text-right border-l border-slate-100 font-black text-emerald-800">
-                  <span className="text-[10px] sm:text-[12.5px] block">التحصيل</span>
+              <tr key="collections_row1" className="hover:bg-slate-50/20 transition">
+                <td rowSpan={2} className="px-0.5 sm:px-2 py-1.5 sm:py-2 sticky right-0 bg-white shadow-xs z-10 text-center sm:text-right border-l border-slate-200 font-black text-emerald-800">
+                  <div className="flex flex-col items-center sm:items-start justify-center gap-1">
+                    <span className="text-[10px] sm:text-[12.5px] block">التحصيل</span>
+                    <div className="flex flex-col gap-0.5 text-[7.5px] sm:text-[8.5px] font-extrabold">
+                      <span className="text-emerald-700 bg-emerald-50 px-1 rounded">1-6: يناير-يونيو</span>
+                      <span className="text-indigo-800 bg-indigo-50 px-1 rounded">7-12: يوليو-ديسمبر</span>
+                    </div>
+                  </div>
                 </td>
-                {monthlyData.map((d, idx) => {
-                  const isQuarterEnd = idx === 2 || idx === 5 || idx === 8;
-                  return (
-                    <td 
-                      key={d.month} 
-                      className={`px-0.5 py-1.5 sm:py-2 border-x border-slate-50 text-emerald-700 font-black ${
-                        isQuarterEnd ? 'border-l-2 border-l-slate-200' : ''
-                      }`}
-                    >
-                      <span className="text-[9.5px] sm:text-xs block leading-tight font-black">
-                        {Math.round(d.payments).toLocaleString()}
-                      </span>
-                      <span className="text-[7px] sm:text-[9px] text-emerald-600/80 font-bold block leading-none">ج.م</span>
-                    </td>
-                  );
-                })}
-                <td className="px-0.5 sm:px-1 py-1.5 sm:py-2 bg-emerald-50/40 border-r border-slate-100 text-emerald-900 font-black">
+                {monthlyData.slice(0, 6).map((d) => (
+                  <td key={d.month} className="px-0.5 py-1.5 sm:py-2 border-x border-slate-100 text-emerald-700 font-black">
+                    <span className="text-[9.5px] sm:text-xs block leading-tight font-black">
+                      {Math.round(d.payments).toLocaleString()}
+                    </span>
+                    <span className="text-[7px] sm:text-[9px] text-emerald-600/80 font-bold block leading-none">ج.م</span>
+                  </td>
+                ))}
+                <td className="px-0.5 sm:px-1 py-1.5 sm:py-2 bg-emerald-100/50 border-r border-slate-100 text-emerald-950 font-black">
                   <span className="text-[10px] sm:text-[12.5px] block leading-tight font-black">
-                    {Math.round(grandPaymentsTotal).toLocaleString()}
+                    {Math.round(firstHalfPayments).toLocaleString()}
                   </span>
-                  <span className="text-[7px] sm:text-[9px] text-emerald-700 font-bold block leading-none">ج.م</span>
+                  <span className="text-[7px] sm:text-[9px] text-emerald-800 font-bold block leading-none">ج.م</span>
+                </td>
+              </tr>
+              <tr key="collections_row2" className="hover:bg-slate-50/20 transition border-b-2 border-b-slate-400">
+                {monthlyData.slice(6, 12).map((d) => (
+                  <td key={d.month} className="px-0.5 py-1.5 sm:py-2 border-x border-slate-100 text-emerald-800 font-black bg-indigo-50/10">
+                    <span className="text-[9.5px] sm:text-xs block leading-tight font-black">
+                      {Math.round(d.payments).toLocaleString()}
+                    </span>
+                    <span className="text-[7px] sm:text-[9px] text-emerald-700/80 font-bold block leading-none">ج.م</span>
+                  </td>
+                ))}
+                <td className="px-0.5 sm:px-1 py-1.5 sm:py-2 bg-emerald-200/50 border-r border-slate-100 text-emerald-950 font-black">
+                  <span className="text-[10px] sm:text-[12.5px] block leading-tight font-black">
+                    {Math.round(secondHalfPayments).toLocaleString()}
+                  </span>
+                  <span className="text-[7px] sm:text-[9px] text-emerald-900 font-bold block leading-none">ج.م</span>
                 </td>
               </tr>
 
               {/* Row 2: Total Expenses */}
-              <tr className="hover:bg-slate-50/20 transition">
-                <td className="px-0.5 sm:px-2 py-1.5 sm:py-2 sticky right-0 bg-white shadow-xs z-10 text-center sm:text-right border-l border-slate-100 font-black text-red-800">
-                  <span className="text-[10px] sm:text-[12.5px] block">المصروفات</span>
+              <tr key="expenses_row1" className="hover:bg-slate-50/20 transition">
+                <td rowSpan={2} className="px-0.5 sm:px-2 py-1.5 sm:py-2 sticky right-0 bg-white shadow-xs z-10 text-center sm:text-right border-l border-slate-200 font-black text-red-800">
+                  <div className="flex flex-col items-center sm:items-start justify-center gap-1">
+                    <span className="text-[10px] sm:text-[12.5px] block">المصروفات</span>
+                    <div className="flex flex-col gap-0.5 text-[7.5px] sm:text-[8.5px] font-extrabold">
+                      <span className="text-rose-700 bg-rose-50 px-1 rounded">1-6: يناير-يونيو</span>
+                      <span className="text-red-900 bg-red-100/60 px-1 rounded">7-12: يوليو-ديسمبر</span>
+                    </div>
+                  </div>
                 </td>
-                {monthlyData.map((d, idx) => {
-                  const isQuarterEnd = idx === 2 || idx === 5 || idx === 8;
-                  return (
-                    <td 
-                      key={d.month} 
-                      className={`px-0.5 py-1.5 sm:py-2 border-x border-slate-50 text-red-600 font-black ${
-                        isQuarterEnd ? 'border-l-2 border-l-slate-200' : ''
-                      }`}
-                    >
-                      <span className="text-[9.5px] sm:text-xs block leading-tight font-black">
-                        {Math.round(d.expenses).toLocaleString()}
-                      </span>
-                      <span className="text-[7px] sm:text-[9px] text-red-500/80 font-bold block leading-none">ج.م</span>
-                    </td>
-                  );
-                })}
-                <td className="px-0.5 sm:px-1 py-1.5 sm:py-2 bg-red-50/40 border-r border-slate-100 text-red-900 font-black">
+                {monthlyData.slice(0, 6).map((d) => (
+                  <td key={d.month} className="px-0.5 py-1.5 sm:py-2 border-x border-slate-100 text-red-600 font-black">
+                    <span className="text-[9.5px] sm:text-xs block leading-tight font-black">
+                      {Math.round(d.expenses).toLocaleString()}
+                    </span>
+                    <span className="text-[7px] sm:text-[9px] text-red-500/80 font-bold block leading-none">ج.م</span>
+                  </td>
+                ))}
+                <td className="px-0.5 sm:px-1 py-1.5 sm:py-2 bg-red-100/50 border-r border-slate-100 text-red-950 font-black">
                   <span className="text-[10px] sm:text-[12.5px] block leading-tight font-black">
-                    {Math.round(grandExpensesTotal).toLocaleString()}
+                    {Math.round(firstHalfExpenses).toLocaleString()}
                   </span>
                   <span className="text-[7px] sm:text-[9px] text-red-800 font-bold block leading-none">ج.م</span>
                 </td>
               </tr>
+              <tr key="expenses_row2" className="hover:bg-slate-50/20 transition border-b-2 border-b-slate-400">
+                {monthlyData.slice(6, 12).map((d) => (
+                  <td key={d.month} className="px-0.5 py-1.5 sm:py-2 border-x border-slate-100 text-red-700 font-black bg-indigo-50/10">
+                    <span className="text-[9.5px] sm:text-xs block leading-tight font-black">
+                      {Math.round(d.expenses).toLocaleString()}
+                    </span>
+                    <span className="text-[7px] sm:text-[9px] text-red-600/80 font-bold block leading-none">ج.م</span>
+                  </td>
+                ))}
+                <td className="px-0.5 sm:px-1 py-1.5 sm:py-2 bg-red-200/50 border-r border-slate-100 text-red-950 font-black">
+                  <span className="text-[10px] sm:text-[12.5px] block leading-tight font-black">
+                    {Math.round(secondHalfExpenses).toLocaleString()}
+                  </span>
+                  <span className="text-[7px] sm:text-[9px] text-red-900 font-bold block leading-none">ج.م</span>
+                </td>
+              </tr>
 
               {/* Row 3: Net Balance / Cashflow */}
-              <tr className="hover:bg-slate-50/30 transition bg-slate-50/40 font-black">
-                <td className="px-0.5 sm:px-2 py-1.5 sm:py-2 sticky right-0 bg-slate-50 shadow-xs z-10 text-center sm:text-right border-l border-slate-100 text-blue-950 font-black">
-                  <span className="text-[10px] sm:text-[12.5px] block">الرصيد</span>
+              <tr key="balance_row1" className="hover:bg-slate-50/30 transition bg-slate-50/40 font-black">
+                <td rowSpan={2} className="px-0.5 sm:px-2 py-1.5 sm:py-2 sticky right-0 bg-slate-50 shadow-xs z-10 text-center sm:text-right border-l border-slate-200 text-blue-950 font-black">
+                  <div className="flex flex-col items-center sm:items-start justify-center gap-1">
+                    <span className="text-[10px] sm:text-[12.5px] block">الرصيد</span>
+                    <div className="flex flex-col gap-0.5 text-[7.5px] sm:text-[8.5px] font-extrabold">
+                      <span className="text-blue-800 bg-blue-100/60 px-1 rounded">1-6: يناير-يونيو</span>
+                      <span className="text-indigo-900 bg-indigo-100 px-1 rounded">7-12: يوليو-ديسمبر</span>
+                    </div>
+                  </div>
                 </td>
-                {monthlyData.map((d, idx) => {
-                  const isQuarterEnd = idx === 2 || idx === 5 || idx === 8;
-                  return (
-                    <td
-                      key={d.month}
-                      className={`px-0.5 py-1.5 sm:py-2 border-x border-slate-100 font-black ${
-                        isQuarterEnd ? 'border-l-2 border-l-slate-200' : ''
-                      } ${
-                        d.balance >= 0 ? 'text-blue-900' : 'text-amber-700'
-                      }`}
-                    >
-                      <span className="text-[9.5px] sm:text-xs block leading-tight font-black">
-                        {Math.round(d.balance).toLocaleString()}
-                      </span>
-                      <span className="text-[7px] sm:text-[9px] text-slate-400 font-bold block leading-none">ج.م</span>
-                    </td>
-                  );
-                })}
-                <td
-                  className={`px-0.5 sm:px-1 py-1.5 sm:py-2 border-r border-slate-100 font-black ${
-                    grandBalanceTotal >= 0 ? 'bg-blue-50/60 text-blue-950' : 'bg-amber-50/60 text-amber-900'
-                  }`}
-                >
+                {monthlyData.slice(0, 6).map((d) => (
+                  <td key={d.month} className={`px-0.5 py-1.5 sm:py-2 border-x border-slate-100 font-black ${d.balance >= 0 ? 'text-blue-900' : 'text-amber-700'}`}>
+                    <span className="text-[9.5px] sm:text-xs block leading-tight font-black">
+                      {Math.round(d.balance).toLocaleString()}
+                    </span>
+                    <span className="text-[7px] sm:text-[9px] text-slate-400 font-bold block leading-none">ج.م</span>
+                  </td>
+                ))}
+                <td className={`px-0.5 sm:px-1 py-1.5 sm:py-2 border-r border-slate-100 font-black ${firstHalfBalance >= 0 ? 'bg-blue-100/60 text-blue-950' : 'bg-amber-100/60 text-amber-900'}`}>
                   <span className="text-[10px] sm:text-[12.5px] block leading-tight font-black">
-                    {Math.round(grandBalanceTotal).toLocaleString()}
+                    {Math.round(firstHalfBalance).toLocaleString()}
                   </span>
                   <span className="text-[7px] sm:text-[9px] text-slate-500 font-bold block leading-none">ج.م</span>
+                </td>
+              </tr>
+              <tr key="balance_row2" className="hover:bg-slate-50/30 transition bg-slate-50/40 font-black border-b-2 border-b-slate-400">
+                {monthlyData.slice(6, 12).map((d) => (
+                  <td key={d.month} className={`px-0.5 py-1.5 sm:py-2 border-x border-slate-100 font-black bg-indigo-50/10 ${d.balance >= 0 ? 'text-blue-950' : 'text-amber-800'}`}>
+                    <span className="text-[9.5px] sm:text-xs block leading-tight font-black">
+                      {Math.round(d.balance).toLocaleString()}
+                    </span>
+                    <span className="text-[7px] sm:text-[9px] text-slate-400 font-bold block leading-none">ج.م</span>
+                  </td>
+                ))}
+                <td className={`px-0.5 sm:px-1 py-1.5 sm:py-2 border-r border-slate-100 font-black ${secondHalfBalance >= 0 ? 'bg-blue-200/60 text-blue-950' : 'bg-amber-200/60 text-amber-900'}`}>
+                  <span className="text-[10px] sm:text-[12.5px] block leading-tight font-black">
+                    {Math.round(secondHalfBalance).toLocaleString()}
+                  </span>
+                  <span className="text-[7px] sm:text-[9px] text-slate-600 font-bold block leading-none">ج.م</span>
                 </td>
               </tr>
             </tbody>
@@ -1154,48 +1249,43 @@ const SummariesComponent: React.FC<SummariesProps> = ({
           onWheel={handleScrollerInteraction}
           className="overflow-x-auto scrollbar-thin scrollbar-thumb-slate-200 overscroll-x-contain"
         >
-          <table className="w-full text-center border-collapse table-fixed min-w-[690px] sm:min-w-[1060px]">
+          <table className="w-[118%] sm:w-full text-center border-collapse table-fixed min-w-[340px] sm:min-w-[900px]">
             <thead>
-              <tr className="bg-slate-50/50 text-slate-500 font-extrabold text-[10px] sm:text-xs border-b border-slate-100">
-                <th className="w-[58px] min-w-[58px] sm:w-28 sm:min-w-28 px-0.5 sm:px-2 py-2 sm:py-2.5 sticky right-0 bg-white shadow-xs z-10 border-l border-slate-100 text-center sm:text-right">
+              <tr className="bg-slate-50/50 text-slate-500 font-extrabold text-[10px] sm:text-xs border-b border-slate-200">
+                <th className="w-[22%] min-w-[62px] sm:w-36 sm:min-w-36 px-0.5 sm:px-2 py-2 sm:py-2.5 sticky right-0 bg-white shadow-xs z-10 border-l border-slate-200 text-center sm:text-right">
                   <span className="block sm:hidden text-[10px]">البند</span>
                   <span className="hidden sm:block">فئة المصروف</span>
                 </th>
-                {monthNamesArabic.map((name, idx) => {
-                  const isQuarterEnd = idx === 2 || idx === 5 || idx === 8;
-                  return (
-                    <th 
-                      key={idx} 
-                      className={`w-[48px] min-w-[48px] sm:w-20 sm:min-w-20 px-0.5 py-2 sm:py-2.5 ${
-                        isQuarterEnd ? 'border-l-2 border-l-slate-200 font-extrabold text-slate-800' : ''
-                      }`}
-                    >
-                      {name}
-                    </th>
-                  );
-                })}
-                <th className="w-[56px] min-w-[56px] sm:w-24 sm:min-w-24 px-0.5 py-2 sm:py-2.5 bg-slate-100/60 border-r border-slate-100 text-slate-800 font-black">
-                  المجموع
+                {[0, 1, 2, 3, 4, 5].map((idx) => (
+                  <th key={idx} className="w-[13%] min-w-[38px] sm:w-24 sm:min-w-24 px-0.5 py-1.5 bg-slate-50/80 border-x border-slate-200 font-extrabold text-slate-800">
+                    <div className="flex flex-col items-center justify-center leading-tight">
+                      <span className="text-[10px] sm:text-xs text-emerald-800 font-black">{STATIC_MONTH_NAMES_ARABIC[idx]}</span>
+                      <span className="text-[8px] sm:text-[9.5px] text-indigo-700 font-bold">{STATIC_MONTH_NAMES_ARABIC[idx + 6]}</span>
+                    </div>
+                  </th>
+                ))}
+                <th className="w-[18%] min-w-[55px] sm:w-28 sm:min-w-28 px-0.5 py-2 sm:py-2.5 bg-slate-100/60 border-r border-slate-200 text-slate-800 font-black">
+                  مجموع 6 شهور
                 </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-[10px] sm:text-xs font-bold text-slate-800">
               {categoryMonthlyData.map((catData) => (
-                <tr key={catData.category} className="hover:bg-slate-50/30 transition">
-                  <td className="px-0.5 sm:px-2 py-1.5 sm:py-2 sticky right-0 bg-white shadow-xs z-10 text-center sm:text-right border-l border-slate-100 font-black text-slate-800">
-                    <span className="text-[9.5px] sm:text-[12px] block truncate max-w-[54px] sm:max-w-none" title={catData.category}>
-                      {catData.category}
-                    </span>
-                  </td>
-                  {catData.monthAmounts.map((amount, idx) => {
-                    const isQuarterEnd = idx === 2 || idx === 5 || idx === 8;
-                    return (
-                      <td 
-                        key={idx} 
-                        className={`px-0.5 py-1.5 sm:py-2 border-x border-slate-50 text-center font-bold ${
-                          isQuarterEnd ? 'border-l-2 border-l-slate-200' : ''
-                        }`}
-                      >
+                <React.Fragment key={catData.category}>
+                  <tr key={`${catData.category}_row1`} className="hover:bg-slate-50/30 transition">
+                    <td rowSpan={2} className="px-0.5 sm:px-2 py-1.5 sm:py-2 sticky right-0 bg-white shadow-xs z-10 text-center sm:text-right border-l border-slate-200 font-black text-slate-800">
+                      <div className="flex flex-col items-center sm:items-start justify-center gap-1">
+                        <span className="text-[9.5px] sm:text-[12px] block truncate max-w-[70px] sm:max-w-none" title={catData.category}>
+                          {catData.category}
+                        </span>
+                        <div className="flex flex-col gap-0.5 text-[7px] sm:text-[8px] font-bold">
+                          <span className="text-slate-600 bg-slate-100 px-1 rounded">1-6</span>
+                          <span className="text-indigo-800 bg-indigo-50 px-1 rounded">7-12</span>
+                        </div>
+                      </div>
+                    </td>
+                    {catData.monthAmounts.slice(0, 6).map((amount, idx) => (
+                      <td key={idx} className="px-0.5 py-1.5 sm:py-2 border-x border-slate-100 text-center font-bold">
                         {amount > 0 ? (
                           <div>
                             <span className="text-[9px] sm:text-[11.5px] font-black text-red-600 block leading-tight">
@@ -1207,44 +1297,79 @@ const SummariesComponent: React.FC<SummariesProps> = ({
                           <span className="text-[10px] sm:text-xs text-slate-300 font-bold">-</span>
                         )}
                       </td>
-                    );
-                  })}
-                  <td className="px-0.5 sm:px-1 py-1.5 sm:py-2 bg-red-50/30 border-r border-slate-100 text-red-900 font-black">
-                    <span className="text-[9.5px] sm:text-xs block leading-tight font-black">
-                      {Math.round(catData.totalYear).toLocaleString()}
-                    </span>
-                    <span className="text-[6.5px] sm:text-[8.5px] text-red-700 font-bold block leading-none">ج.م</span>
-                  </td>
-                </tr>
+                    ))}
+                    <td className="px-0.5 sm:px-1 py-1.5 sm:py-2 bg-red-50/40 border-r border-slate-100 text-red-900 font-black">
+                      <span className="text-[9.5px] sm:text-xs block leading-tight font-black">
+                        {Math.round(catData.firstHalfTotal).toLocaleString()}
+                      </span>
+                      <span className="text-[6.5px] sm:text-[8.5px] text-red-700 font-bold block leading-none">ج.م</span>
+                    </td>
+                  </tr>
+                  <tr key={`${catData.category}_row2`} className="hover:bg-slate-50/30 transition border-b-2 border-b-slate-400">
+                    {catData.monthAmounts.slice(6, 12).map((amount, idx) => (
+                      <td key={idx + 6} className="px-0.5 py-1.5 sm:py-2 border-x border-slate-100 text-center font-bold bg-indigo-50/10">
+                        {amount > 0 ? (
+                          <div>
+                            <span className="text-[9px] sm:text-[11.5px] font-black text-red-700 block leading-tight">
+                              {Math.round(amount).toLocaleString()}
+                            </span>
+                            <span className="text-[6.5px] sm:text-[8.5px] text-red-400 font-bold block leading-none">ج.م</span>
+                          </div>
+                        ) : (
+                          <span className="text-[10px] sm:text-xs text-slate-300 font-bold">-</span>
+                        )}
+                      </td>
+                    ))}
+                    <td className="px-0.5 sm:px-1 py-1.5 sm:py-2 bg-red-100/40 border-r border-slate-100 text-red-950 font-black">
+                      <span className="text-[9.5px] sm:text-xs block leading-tight font-black">
+                        {Math.round(catData.secondHalfTotal).toLocaleString()}
+                      </span>
+                      <span className="text-[6.5px] sm:text-[8.5px] text-red-800 font-bold block leading-none">ج.م</span>
+                    </td>
+                  </tr>
+                </React.Fragment>
               ))}
 
               {/* Total Expenses Row */}
-              <tr className="bg-slate-100/80 font-black text-[10px] sm:text-xs border-t-2 border-slate-200">
-                <td className="px-0.5 sm:px-2 py-2 sm:py-2.5 sticky right-0 bg-slate-100 shadow-xs z-10 text-center sm:text-right border-l border-slate-200 text-slate-900 font-black">
-                  <span className="block sm:hidden text-[9.5px]">الإجمالي</span>
-                  <span className="hidden sm:block">إجمالي المصروفات</span>
+              <tr key="tot_expenses_row1" className="bg-slate-100/80 font-black text-[10px] sm:text-xs border-t-2 border-slate-200">
+                <td rowSpan={2} className="px-0.5 sm:px-2 py-2 sm:py-2.5 sticky right-0 bg-slate-100 shadow-xs z-10 text-center sm:text-right border-l border-slate-200 text-slate-900 font-black">
+                  <div className="flex flex-col items-center sm:items-start justify-center gap-1">
+                    <span className="block text-[9.5px] sm:text-[12px]">إجمالي المصروفات</span>
+                    <div className="flex flex-col gap-0.5 text-[7px] sm:text-[8px] font-bold">
+                      <span className="text-red-800 bg-red-100 px-1 rounded">1-6</span>
+                      <span className="text-red-950 bg-red-200 px-1 rounded">7-12</span>
+                    </div>
+                  </div>
                 </td>
-                {monthlyData.map((d, idx) => {
-                  const isQuarterEnd = idx === 2 || idx === 5 || idx === 8;
-                  return (
-                    <td 
-                      key={d.month} 
-                      className={`px-0.5 py-2 sm:py-2.5 border-x border-slate-200/60 text-red-700 font-black ${
-                        isQuarterEnd ? 'border-l-2 border-l-slate-200' : ''
-                      }`}
-                    >
-                      <span className="text-[9.5px] sm:text-xs block leading-tight font-black">
-                        {Math.round(d.expenses).toLocaleString()}
-                      </span>
-                      <span className="text-[6.5px] sm:text-[8.5px] text-red-500 font-bold block leading-none">ج.م</span>
-                    </td>
-                  );
-                })}
+                {monthlyData.slice(0, 6).map((d) => (
+                  <td key={d.month} className="px-0.5 py-2 sm:py-2.5 border-x border-slate-200/60 text-red-700 font-black">
+                    <span className="text-[9.5px] sm:text-xs block leading-tight font-black">
+                      {Math.round(d.expenses).toLocaleString()}
+                    </span>
+                    <span className="text-[6.5px] sm:text-[8.5px] text-red-500 font-bold block leading-none">ج.م</span>
+                  </td>
+                ))}
                 <td className="px-0.5 sm:px-1 py-2 sm:py-2.5 bg-red-100/60 border-r border-slate-200 text-red-950 font-black">
                   <span className="text-[10px] sm:text-[12.5px] block leading-tight font-black">
-                    {Math.round(grandExpensesTotal).toLocaleString()}
+                    {Math.round(firstHalfExpenses).toLocaleString()}
                   </span>
                   <span className="text-[6.5px] sm:text-[8.5px] text-red-800 font-bold block leading-none">ج.م</span>
+                </td>
+              </tr>
+              <tr key="tot_expenses_row2" className="bg-slate-100/80 font-black text-[10px] sm:text-xs border-b-2 border-b-slate-400">
+                {monthlyData.slice(6, 12).map((d) => (
+                  <td key={d.month} className="px-0.5 py-2 sm:py-2.5 border-x border-slate-200/60 text-red-800 font-black bg-indigo-50/10">
+                    <span className="text-[9.5px] sm:text-xs block leading-tight font-black">
+                      {Math.round(d.expenses).toLocaleString()}
+                    </span>
+                    <span className="text-[6.5px] sm:text-[8.5px] text-red-600 font-bold block leading-none">ج.م</span>
+                  </td>
+                ))}
+                <td className="px-0.5 sm:px-1 py-2 sm:py-2.5 bg-red-200/60 border-r border-slate-200 text-red-950 font-black">
+                  <span className="text-[10px] sm:text-[12.5px] block leading-tight font-black">
+                    {Math.round(secondHalfExpenses).toLocaleString()}
+                  </span>
+                  <span className="text-[6.5px] sm:text-[8.5px] text-red-900 font-bold block leading-none">ج.م</span>
                 </td>
               </tr>
             </tbody>
@@ -1265,6 +1390,25 @@ const SummariesComponent: React.FC<SummariesProps> = ({
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3 flex-wrap justify-end w-full sm:w-auto">
+            {/* Global Collapse/Expand All Floors Button */}
+            <button
+              type="button"
+              onClick={toggleAllFloors}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-900 text-white hover:bg-blue-950 text-xs font-black shadow-2xs transition active:scale-95 cursor-pointer"
+            >
+              {collapsedFloorIds.size === floorResidentGroups.length ? (
+                <>
+                  <ChevronDown className="w-3.5 h-3.5 stroke-[3]" />
+                  <span>فتح كل الأدوار</span>
+                </>
+              ) : (
+                <>
+                  <ChevronUp className="w-3.5 h-3.5 stroke-[3]" />
+                  <span>غلق كل الأدوار</span>
+                </>
+              )}
+            </button>
+
             {/* Payment Type Filter Selector */}
             <div className="flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-lg border border-slate-200 shadow-2xs">
               <Filter className="w-3.5 h-3.5 text-blue-900 shrink-0" />
@@ -1335,217 +1479,248 @@ const SummariesComponent: React.FC<SummariesProps> = ({
           onWheel={handleScrollerInteraction}
           className="overflow-x-auto scrollbar-thin scrollbar-thumb-slate-200 overscroll-x-contain"
         >
-          <table className="w-full text-center border-collapse table-fixed min-w-[690px] sm:min-w-[1060px]">
+          <table className="w-[118%] sm:w-full text-center border-collapse table-fixed min-w-[340px] sm:min-w-[900px]">
             <thead>
-              <tr className="bg-slate-50/50 text-slate-500 font-extrabold text-[10px] sm:text-xs border-b border-slate-100">
-                <th className="w-[58px] min-w-[58px] sm:w-28 sm:min-w-28 px-0.5 sm:px-1.5 py-1.5 sm:py-2 sticky right-0 bg-white shadow-xs z-10 border-l border-slate-100 text-center">
+              <tr className="bg-slate-50/50 text-slate-500 font-extrabold text-[10px] sm:text-xs border-b border-slate-200">
+                <th className="w-[22%] min-w-[62px] sm:w-36 sm:min-w-36 px-0.5 sm:px-1.5 py-1.5 sm:py-2 sticky right-0 bg-white shadow-xs z-10 border-l border-slate-200 text-center">
                   <div className="flex flex-col items-center justify-center leading-tight">
                     <span className="text-[10px] sm:text-xs font-black text-slate-800">الوحدة</span>
                     <span className="text-[8.5px] sm:text-[9.5px] font-bold text-slate-400">الاسم</span>
                   </div>
                 </th>
-                {monthNamesArabic.map((name, idx) => {
-                  const isQuarterEnd = idx === 2 || idx === 5 || idx === 8;
-                  return (
-                    <th 
-                      key={idx} 
-                      className={`w-[48px] min-w-[48px] sm:w-20 sm:min-w-20 px-0.5 py-2 sm:py-2.5 ${
-                        isQuarterEnd ? 'border-l-2 border-l-slate-200 font-extrabold text-slate-800' : ''
-                      }`}
-                    >
-                      {name}
-                    </th>
-                  );
-                })}
-                <th className="w-[56px] min-w-[56px] sm:w-24 sm:min-w-24 px-0.5 py-2 sm:py-2.5 bg-slate-100/60 border-r border-slate-100 text-slate-800 font-black">
-                  المجموع
+                {[0, 1, 2, 3, 4, 5].map((idx) => (
+                  <th key={idx} className="w-[13%] min-w-[38px] sm:w-24 sm:min-w-24 px-0.5 py-1.5 bg-slate-50/80 border-x border-slate-200 font-extrabold text-slate-800">
+                    <div className="flex flex-col items-center justify-center leading-tight">
+                      <span className="text-[10px] sm:text-xs text-emerald-800 font-black">{STATIC_MONTH_NAMES_ARABIC[idx]}</span>
+                      <span className="text-[8px] sm:text-[9.5px] text-indigo-700 font-bold">{STATIC_MONTH_NAMES_ARABIC[idx + 6]}</span>
+                    </div>
+                  </th>
+                ))}
+                <th className="w-[18%] min-w-[55px] sm:w-28 sm:min-w-28 px-0.5 py-2 sm:py-2.5 bg-slate-100/60 border-r border-slate-200 text-slate-800 font-black">
+                  مجموع 6 شهور
                 </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-[10px] sm:text-xs font-bold text-slate-800">
-              {floorResidentGroups.map((group) => (
-                <React.Fragment key={group.floor.id}>
-                  {/* Floor Divider / Separator Header */}
-                  <tr className="bg-slate-100/90 border-y-2 border-slate-200/80">
-                    <td colSpan={14} className="py-1.5 sm:py-2 px-2 sm:px-3 text-right sticky right-0 bg-slate-100/95 z-5 shadow-2xs">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5 sm:gap-2">
-                          <span className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-blue-900 inline-block shadow-xs"></span>
-                          <span className="text-[11px] sm:text-xs font-black text-blue-950">{group.floor.floorLabel}</span>
-                          <span className="text-[9px] sm:text-[10.5px] font-bold text-slate-500">
-                            ({group.residents.length} {group.residents.length === 1 ? 'وحدة' : 'وحدات'})
-                          </span>
-                        </div>
-                        <span className="text-[8.5px] sm:text-[10px] font-extrabold text-slate-600 bg-white/90 px-1.5 sm:px-2 py-0.5 rounded-md border border-slate-200/70">
-                          {group.floor.activityType || 'سكني'}
-                        </span>
-                      </div>
-                    </td>
-                  </tr>
-
-                  {/* Residents of this floor */}
-                  {group.residents.map((res) => {
-                    const occupantName = occupantNamesMap.get(res.id) || res.name;
-                    const residentYearTotal = residentYearTotalsMap.get(res.id) || 0;
-
-                    return (
-                      <tr key={res.id} className="hover:bg-slate-50/30 transition">
-                        <td className="px-0.5 sm:px-1.5 py-1.5 sm:py-2 sticky right-0 bg-white shadow-xs z-10 text-center border-l border-slate-100 overflow-hidden">
-                          <div className="flex flex-col leading-tight items-center justify-center w-full">
-                            <span className="font-black text-blue-900 text-[10px] sm:text-xs whitespace-nowrap">وحدة {res.flatNumber}</span>
-                            <span 
-                              className="text-slate-600 font-bold truncate max-w-[54px] sm:max-w-[95px] text-[8.5px] sm:text-[10px] leading-tight mt-0.5 block" 
-                              title={occupantName}
+              {floorResidentGroups.map((group) => {
+                const isFloorCollapsed = collapsedFloorIds.has(group.floor.id);
+                return (
+                  <React.Fragment key={group.floor.id}>
+                    {/* Floor Divider / Separator Header */}
+                    <tr className="bg-slate-100/90 border-y-2 border-slate-200/80">
+                      <td colSpan={8} className="py-1.5 sm:py-2 px-2 sm:px-3 text-right sticky right-0 bg-slate-100/95 z-5 shadow-2xs">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5 sm:gap-2">
+                            <button
+                              type="button"
+                              onClick={() => toggleFloor(group.floor.id)}
+                              className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-blue-900 text-white hover:bg-blue-950 font-black text-[10px] sm:text-xs shadow-2xs transition active:scale-95 cursor-pointer"
                             >
-                              {occupantName}
+                              {isFloorCollapsed ? (
+                                <>
+                                  <ChevronDown className="w-3.5 h-3.5 stroke-[3]" />
+                                  <span>فتح صفوف الدور</span>
+                                </>
+                              ) : (
+                                <>
+                                  <ChevronUp className="w-3.5 h-3.5 stroke-[3]" />
+                                  <span>غلق صفوف الدور</span>
+                                </>
+                              )}
+                            </button>
+                            <span className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-blue-900 inline-block shadow-xs"></span>
+                            <span className="text-[11px] sm:text-xs font-black text-blue-950">{group.floor.floorLabel}</span>
+                            <span className="text-[9px] sm:text-[10.5px] font-bold text-slate-500">
+                              ({group.residents.length} {group.residents.length === 1 ? 'وحدة' : 'وحدات'})
                             </span>
                           </div>
-                        </td>
-                        {months.map((m, idx) => {
-                          const status = getSubscriptionStatus(res.id, m);
-                          const isMulti = status.paymentsList.length > 1;
-                          const isQuarterEnd = idx === 2 || idx === 5 || idx === 8;
-                          const histAct = historicalActivitiesMap.get(`${res.id}_${m}`) || { activityType: res.activityType || 'سكني', monthlyFee: defaultMonthlyFee || 400 };
-                          const isNoFeeActivity = Boolean(
-                            histAct.activityType === 'بدون تحصيل' ||
-                            histAct.activityType === 'بدون تشطيب' ||
-                            histAct.activityType?.includes('بدون تحصيل') ||
-                            histAct.activityType?.includes('بدون تشطيب') ||
-                            (histAct.monthlyFee === 0)
-                          );
+                          <span className="text-[8.5px] sm:text-[10px] font-extrabold text-slate-600 bg-white/90 px-1.5 sm:px-2 py-0.5 rounded-md border border-slate-200/70">
+                            {group.floor.activityType || 'سكني'}
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
 
-                          let cellBgClass = 'bg-white hover:bg-slate-100/70 text-slate-300 border border-slate-200';
-                          if (status.paid) {
-                            cellBgClass = 'bg-emerald-200/90 text-emerald-950 hover:bg-emerald-300/90 border border-emerald-400 shadow-2xs font-black';
-                          } else if (status.pending) {
-                            if (status.hasPendingWithReceipt) {
-                              cellBgClass = 'bg-red-900 text-white hover:bg-red-950 border border-red-950 shadow-2xs font-black';
-                            } else {
-                              cellBgClass = 'bg-rose-200/90 text-rose-950 hover:bg-rose-300/90 border border-rose-400 shadow-2xs font-black';
-                            }
-                          } else if (status.isCancelled) {
-                            cellBgClass = 'bg-slate-400/80 text-slate-950 hover:bg-slate-400 border border-slate-600 shadow-2xs font-black';
-                          } else if (isNoFeeActivity || histAct.monthlyFee === 0) {
-                            cellBgClass = 'bg-slate-200/90 text-slate-800 hover:bg-slate-200 border border-slate-300 shadow-2xs font-black';
+                    {/* Residents of this floor */}
+                    {!isFloorCollapsed && group.residents.map((res) => {
+                      const occupantName = occupantNamesMap.get(res.id) || res.name;
+                      const firstHalfTotal = residentHalfTotals.firstHalf.get(res.id) || 0;
+                      const secondHalfTotal = residentHalfTotals.secondHalf.get(res.id) || 0;
+
+                      const renderCell = (m: string, idx: number) => {
+                        const status = getSubscriptionStatus(res.id, m);
+                        const isMulti = status.paymentsList.length > 1;
+                        const histAct = historicalActivitiesMap.get(`${res.id}_${m}`) || { activityType: res.activityType || 'سكني', monthlyFee: defaultMonthlyFee || 400 };
+                        const isNoFeeActivity = Boolean(
+                          histAct.activityType === 'بدون تحصيل' ||
+                          histAct.activityType === 'بدون تشطيب' ||
+                          histAct.activityType?.includes('بدون تحصيل') ||
+                          histAct.activityType?.includes('بدون تشطيب') ||
+                          (histAct.monthlyFee === 0)
+                        );
+
+                        let cellBgClass = 'bg-white hover:bg-slate-100/70 text-slate-300 border border-slate-200';
+                        if (status.paid) {
+                          cellBgClass = 'bg-emerald-200/90 text-emerald-950 hover:bg-emerald-300/90 border border-emerald-400 shadow-2xs font-black';
+                        } else if (status.pending) {
+                          if (status.hasPendingWithReceipt) {
+                            cellBgClass = 'bg-red-900 text-white hover:bg-red-950 border border-red-950 shadow-2xs font-black';
                           } else {
-                            // الخانة التي ليس لها دفعات مسجلة: تكون باللون الأبيض مع حذف كلمة غير مسدد
-                            cellBgClass = 'bg-white hover:bg-slate-100/70 text-slate-300 border border-slate-200 font-bold';
+                            cellBgClass = 'bg-rose-200/90 text-rose-950 hover:bg-rose-300/90 border border-rose-400 shadow-2xs font-black';
                           }
+                        } else if (status.isCancelled) {
+                          cellBgClass = 'bg-slate-400/80 text-slate-950 hover:bg-slate-400 border border-slate-600 shadow-2xs font-black';
+                        } else if (isNoFeeActivity || histAct.monthlyFee === 0) {
+                          cellBgClass = 'bg-slate-200/90 text-slate-800 hover:bg-slate-200 border border-slate-300 shadow-2xs font-black';
+                        } else {
+                          cellBgClass = 'bg-white hover:bg-slate-100/70 text-slate-300 border border-slate-200 font-bold';
+                        }
 
-                          return (
-                            <td
-                              key={m}
-                              onClick={() => {
-                                const monthName = monthNamesArabic[idx];
-                                const prescribedFee = getDefaultFeeForResident(res, m, currentYear);
-                                setNewAmount(String(prescribedFee));
-                                setNewDueAmount(String(prescribedFee));
-                                setNewNotes('');
-                                setNewPaymentType(
-                                  selectedPaymentTypeFilter !== 'all'
-                                    ? selectedPaymentTypeFilter
-                                    : (isNoFeeActivity ? 'تحصيلات اخرى' : 'اشتراك شهري')
-                                );
-                                setEditingPaymentId(null);
-                                setDeleteConfirmId(null);
-                                setSelectedCell({
-                                  resident: res,
-                                  month: m,
-                                  monthName: monthName,
-                                  payments: status.paymentsList,
-                                });
-                              }}
-                              className={`px-0.5 py-1 text-center border-x border-slate-100 ${
-                                isQuarterEnd ? 'border-l-2 border-l-slate-300' : ''
-                              } cursor-pointer ${cellBgClass} transition font-bold`}
-                            >
-                              <div className="flex flex-col items-center justify-center gap-0.5 min-h-[30px] sm:min-h-[32px]">
-                                {status.paid ? (
-                                  <>
-                                    <div className="flex items-center gap-0.5">
-                                      <Check className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-800 stroke-[3.5]" />
-                                      {status.isDistributed && (
-                                        <span className="w-2 h-2 rounded-full bg-emerald-600 ring-2 ring-emerald-300 animate-pulse" title="تم التوزيع من هذه الدفعة" />
-                                      )}
-                                      {status.isAggregated && (
-                                        <span className="text-[7px] sm:text-[7.5px] font-black px-1 py-0.2 bg-amber-300 text-amber-950 rounded-xs shadow-2xs" title="تحصيل مجمع / موزع">
-                                          مجمع
-                                        </span>
-                                      )}
-                                      {isMulti && (
-                                        <span className="text-[7.5px] sm:text-[9px] font-black px-0.5 py-0.2 bg-blue-300 text-blue-900 rounded-xs">
-                                          {status.paymentsList.length}
-                                        </span>
-                                      )}
-                                    </div>
-                                    {status.amount > 0 && (
-                                      <span className="text-[9.5px] sm:text-[11.5px] font-black text-emerald-950 leading-none">
-                                        {Math.round(status.amount).toLocaleString()}
+                        return (
+                          <td
+                            key={m}
+                            onClick={() => {
+                              const monthName = STATIC_MONTH_NAMES_ARABIC[idx];
+                              const prescribedFee = getDefaultFeeForResident(res, m, currentYear);
+                              setNewAmount(String(prescribedFee));
+                              setNewDueAmount(String(prescribedFee));
+                              setNewNotes('');
+                              setNewPaymentType(
+                                selectedPaymentTypeFilter !== 'all'
+                                  ? selectedPaymentTypeFilter
+                                  : (isNoFeeActivity ? 'تحصيلات اخرى' : 'اشتراك شهري')
+                              );
+                              setEditingPaymentId(null);
+                              setDeleteConfirmId(null);
+                              setSelectedCell({
+                                resident: res,
+                                month: m,
+                                monthName: monthName,
+                                payments: status.paymentsList,
+                              });
+                            }}
+                            className={`px-0.5 py-1 text-center border-x border-slate-100 cursor-pointer ${cellBgClass} transition font-bold`}
+                          >
+                            <div className="flex flex-col items-center justify-center gap-0.5 min-h-[28px] sm:min-h-[30px]">
+                              {status.paid ? (
+                                <>
+                                  <div className="flex items-center gap-0.5">
+                                    <Check className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-800 stroke-[3.5]" />
+                                    {status.isDistributed && (
+                                      <span className="w-2 h-2 rounded-full bg-emerald-600 ring-2 ring-emerald-300 animate-pulse" title="تم التوزيع من هذه الدفعة" />
+                                    )}
+                                    {status.isAggregated && (
+                                      <span className="text-[7px] sm:text-[7.5px] font-black px-1 py-0.2 bg-amber-300 text-amber-950 rounded-xs shadow-2xs" title="تحصيل مجمع / موزع">
+                                        مجمع
                                       </span>
                                     )}
-                                  </>
-                                ) : status.pending ? (
-                                  <>
-                                    <div className="flex items-center gap-0.5">
-                                      <Clock className={`w-3 h-3 sm:w-3.5 sm:h-3.5 stroke-[2.5] ${status.hasPendingWithReceipt ? 'text-amber-300' : 'text-rose-800'}`} />
-                                      {status.isDistributed && (
-                                        <span className="w-2 h-2 rounded-full bg-amber-500 ring-2 ring-amber-300 animate-pulse" title="تم التوزيع من هذه الدفعة" />
-                                      )}
-                                      {!status.isDistributed && status.isAggregated && (
-                                        <span className="text-[7px] sm:text-[7.5px] font-black px-1 py-0.2 bg-amber-300 text-amber-950 rounded-xs" title="تحصيل مجمع">
-                                          مجمع
-                                        </span>
-                                      )}
-                                      {isMulti && (
-                                        <span className={`text-[7.5px] sm:text-[9px] font-black px-0.5 py-0.2 rounded-xs ${status.hasPendingWithReceipt ? 'bg-red-950 text-amber-200' : 'bg-rose-300 text-rose-950'}`}>
-                                          {status.paymentsList.length}
-                                        </span>
-                                      )}
-                                    </div>
-                                    <span className={`text-[8.5px] sm:text-[10px] font-black whitespace-nowrap leading-none ${status.hasPendingWithReceipt ? 'text-white' : 'text-rose-950'}`}>
-                                      {status.hasPendingWithReceipt ? 'إيصال معلق' : 'استحقاق'}
-                                    </span>
-                                    {status.pendingAmount > 0 && (
-                                      <span className={`text-[9px] sm:text-[11px] font-black leading-none ${status.hasPendingWithReceipt ? 'text-amber-200' : 'text-rose-950'}`}>
-                                        {Math.round(status.pendingAmount).toLocaleString()}
+                                    {isMulti && (
+                                      <span className="text-[7.5px] sm:text-[9px] font-black px-0.5 py-0.2 bg-blue-300 text-blue-900 rounded-xs">
+                                        {status.paymentsList.length}
                                       </span>
                                     )}
-                                  </>
-                                ) : status.isCancelled ? (
-                                  <>
-                                    <div className="flex items-center gap-0.5">
-                                      <X className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-slate-900 stroke-[3]" />
-                                    </div>
-                                    <span className="text-[8.5px] sm:text-[10px] font-black text-slate-950 whitespace-nowrap leading-none line-through">
-                                      لاغي
+                                  </div>
+                                  {status.amount > 0 && (
+                                    <span className="text-[9.5px] sm:text-[11.5px] font-black text-emerald-950 leading-none">
+                                      {Math.round(status.amount).toLocaleString()}
                                     </span>
-                                  </>
-                                ) : (isNoFeeActivity || histAct.monthlyFee === 0) ? (
-                                  <>
-                                    <Minus className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-slate-700 stroke-[3]" />
-                                    <span className="text-[9px] sm:text-[11px] font-black text-slate-800 whitespace-nowrap leading-none">
-                                      معفي
+                                  )}
+                                </>
+                              ) : status.pending ? (
+                                <>
+                                  <div className="flex items-center gap-0.5">
+                                    <Clock className={`w-3 h-3 sm:w-3.5 sm:h-3.5 stroke-[2.5] ${status.hasPendingWithReceipt ? 'text-amber-300' : 'text-rose-800'}`} />
+                                    {status.isDistributed && (
+                                      <span className="w-2 h-2 rounded-full bg-amber-500 ring-2 ring-amber-300 animate-pulse" title="تم التوزيع من هذه الدفعة" />
+                                    )}
+                                    {!status.isDistributed && status.isAggregated && (
+                                      <span className="text-[7px] sm:text-[7.5px] font-black px-1 py-0.2 bg-amber-300 text-amber-950 rounded-xs" title="تحصيل مجمع">
+                                        مجمع
+                                      </span>
+                                    )}
+                                    {isMulti && (
+                                      <span className={`text-[7.5px] sm:text-[9px] font-black px-0.5 py-0.2 rounded-xs ${status.hasPendingWithReceipt ? 'bg-red-950 text-amber-200' : 'bg-rose-300 text-rose-950'}`}>
+                                        {status.paymentsList.length}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <span className={`text-[8.5px] sm:text-[10px] font-black whitespace-nowrap leading-none ${status.hasPendingWithReceipt ? 'text-white' : 'text-rose-950'}`}>
+                                    {status.hasPendingWithReceipt ? 'إيصال معلق' : 'استحقاق'}
+                                  </span>
+                                  {status.pendingAmount > 0 && (
+                                    <span className={`text-[9px] sm:text-[11px] font-black leading-none ${status.hasPendingWithReceipt ? 'text-amber-200' : 'text-rose-950'}`}>
+                                      {Math.round(status.pendingAmount).toLocaleString()}
                                     </span>
-                                  </>
-                                ) : (
-                                  /* الخانة التي ليس لها دفعات مسجلة: باللون الأبيض مع حذف كلمة غير مسدد */
-                                  <span className="text-slate-300 font-bold text-xs select-none">—</span>
-                                )}
+                                  )}
+                                </>
+                              ) : status.isCancelled ? (
+                                <>
+                                  <div className="flex items-center gap-0.5">
+                                    <X className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-slate-900 stroke-[3]" />
+                                  </div>
+                                  <span className="text-[8.5px] sm:text-[10px] font-black text-slate-950 whitespace-nowrap leading-none line-through">
+                                    لاغي
+                                  </span>
+                                </>
+                              ) : (isNoFeeActivity || histAct.monthlyFee === 0) ? (
+                                <>
+                                  <Minus className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-slate-700 stroke-[3]" />
+                                  <span className="text-[9px] sm:text-[11px] font-black text-slate-800 whitespace-nowrap leading-none">
+                                    معفي
+                                  </span>
+                                </>
+                              ) : (
+                                <span className="text-slate-300 font-bold text-xs select-none">—</span>
+                              )}
+                            </div>
+                          </td>
+                        );
+                      };
+
+                      return (
+                        <React.Fragment key={res.id}>
+                          {/* Sub-row 1: Jan - Jun */}
+                          <tr className="hover:bg-slate-50/30 transition">
+                            <td rowSpan={2} className="px-0.5 sm:px-1.5 py-1.5 sm:py-2 sticky right-0 bg-white shadow-xs z-10 text-center border-l border-slate-200 overflow-hidden">
+                              <div className="flex flex-col leading-tight items-center justify-center w-full">
+                                <span className="font-black text-blue-900 text-[10px] sm:text-xs whitespace-nowrap">وحدة {res.flatNumber}</span>
+                                <span 
+                                  className="text-slate-600 font-bold truncate max-w-[54px] sm:max-w-[95px] text-[8.5px] sm:text-[10px] leading-tight mt-0.5 block" 
+                                  title={occupantName}
+                                >
+                                  {occupantName}
+                                </span>
+                                <div className="flex flex-col gap-0.5 text-[7px] sm:text-[8px] font-black mt-1">
+                                  <span className="px-1 py-0.2 bg-emerald-50 text-emerald-800 rounded border border-emerald-200">1-6</span>
+                                  <span className="px-1 py-0.2 bg-indigo-50 text-indigo-800 rounded border border-indigo-200">7-12</span>
+                                </div>
                               </div>
                             </td>
-                          );
-                        })}
-                        <td className="px-0.5 sm:px-1 py-1.5 sm:py-2 bg-slate-50/70 border-r border-slate-100 text-center font-black">
-                          <span className="text-[10px] sm:text-xs text-blue-950 block leading-tight font-black">
-                            {Math.round(residentYearTotal).toLocaleString()}
-                          </span>
-                          <span className="text-[7.5px] sm:text-[9.5px] text-slate-400 font-bold block leading-none">ج.م</span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </React.Fragment>
-              ))}
+                            {STATIC_MONTHS.slice(0, 6).map((m, idx) => renderCell(m, idx))}
+                            <td className="px-0.5 sm:px-1 py-1.5 sm:py-2 bg-emerald-50/50 border-r border-slate-100 text-center font-black">
+                              <span className="text-[10px] sm:text-xs text-emerald-950 block leading-tight font-black">
+                                {Math.round(firstHalfTotal).toLocaleString()}
+                              </span>
+                              <span className="text-[7.5px] sm:text-[9.5px] text-emerald-700 font-bold block leading-none">ج.م</span>
+                            </td>
+                          </tr>
+
+                          {/* Sub-row 2: Jul - Dec */}
+                          <tr className="hover:bg-slate-50/30 transition border-b-2 border-b-slate-400">
+                            {STATIC_MONTHS.slice(6, 12).map((m, idx) => renderCell(m, idx + 6))}
+                            <td className="px-0.5 sm:px-1 py-1.5 sm:py-2 bg-indigo-50/50 border-r border-slate-100 text-center font-black">
+                              <span className="text-[10px] sm:text-xs text-indigo-950 block leading-tight font-black">
+                                {Math.round(secondHalfTotal).toLocaleString()}
+                              </span>
+                              <span className="text-[7.5px] sm:text-[9.5px] text-indigo-700 font-bold block leading-none">ج.م</span>
+                            </td>
+                          </tr>
+                        </React.Fragment>
+                      );
+                    })}
+                  </React.Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>

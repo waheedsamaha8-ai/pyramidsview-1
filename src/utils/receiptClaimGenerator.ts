@@ -115,19 +115,20 @@ export function getReceiptClaimMetadata(data: ReceiptClaimData, residents: Resid
     currentMonthSubsPaid: isReceipt ? data.amount : 0,
     currentMonthSubsStatusText: isReceipt ? 'مسدد بالكامل ✓' : 'غير مسدد ⚠️',
     isCurrentMonthSubsPaid: isReceipt,
-    currentMonthSubsDue: isReceipt ? 0 : displayMonthlyFee,
-    subsLineText: `اشتراك شهري - شهر ${monthName} ${data.year} و قدره ${Math.round(displayMonthlyFee).toLocaleString()} ج.م - (${isReceipt ? 'مسدد بالكامل ✓' : 'غير مسدد ⚠️'}) .`,
+    subsLineText: isReceipt
+      ? `اشتراك شهري: ${Math.round(displayMonthlyFee).toLocaleString()} ج.م • المسدد: ${Math.round(data.amount || displayMonthlyFee).toLocaleString()} ج.م .`
+      : `اشتراك شهري: ${Math.round(displayMonthlyFee).toLocaleString()} ج.م • المسدد: 0 ج.م - (غير مسدد ⚠️) .`,
     currentMonthOtherFee: 0,
     currentMonthOtherPaid: 0,
     currentMonthOtherStatusText: 'مسدد بالكامل ✓',
     isCurrentMonthOtherPaid: true,
     currentMonthOtherDue: 0,
-    otherLineText: `تحصيلات اخري - شهر ${monthName} ${data.year} و قدره 0 ج.م - (مسدد بالكامل ✓) .`,
+    otherLineText: `تحصيلات اخري: لا توجد تحصيلات أخرى .`,
     priorSubsDue: isReceipt ? (data.amount || displayMonthlyFee) : displayMonthlyFee,
     priorSubsPaid: isReceipt ? (data.amount || displayMonthlyFee) : 0,
     priorSubsDiff: isReceipt ? 0 : unpaidMonthsDues,
     priorSubsDiffType: (isReceipt ? 'zero' : 'arrears') as 'zero' | 'arrears' | 'surplus',
-    priorSubsStatusText: isReceipt ? 'لا توجد متأخرات (مسدد بالكامل 0 ج.م)' : (unpaidMonthsDues > 0 ? `متأخرات اشتراك شهري بقيمة (${unpaidMonthsDues.toLocaleString()} ج.م)` : 'لا توجد متأخرات (0 ج.م)'),
+    priorSubsStatusText: isReceipt ? 'لا توجد متأخرات (0 ج.م)' : (unpaidMonthsDues > 0 ? `متأخرات اشتراك شهري بقيمة (${unpaidMonthsDues.toLocaleString()} ج.م)` : 'لا توجد متأخرات (0 ج.م)'),
     priorOtherDue: 0,
     priorOtherPaid: 0,
     priorOtherDiff: 0,
@@ -476,10 +477,10 @@ export function generateReceiptClaimCanvas(
   ctx.textAlign = 'right';
   ctx.font = `bold 11px ${fontFamily}`;
   ctx.fillStyle = '#b45309';
-  ctx.fillText(`2️⃣ الاشتراكات الشهرية (من بداية الفترة المحاسبية وحتى الشهر الحالي):`, width - padding - 22, innerY + 16);
+  ctx.fillText(`2️⃣ الاشتراكات الشهرية:`, width - padding - 22, innerY + 16);
   ctx.font = `normal 10px ${fontFamily}`;
   ctx.fillStyle = '#475569';
-  ctx.fillText(`• إجمالي المستحق: ${cb.priorSubsDue.toLocaleString()} ج.م  |  المسدد حتى الشهر الحالي: ${cb.priorSubsPaid.toLocaleString()} ج.م`, width - padding - 24, innerY + 31);
+  ctx.fillText(`• إجمالي المستحق: ${cb.priorSubsDue.toLocaleString()} ج.م  |  المسدد: ${cb.priorSubsPaid.toLocaleString()} ج.م`, width - padding - 24, innerY + 31);
   ctx.fillStyle = cb.priorSubsDiff > 0 ? '#b91c1c' : (cb.priorSubsDiff < 0 ? '#047857' : '#475569');
   ctx.font = `bold 10px ${fontFamily}`;
   ctx.fillText(`• الفرق بينهما: ${cb.priorSubsStatusText}`, width - padding - 24, innerY + 45);
@@ -490,10 +491,10 @@ export function generateReceiptClaimCanvas(
   ctx.textAlign = 'right';
   ctx.font = `bold 11px ${fontFamily}`;
   ctx.fillStyle = '#7e22ce';
-  ctx.fillText(`3️⃣ التحصيلات الأخرى (من بداية الفترة المحاسبية وحتى الشهر الحالي):`, width - padding - 22, innerY + 16);
+  ctx.fillText(`3️⃣ التحصيلات الأخرى:`, width - padding - 22, innerY + 16);
   ctx.font = `normal 10px ${fontFamily}`;
   ctx.fillStyle = '#475569';
-  ctx.fillText(`• إجمالي المستحق: ${cb.priorOtherDue.toLocaleString()} ج.م  |  المسدد للتحصيلات الأخرى: ${cb.priorOtherPaid.toLocaleString()} ج.م`, width - padding - 24, innerY + 31);
+  ctx.fillText(`• إجمالي المستحق: ${cb.priorOtherDue.toLocaleString()} ج.م  |  المسدد: ${cb.priorOtherPaid.toLocaleString()} ج.م`, width - padding - 24, innerY + 31);
   ctx.fillStyle = cb.priorOtherDiff > 0 ? '#b91c1c' : (cb.priorOtherDiff < 0 ? '#047857' : '#475569');
   ctx.font = `bold 10px ${fontFamily}`;
   ctx.fillText(`• الفرق بينهما: ${cb.priorOtherStatusText}`, width - padding - 24, innerY + 45);
@@ -504,7 +505,7 @@ export function generateReceiptClaimCanvas(
   ctx.textAlign = 'right';
   ctx.font = `bold 11px ${fontFamily}`;
   ctx.fillStyle = '#334155';
-  ctx.fillText(`4️⃣ مديونيات سابقة أو مرحل أو رصيد افتتاحي:`, width - padding - 22, innerY + 21);
+  ctx.fillText(`4️⃣ مديونيات سابقة:`, width - padding - 22, innerY + 21);
   ctx.textAlign = 'left';
   ctx.font = `bold 10.5px ${fontFamily}`;
   ctx.fillStyle = cb.previousDebtAmount > 0 ? '#b91c1c' : (cb.previousSurplusAmount > 0 ? '#047857' : '#475569');
@@ -954,16 +955,16 @@ export function getReceiptClaimPrintHtml(data: ReceiptClaimData, residents: Resi
           </div>
         </div>
 
-        <!-- 2️⃣ الاشتراكات الشهرية من بداية الفترة المحاسبية وحتى الشهر الحالي -->
+        <!-- 2️⃣ الاشتراكات الشهرية -->
         <div style="border-bottom: 1px dashed ${isDebt ? '#fca5a5' : '#cbd5e1'}; padding: 4px 0;">
-          <div style="font-weight: 900; color: #b45309;">2️⃣ الاشتراكات الشهرية (من بداية الفترة المحاسبية وحتى الشهر الحالي):</div>
+          <div style="font-weight: 900; color: #b45309;">2️⃣ الاشتراكات الشهرية:</div>
           <div style="font-size: 10.5px; padding-right: 12px;">
             <div style="display: flex; justify-content: space-between;">
-              <span style="color: #475569;">- إجمالي المستحق للاشتراك الشهري:</span>
+              <span style="color: #475569;">- إجمالي المستحق:</span>
               <span style="font-weight: 900;">${(cb.priorSubsDue || 0).toLocaleString()} ج.م</span>
             </div>
             <div style="display: flex; justify-content: space-between; color: #047857;">
-              <span>- المبالغ المسددة من بداية الفترة المحاسبية وحتى الشهر الحالي:</span>
+              <span>- المسدد:</span>
               <span style="font-weight: 900;">${(cb.priorSubsPaid || 0).toLocaleString()} ج.م</span>
             </div>
             <div style="display: flex; justify-content: space-between; font-weight: 900; color: ${(cb.priorSubsDiff || 0) > 0 ? '#b91c1c' : '#047857'};">
@@ -973,16 +974,16 @@ export function getReceiptClaimPrintHtml(data: ReceiptClaimData, residents: Resi
           </div>
         </div>
 
-        <!-- 3️⃣ التحصيلات الأخرى من بداية الفترة المحاسبية حتى الشهر الحالي -->
+        <!-- 3️⃣ التحصيلات الأخرى -->
         <div style="border-bottom: 1px dashed ${isDebt ? '#fca5a5' : '#cbd5e1'}; padding: 4px 0;">
-          <div style="font-weight: 900; color: #7e22ce;">3️⃣ التحصيلات الأخرى (من بداية الفترة المحاسبية وحتى الشهر الحالي):</div>
+          <div style="font-weight: 900; color: #7e22ce;">3️⃣ التحصيلات الأخرى:</div>
           <div style="font-size: 10.5px; padding-right: 12px;">
             <div style="display: flex; justify-content: space-between;">
-              <span style="color: #475569;">- إجمالي المستحق عن التحصيلات الأخرى:</span>
+              <span style="color: #475569;">- إجمالي المستحق:</span>
               <span style="font-weight: 900;">${(cb.priorOtherDue || 0).toLocaleString()} ج.م</span>
             </div>
             <div style="display: flex; justify-content: space-between; color: #047857;">
-              <span>- إجمالي المسدد للتحصيلات الأخرى:</span>
+              <span>- المسدد:</span>
               <span style="font-weight: 900;">${(cb.priorOtherPaid || 0).toLocaleString()} ج.م</span>
             </div>
             <div style="display: flex; justify-content: space-between; font-weight: 900; color: ${(cb.priorOtherDiff || 0) > 0 ? '#b91c1c' : '#047857'};">
@@ -992,10 +993,10 @@ export function getReceiptClaimPrintHtml(data: ReceiptClaimData, residents: Resi
           </div>
         </div>
 
-        <!-- 4️⃣ مديونيات سابقة أو مرحل من فترات محاسبية سابقة أو رصيد افتتاحي -->
+        <!-- 4️⃣ مديونيات سابقة -->
         <div style="border-bottom: 1px dashed ${isDebt ? '#fca5a5' : '#cbd5e1'}; padding: 4px 0;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-weight: 900; color: #334155;">4️⃣ مديونيات سابقة أو مرحل من فترات محاسبية سابقة أو رصيد افتتاحي:</span>
+            <span style="font-weight: 900; color: #334155;">4️⃣ مديونيات سابقة:</span>
             <span style="font-weight: 900; color: ${(cb.previousDebtAmount || 0) > 0 ? '#b91c1c' : '#047857'};">
               ${(cb.previousDebtAmount || 0) > 0
                 ? `${(cb.previousDebtAmount || 0).toLocaleString()} ج.م (مديونيات سابقة)`
