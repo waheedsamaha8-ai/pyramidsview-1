@@ -517,9 +517,18 @@ export const PaymentFormModal: React.FC<PaymentFormModalProps> = ({
           ? `${isCollected ? 'سداد' : 'استحقاق'} عن شهر ${coveredNames}${!isMasterInCovered ? ` (${isCollected ? 'تم التحصيل' : 'تم التسجيل'} في شهر ${primaryMonthName} ${currentYear} وموزع بالكامل إلى شهر ${coveredNames})` : ''}`
           : `${isCollected ? 'سداد' : 'استحقاق'} مجمع عن شهور: ${coveredNames}${!isMasterInCovered ? ` (${isCollected ? 'تم التحصيل' : 'تم التسجيل'} في شهر ${primaryMonthName} ${currentYear})` : ''}`;
 
-        const cleanNotes = (notes || '').trim()
-          ? (notes.includes('سداد عن شهر') || notes.includes('سداد مجمع عن شهور') || notes.includes('استحقاق عن شهر') || notes.includes('استحقاق مجمع عن شهور') ? notes : `${notes} (${noteHeader})`)
-          : noteHeader;
+        const stripDistributionNoteHeader = (raw: string) => {
+          if (!raw) return '';
+          return raw
+            .replace(/\s*\((?:سداد|استحقاق)(?:\s+مجمع)?\s+عن\s+شهور?.*?\)/g, '')
+            .replace(/\s*\(تم\s+السداد.*?\)/g, '')
+            .replace(/\s*\(مستحق\s+غير\s+محصل.*?\)/g, '')
+            .replace(/\s*\(القيمة\s+الموزعة.*?\)/g, '')
+            .trim();
+        };
+
+        const userBaseNotes = stripDistributionNoteHeader(notes || '');
+        const cleanNotes = userBaseNotes ? `${userBaseNotes} (${noteHeader})` : noteHeader;
 
         const totalCoveredCount = targetCoveredMonths.length;
         const basePerMonth = Math.floor(numAmount / totalCoveredCount);
@@ -659,9 +668,18 @@ export const PaymentFormModal: React.FC<PaymentFormModalProps> = ({
           ? `${isCollected ? 'سداد' : 'استحقاق'} عن شهر ${coveredNames}${!isMasterInCovered ? ` (${isCollected ? 'تم التحصيل' : 'تم التسجيل'} في شهر ${primaryMonthName} ${currentYear} وموزع بالكامل إلى شهر ${coveredNames})` : ''}`
           : `${isCollected ? 'سداد' : 'استحقاق'} مجمع عن شهور: ${coveredNames}${!isMasterInCovered ? ` (${isCollected ? 'تم التحصيل' : 'تم التسجيل'} في شهر ${primaryMonthName} ${currentYear})` : ''}`;
 
-        const cleanNotes = (notes || '').trim()
-          ? (notes.includes('سداد عن شهر') || notes.includes('سداد مجمع عن شهور') ? notes : `${notes} (${noteHeader})`)
-          : noteHeader;
+        const stripDistributionNoteHeaderAdd = (raw: string) => {
+          if (!raw) return '';
+          return raw
+            .replace(/\s*\((?:سداد|استحقاق)(?:\s+مجمع)?\s+عن\s+شهور?.*?\)/g, '')
+            .replace(/\s*\(تم\s+السداد.*?\)/g, '')
+            .replace(/\s*\(مستحق\s+غير\s+محصل.*?\)/g, '')
+            .replace(/\s*\(القيمة\s+الموزعة.*?\)/g, '')
+            .trim();
+        };
+
+        const userBaseNotesAdd = stripDistributionNoteHeaderAdd(notes || '');
+        const cleanNotes = userBaseNotesAdd ? `${userBaseNotesAdd} (${noteHeader})` : noteHeader;
 
         const totalCoveredCount = targetCoveredMonths.length;
         const basePerMonth = Math.floor(numAmount / totalCoveredCount);

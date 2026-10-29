@@ -1910,3 +1910,25 @@ export function filterAndDeduplicatePayments(list: Payment[]): Payment[] {
 
   return Array.from(fingerprintMap.values());
 }
+
+/**
+ * Formats payment notes to ensure only notes from the LATEST distribution are shown,
+ * stripping out accumulated duplicate/old distribution notes from previous edits.
+ */
+export function formatLatestDistributionNotes(rawNotes?: string): string {
+  if (!rawNotes || !rawNotes.trim()) return '';
+  const trimmed = rawNotes.trim();
+
+  // Regex matches parenthetical distribution blocks like (سداد مجمع عن شهور: ...) or (سداد عن شهر ...) or (استحقاق ...)
+  const distPattern = /\((?:سداد|استحقاق)(?:\s+مجمع)?\s+عن\s+شهور?.*?\)/g;
+  const matches = Array.from(trimmed.matchAll(distPattern));
+
+  if (matches.length > 1) {
+    const lastMatch = matches[matches.length - 1][0];
+    const userBaseNotes = trimmed.replace(distPattern, '').trim();
+    return userBaseNotes ? `${userBaseNotes} ${lastMatch}` : lastMatch;
+  }
+
+  return trimmed;
+}
+

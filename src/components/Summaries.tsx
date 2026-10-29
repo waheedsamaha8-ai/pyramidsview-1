@@ -5,7 +5,7 @@ import { BuildingMap } from './BuildingMap';
 import { UnitHistoryModal } from './modals/UnitHistoryModal';
 import { PaymentFormModal } from './modals/PaymentFormModal';
 import { deriveFloorConfigsFromResidents, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber, getHistoricalOccupantForDate, getHistoricalActivityForDate } from '../utils/buildingStructure';
-import { getPrescribedFeeForMonth, isPaymentForYearAndMonth, isMonthlySubscriptionType, registerDeletedPaymentIds, getDeletedPaymentIds } from '../utils/financialCalculations';
+import { getPrescribedFeeForMonth, isPaymentForYearAndMonth, isMonthlySubscriptionType, registerDeletedPaymentIds, getDeletedPaymentIds, formatLatestDistributionNotes } from '../utils/financialCalculations';
 
 interface SummariesProps {
   residents: Resident[];
@@ -1080,12 +1080,12 @@ const SummariesComponent: React.FC<SummariesProps> = ({
           <table className="w-[118%] sm:w-full text-center border-collapse table-fixed min-w-[340px] sm:min-w-[900px]">
             <thead>
               <tr className="bg-slate-50/50 text-slate-500 font-extrabold text-[10px] sm:text-xs border-b border-slate-200">
-                <th className="w-[22%] min-w-[62px] sm:w-36 sm:min-w-36 px-0.5 sm:px-2 py-2 sm:py-2.5 sticky right-0 bg-white shadow-xs z-10 border-l border-slate-200 text-center sm:text-right">
+                <th className="w-[16%] min-w-[48px] sm:w-36 sm:min-w-36 px-0.5 sm:px-2 py-2 sm:py-2.5 sticky right-0 bg-white shadow-xs z-10 border-l border-slate-200 text-center sm:text-right">
                   <span className="block sm:hidden text-[10px]">البيان</span>
                   <span className="hidden sm:block">البيان / البند</span>
                 </th>
                 {[0, 1, 2, 3, 4, 5].map((idx) => (
-                  <th key={idx} className="w-[13%] min-w-[38px] sm:w-24 sm:min-w-24 px-0.5 py-1.5 bg-slate-50/80 border-x border-slate-200 font-extrabold text-slate-800">
+                  <th key={idx} className="w-[14%] min-w-[42px] sm:w-24 sm:min-w-24 px-0.5 py-1.5 bg-slate-50/80 border-x border-slate-200 font-extrabold text-slate-800">
                     <div className="flex flex-col items-center justify-center leading-tight">
                       <span className="text-[10px] sm:text-xs text-emerald-800 font-black">{STATIC_MONTH_NAMES_ARABIC[idx]}</span>
                       <span className="text-[8px] sm:text-[9.5px] text-indigo-700 font-bold">{STATIC_MONTH_NAMES_ARABIC[idx + 6]}</span>
@@ -1252,12 +1252,12 @@ const SummariesComponent: React.FC<SummariesProps> = ({
           <table className="w-[118%] sm:w-full text-center border-collapse table-fixed min-w-[340px] sm:min-w-[900px]">
             <thead>
               <tr className="bg-slate-50/50 text-slate-500 font-extrabold text-[10px] sm:text-xs border-b border-slate-200">
-                <th className="w-[22%] min-w-[62px] sm:w-36 sm:min-w-36 px-0.5 sm:px-2 py-2 sm:py-2.5 sticky right-0 bg-white shadow-xs z-10 border-l border-slate-200 text-center sm:text-right">
+                <th className="w-[16%] min-w-[48px] sm:w-36 sm:min-w-36 px-0.5 sm:px-2 py-2 sm:py-2.5 sticky right-0 bg-white shadow-xs z-10 border-l border-slate-200 text-center sm:text-right">
                   <span className="block sm:hidden text-[10px]">البند</span>
                   <span className="hidden sm:block">فئة المصروف</span>
                 </th>
                 {[0, 1, 2, 3, 4, 5].map((idx) => (
-                  <th key={idx} className="w-[13%] min-w-[38px] sm:w-24 sm:min-w-24 px-0.5 py-1.5 bg-slate-50/80 border-x border-slate-200 font-extrabold text-slate-800">
+                  <th key={idx} className="w-[14%] min-w-[42px] sm:w-24 sm:min-w-24 px-0.5 py-1.5 bg-slate-50/80 border-x border-slate-200 font-extrabold text-slate-800">
                     <div className="flex flex-col items-center justify-center leading-tight">
                       <span className="text-[10px] sm:text-xs text-emerald-800 font-black">{STATIC_MONTH_NAMES_ARABIC[idx]}</span>
                       <span className="text-[8px] sm:text-[9.5px] text-indigo-700 font-bold">{STATIC_MONTH_NAMES_ARABIC[idx + 6]}</span>
@@ -1482,14 +1482,14 @@ const SummariesComponent: React.FC<SummariesProps> = ({
           <table className="w-[118%] sm:w-full text-center border-collapse table-fixed min-w-[340px] sm:min-w-[900px]">
             <thead>
               <tr className="bg-slate-50/50 text-slate-500 font-extrabold text-[10px] sm:text-xs border-b border-slate-200">
-                <th className="w-[22%] min-w-[62px] sm:w-36 sm:min-w-36 px-0.5 sm:px-1.5 py-1.5 sm:py-2 sticky right-0 bg-white shadow-xs z-10 border-l border-slate-200 text-center">
+                <th className="w-[16%] min-w-[48px] sm:w-36 sm:min-w-36 px-0.5 sm:px-1.5 py-1.5 sm:py-2 sticky right-0 bg-white shadow-xs z-10 border-l border-slate-200 text-center">
                   <div className="flex flex-col items-center justify-center leading-tight">
                     <span className="text-[10px] sm:text-xs font-black text-slate-800">الوحدة</span>
                     <span className="text-[8.5px] sm:text-[9.5px] font-bold text-slate-400">الاسم</span>
                   </div>
                 </th>
                 {[0, 1, 2, 3, 4, 5].map((idx) => (
-                  <th key={idx} className="w-[13%] min-w-[38px] sm:w-24 sm:min-w-24 px-0.5 py-1.5 bg-slate-50/80 border-x border-slate-200 font-extrabold text-slate-800">
+                  <th key={idx} className="w-[14%] min-w-[42px] sm:w-24 sm:min-w-24 px-0.5 py-1.5 bg-slate-50/80 border-x border-slate-200 font-extrabold text-slate-800">
                     <div className="flex flex-col items-center justify-center leading-tight">
                       <span className="text-[10px] sm:text-xs text-emerald-800 font-black">{STATIC_MONTH_NAMES_ARABIC[idx]}</span>
                       <span className="text-[8px] sm:text-[9.5px] text-indigo-700 font-bold">{STATIC_MONTH_NAMES_ARABIC[idx + 6]}</span>
@@ -1609,9 +1609,9 @@ const SummariesComponent: React.FC<SummariesProps> = ({
                                     {status.isDistributed && (
                                       <span className="w-2 h-2 rounded-full bg-emerald-600 ring-2 ring-emerald-300 animate-pulse" title="تم التوزيع من هذه الدفعة" />
                                     )}
-                                    {status.isAggregated && (
-                                      <span className="text-[7px] sm:text-[7.5px] font-black px-1 py-0.2 bg-amber-300 text-amber-950 rounded-xs shadow-2xs" title="تحصيل مجمع / موزع">
-                                        مجمع
+                                    {!status.isDistributed && status.isAggregated && (
+                                      <span className="text-[7px] sm:text-[7.5px] font-black px-1 py-0.2 bg-amber-300 text-amber-950 rounded-xs shadow-2xs" title="دفعة موزعة من تحصيل مجمع">
+                                        موزع
                                       </span>
                                     )}
                                     {isMulti && (
@@ -1634,8 +1634,8 @@ const SummariesComponent: React.FC<SummariesProps> = ({
                                       <span className="w-2 h-2 rounded-full bg-amber-500 ring-2 ring-amber-300 animate-pulse" title="تم التوزيع من هذه الدفعة" />
                                     )}
                                     {!status.isDistributed && status.isAggregated && (
-                                      <span className="text-[7px] sm:text-[7.5px] font-black px-1 py-0.2 bg-amber-300 text-amber-950 rounded-xs" title="تحصيل مجمع">
-                                        مجمع
+                                      <span className="text-[7px] sm:text-[7.5px] font-black px-1 py-0.2 bg-amber-300 text-amber-950 rounded-xs" title="دفعة موزعة من تحصيل مجمع">
+                                        موزع
                                       </span>
                                     )}
                                     {isMulti && (
@@ -1842,34 +1842,54 @@ const SummariesComponent: React.FC<SummariesProps> = ({
                         <div className="space-y-1.5 max-h-[50vh] sm:max-h-[42vh] overflow-y-auto pr-0.5">
                           {activeCellPayments.map((pay) => {
                             const isEditing = editingPaymentId === pay.id;
-                      const isCancelled = pay.status === 'cancelled' || pay.status === 'لاغي';
-                      const isPending = !isCancelled && (pay.status === 'pending' || pay.status === 'لم يتم التحصيل');
-                      const isCollected = !isCancelled && !isPending;
+                      const isCancelled = pay.status === 'cancelled' || pay.status === 'لاغي' || pay.status === 'VOID' || pay.status === 'ملغي';
+                      const isExempt = pay.status === 'معفي' || pay.status === 'exempt' || pay.status === 'إعفاء' || (pay.amount === 0 && (pay.status === 'pending' || pay.status === 'لم يتم التحصيل' || (pay.notes && pay.notes.includes('استحقاق'))));
+                      const isPending = !isCancelled && !isExempt && (pay.status === 'pending' || pay.status === 'لم يتم التحصيل' || pay.status === 'uncollected' || pay.status === 'unpaid' || pay.status === 'غير مسدد' || pay.status === 'معلق' || pay.isManuallyPaid === false);
+                      const isCollected = !isCancelled && !isExempt && !isPending;
+                      const hasReceipt = Boolean(pay.receiptNumber && pay.receiptNumber.trim() !== '');
 
-                      let cardThemeClass = 'bg-emerald-50/70 border-emerald-300 hover:bg-emerald-100/60 text-emerald-950';
+                      let cardThemeClass = 'bg-emerald-200/90 border-emerald-400 hover:bg-emerald-300/80 text-emerald-950 shadow-2xs';
                       let statusBadge = (
-                        <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 border border-emerald-300 text-[9px] font-black rounded flex items-center gap-0.5 shadow-2xs">
+                        <span className="px-1.5 py-0.5 bg-emerald-300 text-emerald-950 border border-emerald-500 text-[9px] font-black rounded flex items-center gap-0.5 shadow-2xs">
                           <Check className="w-2.5 h-2.5 stroke-[3.5]" />
                           <span>مسدد</span>
                         </span>
                       );
 
-                      if (isCancelled) {
-                        cardThemeClass = 'bg-rose-50/70 border-rose-300 hover:bg-rose-100/60 text-rose-950 opacity-80';
+                      if (isExempt) {
+                        cardThemeClass = 'bg-slate-200/90 border-slate-400 hover:bg-slate-300/80 text-slate-900 shadow-2xs';
                         statusBadge = (
-                          <span className="px-1.5 py-0.5 bg-rose-100 text-rose-800 border border-rose-300 text-[9px] font-black rounded flex items-center gap-0.5 shadow-2xs">
+                          <span className="px-1.5 py-0.5 bg-slate-300 text-slate-900 border border-slate-400 text-[9px] font-black rounded flex items-center gap-0.5 shadow-2xs">
+                            <Minus className="w-2.5 h-2.5 stroke-[3]" />
+                            <span>معفي</span>
+                          </span>
+                        );
+                      } else if (isCancelled) {
+                        cardThemeClass = 'bg-slate-400/80 border-slate-600 hover:bg-slate-400 text-slate-950 opacity-90 shadow-2xs';
+                        statusBadge = (
+                          <span className="px-1.5 py-0.5 bg-slate-500 text-white border border-slate-600 text-[9px] font-black rounded flex items-center gap-0.5 shadow-2xs">
                             <X className="w-2.5 h-2.5 stroke-[3]" />
                             <span>لاغي</span>
                           </span>
                         );
                       } else if (isPending) {
-                        cardThemeClass = 'bg-amber-50/80 border-amber-300 hover:bg-amber-100/70 text-amber-950';
-                        statusBadge = (
-                          <span className="px-1.5 py-0.5 bg-amber-100 text-amber-900 border border-amber-300 text-[9px] font-black rounded flex items-center gap-0.5 shadow-2xs">
-                            <Clock className="w-2.5 h-2.5 stroke-[2.5]" />
-                            <span>لم يحصل</span>
-                          </span>
-                        );
+                        if (hasReceipt) {
+                          cardThemeClass = 'bg-red-900 border-red-950 hover:bg-red-950 text-white shadow-xs';
+                          statusBadge = (
+                            <span className="px-1.5 py-0.5 bg-red-950 text-amber-200 border border-amber-400 text-[9px] font-black rounded flex items-center gap-0.5 shadow-2xs">
+                              <Clock className="w-2.5 h-2.5 stroke-[2.5]" />
+                              <span>معلق برقم إيصال</span>
+                            </span>
+                          );
+                        } else {
+                          cardThemeClass = 'bg-rose-200/90 border-rose-400 hover:bg-rose-300/80 text-rose-950 shadow-2xs';
+                          statusBadge = (
+                            <span className="px-1.5 py-0.5 bg-rose-300 text-rose-950 border border-rose-400 text-[9px] font-black rounded flex items-center gap-0.5 shadow-2xs">
+                              <Clock className="w-2.5 h-2.5 stroke-[2.5]" />
+                              <span>استحقاق معلق</span>
+                            </span>
+                          );
+                        }
                       }
 
                       return (
@@ -1926,48 +1946,10 @@ const SummariesComponent: React.FC<SummariesProps> = ({
                                   )}
                                 </div>
 
-                                <div className="flex items-center gap-1 shrink-0 flex-wrap">
-                                  {pay.fileUrl && (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        if (onPreviewImage) {
-                                          onPreviewImage(pay.fileUrl!);
-                                        } else {
-                                          window.open(pay.fileUrl, '_blank');
-                                        }
-                                      }}
-                                      className="px-2 py-1 text-purple-900 hover:text-purple-950 hover:bg-purple-100 rounded-lg transition cursor-pointer flex items-center gap-1 text-[10px] font-black border border-purple-200 bg-purple-50 shadow-3xs active:scale-95"
-                                      title="فتح وعرض صورة الإيصال"
-                                    >
-                                      <ImageIcon className="w-3.5 h-3.5 text-purple-700 shrink-0" />
-                                      <span>صورة الإيصال</span>
-                                    </button>
-                                  )}
-
+                                <div className="flex flex-col items-end justify-center gap-1 shrink-0">
+                                  {/* Row 1: Edit & Delete buttons */}
                                   {!isReadOnly && (
-                                    <>
-                                      {/* Show "تعديل التوزيع المجمع" ONLY if this is actually a Master Aggregated Collection Payment */}
-                                      {isMasterDistributionPayment(pay) && isCollected && role !== 'ASSISTANT' && (
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                          setPaymentModalState({
-                                            isOpen: true,
-                                            payment: pay,
-                                            resident: selectedCell.resident,
-                                            month: pay.month || selectedCell.month,
-                                          });
-                                        }}
-                                          className="px-2 py-0.5 rounded-md transition cursor-pointer flex items-center gap-1 text-[9.5px] font-black shadow-2xs active:scale-95 border bg-emerald-50 hover:bg-emerald-100 text-emerald-950 border-emerald-400 ring-2 ring-emerald-500/20"
-                                          title="دفعة تحصيل مجمع رئيسية - انقر لتعديل الشهور الموزعة"
-                                        >
-                                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 ring-2 ring-emerald-300 animate-pulse shrink-0" />
-                                          <Calendar className="w-3 h-3 shrink-0 text-emerald-700" />
-                                          <span>تعديل التوزيع</span>
-                                        </button>
-                                      )}
-
+                                    <div className="flex items-center gap-1">
                                       {/* Edit Button for ALL registered payments */}
                                       <button
                                         type="button"
@@ -1979,7 +1961,7 @@ const SummariesComponent: React.FC<SummariesProps> = ({
                                             month: pay.month || selectedCell.month,
                                           });
                                         }}
-                                        className="px-2 py-1 text-blue-900 hover:text-blue-950 hover:bg-blue-100/70 rounded-lg transition cursor-pointer flex items-center gap-1 text-[10px] font-black border border-blue-200 bg-blue-50/80 shadow-3xs active:scale-95"
+                                        className="px-2 py-0.5 text-blue-900 hover:text-blue-950 hover:bg-blue-100/70 rounded-lg transition cursor-pointer flex items-center gap-1 text-[9.5px] font-black border border-blue-200 bg-blue-50/80 shadow-3xs active:scale-95 whitespace-nowrap"
                                         title="تعديل الدفعة والملاحظات"
                                       >
                                         <Edit className="w-3 h-3 text-blue-900 shrink-0" />
@@ -1988,25 +1970,25 @@ const SummariesComponent: React.FC<SummariesProps> = ({
 
                                       {/* Delete Button for ALL registered payments */}
                                       {deleteConfirmId === pay.id ? (
-                                        <div className="flex items-center gap-1 bg-red-50 px-1.5 py-0.5 rounded-lg border border-red-200">
+                                        <div className="flex items-center gap-1 bg-red-50 px-1.5 py-0.5 rounded-lg border border-red-200 whitespace-nowrap">
                                           <span className="text-[8.5px] text-red-700 font-extrabold">تأكيد؟</span>
                                           <button
                                             type="button"
-onClick={() => {
-                                                const cleanId = String(pay.id);
-                                                registerDeletedPaymentIds(cleanId);
-                                                setLocalDeletedPaymentIds(prev => new Set(prev).add(cleanId));
-                                                if (onDeletePayment) {
-                                                  onDeletePayment(cleanId);
-                                                } else {
-                                                  onCellClick(selectedCell.resident.id, selectedCell.month, true, cleanId);
-                                                }
-                                                setSelectedCell(prev => prev ? {
-                                                  ...prev,
-                                                  payments: (prev.payments || []).filter(p => String(p.id) !== cleanId)
-                                                } : null);
-                                                setDeleteConfirmId(null);
-                                              }}
+                                            onClick={() => {
+                                              const cleanId = String(pay.id);
+                                              registerDeletedPaymentIds(cleanId);
+                                              setLocalDeletedPaymentIds(prev => new Set(prev).add(cleanId));
+                                              if (onDeletePayment) {
+                                                onDeletePayment(cleanId);
+                                              } else {
+                                                onCellClick(selectedCell.resident.id, selectedCell.month, true, cleanId);
+                                              }
+                                              setSelectedCell(prev => prev ? {
+                                                ...prev,
+                                                payments: (prev.payments || []).filter(p => String(p.id) !== cleanId)
+                                              } : null);
+                                              setDeleteConfirmId(null);
+                                            }}
                                             className="px-1.5 py-0.5 bg-red-600 text-white font-black text-[8.5px] rounded hover:bg-red-700 transition cursor-pointer"
                                           >
                                             نعم
@@ -2028,33 +2010,76 @@ onClick={() => {
                                               message: `هل أنت متأكد من حذف هذه الدفعة نهائياً بقيمة ${pay.amount.toLocaleString()} ج.م للوحدة ${selectedCell?.resident.flatNumber} (${pay.paymentType || 'اشتراك شهري'})؟ لا يمكن التراجع عن هذا الإجراء.`,
                                               confirmLabel: 'تأكيد الحذف نهائياً',
                                               confirmClass: 'bg-rose-600 hover:bg-rose-700 text-white',
-onConfirm: () => {
-                                                  const cleanId = String(pay.id);
-                                                  registerDeletedPaymentIds(cleanId);
-                                                  setLocalDeletedPaymentIds(prev => new Set(prev).add(cleanId));
-                                                  if (onDeletePayment) {
-                                                    onDeletePayment(cleanId);
-                                                  } else {
-                                                    onCellClick(selectedCell!.resident.id, selectedCell!.month, true, cleanId);
-                                                  }
-                                                  setSelectedCell(prev => prev ? {
-                                                    ...prev,
-                                                    payments: (prev.payments || []).filter(p => String(p.id) !== cleanId)
-                                                  } : null);
-                                                  setActionConfirm(null);
+                                              onConfirm: () => {
+                                                const cleanId = String(pay.id);
+                                                registerDeletedPaymentIds(cleanId);
+                                                setLocalDeletedPaymentIds(prev => new Set(prev).add(cleanId));
+                                                if (onDeletePayment) {
+                                                  onDeletePayment(cleanId);
+                                                } else {
+                                                  onCellClick(selectedCell!.resident.id, selectedCell!.month, true, cleanId);
                                                 }
+                                                setSelectedCell(prev => prev ? {
+                                                  ...prev,
+                                                  payments: (prev.payments || []).filter(p => String(p.id) !== cleanId)
+                                                } : null);
+                                                setActionConfirm(null);
+                                              }
                                             });
                                           }}
-                                          className="px-2 py-1 text-rose-700 hover:text-rose-900 hover:bg-rose-100/70 rounded-lg transition cursor-pointer flex items-center gap-1 text-[10px] font-black border border-rose-200 bg-rose-50/80 shadow-3xs active:scale-95"
+                                          className="px-2 py-0.5 text-rose-700 hover:text-rose-900 hover:bg-rose-100/70 rounded-lg transition cursor-pointer flex items-center gap-1 text-[9.5px] font-black border border-rose-200 bg-rose-50/80 shadow-3xs active:scale-95 whitespace-nowrap"
                                           title="حذف الدفعة"
                                         >
                                           <Trash2 className="w-3 h-3 text-rose-700 shrink-0" />
                                           <span>حذف</span>
                                         </button>
                                       )}
-                                    </>
+                                    </div>
                                   )}
-                              </div>
+
+                                  {/* Row 2: Receipt Image & Edit Distribution buttons */}
+                                  {(pay.fileUrl || (!isReadOnly && isMasterDistributionPayment(pay) && isCollected && role !== 'ASSISTANT')) && (
+                                    <div className="flex items-center gap-1 justify-end">
+                                      {pay.fileUrl && (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            if (onPreviewImage) {
+                                              onPreviewImage(pay.fileUrl!);
+                                            } else {
+                                              window.open(pay.fileUrl, '_blank');
+                                            }
+                                          }}
+                                          className="px-2 py-0.5 text-purple-900 hover:text-purple-950 hover:bg-purple-100 rounded-lg transition cursor-pointer flex items-center gap-1 text-[9.5px] font-black border border-purple-200 bg-purple-50/90 shadow-3xs active:scale-95 whitespace-nowrap"
+                                          title="فتح وعرض صورة الإيصال"
+                                        >
+                                          <ImageIcon className="w-3 h-3 text-purple-700 shrink-0" />
+                                          <span>صورة الإيصال</span>
+                                        </button>
+                                      )}
+
+                                      {!isReadOnly && isMasterDistributionPayment(pay) && isCollected && role !== 'ASSISTANT' && (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setPaymentModalState({
+                                              isOpen: true,
+                                              payment: pay,
+                                              resident: selectedCell.resident,
+                                              month: pay.month || selectedCell.month,
+                                            });
+                                          }}
+                                          className="px-2 py-0.5 rounded-lg transition cursor-pointer flex items-center gap-1 text-[9.5px] font-black shadow-2xs active:scale-95 border bg-emerald-50 hover:bg-emerald-100 text-emerald-950 border-emerald-400 ring-2 ring-emerald-500/20 whitespace-nowrap"
+                                          title="دفعة تحصيل مجمع رئيسية - انقر لتعديل الشهور الموزعة"
+                                        >
+                                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 ring-2 ring-emerald-300 animate-pulse shrink-0" />
+                                          <Calendar className="w-3 h-3 shrink-0 text-emerald-700" />
+                                          <span>تعديل التوزيع</span>
+                                        </button>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
                             </div>
 
                             {/* Prominently Display Notes in registered payment card */}
@@ -2062,7 +2087,9 @@ onConfirm: () => {
                               <div className="w-full mt-1 pt-1 border-t border-slate-200/60 flex items-start gap-1.5 text-[10px] text-slate-700 bg-white/70 px-2 py-1 rounded-md font-medium">
                                 <FileText className="w-3.5 h-3.5 text-blue-900 shrink-0 mt-0.5" />
                                 <span className="font-black text-slate-500 shrink-0">ملاحظات:</span>
-                                <span className="font-semibold text-slate-800 break-words leading-relaxed">{pay.notes}</span>
+                                <span className="font-semibold text-slate-800 break-words leading-relaxed">
+                                  {formatLatestDistributionNotes(pay.notes)}
+                                </span>
                               </div>
                             )}
                           </div>
