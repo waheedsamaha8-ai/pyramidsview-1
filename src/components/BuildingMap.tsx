@@ -23,7 +23,9 @@ import {
   Share2,
   CheckCircle2,
   Download,
-  Eye
+  Eye,
+  ChevronUp,
+  ChevronDown
 } from 'lucide-react';
 import { deriveFloorConfigsFromResidents, getUnitNumbersForFloor, compareFlatNumbers, isSameFlatNumber, getHistoricalOccupantForDate, getHistoricalActivityForDate } from '../utils/buildingStructure';
 import { calculateResidentFinancials, getCarriedPreviousBalance, calculateUnitClaimBreakdown, getResidentMonthlyFee, getPrescribedFeeForMonth, parsePaymentMonth, parsePaymentYear, isMonthlySubscriptionType } from '../utils/financialCalculations';
@@ -90,6 +92,14 @@ const BuildingMapComponent: React.FC<BuildingMapProps> = ({
   const [historyYearFilter, setHistoryYearFilter] = useState<'all' | 'current'>('all');
   const [showPaidUnitBreakdown, setShowPaidUnitBreakdown] = useState<boolean>(false);
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+  const [collapsedFloors, setCollapsedFloors] = useState<Record<string, boolean>>({});
+
+  const toggleFloorCollapse = (floorId: string) => {
+    setCollapsedFloors(prev => ({
+      ...prev,
+      [floorId]: !prev[floorId]
+    }));
+  };
 
   const receiptCardRef = useRef<HTMLDivElement>(null);
   
@@ -999,177 +1009,206 @@ const BuildingMapComponent: React.FC<BuildingMapProps> = ({
       <div className="flex flex-col gap-2 p-1 sm:p-2 bg-slate-200/80 rounded-xl border border-slate-300 shadow-md overflow-hidden w-full">
         {[...effectiveFloorConfigs].reverse().map((floor) => {
           const units = getUnitNumbersForFloor(floor, residents);
+          const isCollapsed = Boolean(collapsedFloors[floor.id]);
 
           return (
             <div key={floor.id} className="space-y-1.5 py-1.5 border-b border-slate-300/80 last:border-0">
-              {/* Floor Header Banner / Separator (فاصل بين الأدوار) */}
+              {/* Floor Header Banner / Separator (فاصل بين الأدوار مع زر فتح وغلق صفوف الدور) */}
               <div className="flex items-center justify-between px-2.5 py-1.5 bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 text-white rounded-xl border border-slate-700 shadow-2xs">
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1.5 sm:gap-2">
                   <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse shrink-0"></div>
                   <span className="text-xs sm:text-sm font-black text-white">{floor.floorLabel}</span>
                   <span className="text-[9.5px] sm:text-xs text-slate-300 font-bold">({floor.activityType || 'سكني'})</span>
+                  <span className="text-[9.5px] sm:text-xs text-slate-300 font-bold bg-slate-800/90 px-2 py-0.5 rounded-lg border border-slate-700 hidden sm:inline-block">
+                    فاصل الدور • {units.length} وحدات
+                  </span>
                 </div>
-                <span className="text-[9.5px] sm:text-xs text-slate-300 font-bold bg-slate-800/90 px-2 py-0.5 rounded-lg border border-slate-700">
-                  فاصل الدور • {units.length} وحدات
-                </span>
+
+                {/* Toggle Button: غلق / فتح صفوف الدور */}
+                <button
+                  type="button"
+                  onClick={() => toggleFloorCollapse(floor.id)}
+                  className={`flex items-center gap-1 sm:gap-1.5 text-[10px] sm:text-xs font-black px-2.5 py-1 rounded-lg border transition cursor-pointer active:scale-95 shadow-2xs ${
+                    isCollapsed
+                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-500'
+                      : 'bg-blue-900 hover:bg-blue-800 text-white border-blue-700'
+                  }`}
+                  title={isCollapsed ? 'فتح صفوف وحدات الدور' : 'غلق صفوف وحدات الدور'}
+                >
+                  {isCollapsed ? (
+                    <>
+                      <ChevronDown className="w-3.5 h-3.5 stroke-[2.5]" />
+                      <span>فتح صفوف الدور</span>
+                      <span className="opacity-80 font-mono text-[9px]">({units.length})</span>
+                    </>
+                  ) : (
+                    <>
+                      <ChevronUp className="w-3.5 h-3.5 stroke-[2.5]" />
+                      <span>غلق صفوف الدور</span>
+                      <span className="opacity-80 font-mono text-[9px]">({units.length})</span>
+                    </>
+                  )}
+                </button>
               </div>
               
-              <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
-                {units.map(unitNum => {
-                  const status = getPaymentStatus(unitNum);
-                  const resident = residents.find(r => isSameFlatNumber(r.flatNumber, unitNum));
-                  const targetMonthNum = parseInt(selectedMonth, 10);
-                  const prescribed = resident ? getPrescribedFeeForMonth(
-                    resident,
-                    Number(currentYear),
-                    targetMonthNum,
-                    payments,
-                    defaultMonthlyFee,
-                    activityDefaultFees,
-                    activityFeePeriods,
-                    config?.customUnitFeePeriods
-                  ) : null;
-                  const historical = resident ? getHistoricalOccupantForDate(resident, `${currentYear}-${selectedMonth}`) : null;
-                  const ownerName = historical?.ownerName || resident?.name || 'شاغرة';
+              {!isCollapsed && (
+                <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
+                  {units.map(unitNum => {
+                    const status = getPaymentStatus(unitNum);
+                    const resident = residents.find(r => isSameFlatNumber(r.flatNumber, unitNum));
+                    const targetMonthNum = parseInt(selectedMonth, 10);
+                    const prescribed = resident ? getPrescribedFeeForMonth(
+                      resident,
+                      Number(currentYear),
+                      targetMonthNum,
+                      payments,
+                      defaultMonthlyFee,
+                      activityDefaultFees,
+                      activityFeePeriods,
+                      config?.customUnitFeePeriods
+                    ) : null;
+                    const historical = resident ? getHistoricalOccupantForDate(resident, `${currentYear}-${selectedMonth}`) : null;
+                    const ownerName = historical?.ownerName || resident?.name || 'شاغرة';
 
-                  const isRaw = Boolean(
-                    resident?.isExempt ||
-                    (prescribed && (
-                      prescribed.activityType === 'بدون تحصيل' ||
-                      prescribed.activityType === 'بدون تشطيب' ||
-                      prescribed.activityType.includes('بدون تحصيل') ||
-                      prescribed.activityType.includes('بدون تشطيب') ||
-                      prescribed.monthlyFee === 0
-                    ))
-                  );
-                  const isFinishing = Boolean(prescribed && !isRaw && (prescribed.activityType === 'تحت التشطيب' || prescribed.activityType.includes('تشطيب')));
+                    const isRaw = Boolean(
+                      resident?.isExempt ||
+                      (prescribed && (
+                        prescribed.activityType === 'بدون تحصيل' ||
+                        prescribed.activityType === 'بدون تشطيب' ||
+                        prescribed.activityType.includes('بدون تحصيل') ||
+                        prescribed.activityType.includes('بدون تشطيب') ||
+                        prescribed.monthlyFee === 0
+                      ))
+                    );
+                    const isFinishing = Boolean(prescribed && !isRaw && (prescribed.activityType === 'تحت التشطيب' || prescribed.activityType.includes('تشطيب')));
 
-                  const unitMatchingPayments = payments.filter(p => 
-                    resident && 
-                    ((resident.id && String(p.residentId || '').trim() === String(resident.id).trim()) || isSameFlatNumber(p.flatNumber, resident.flatNumber)) && 
-                    Number(p.year) === Number(currentYear) && 
-                    parseInt(p.month, 10) === targetMonthNum && 
-                    p.status !== 'cancelled' && p.status !== 'لاغي' &&
-                    matchesPaymentType(p.paymentType, selectedPaymentType)
-                  );
+                    const unitMatchingPayments = payments.filter(p => 
+                      resident && 
+                      ((resident.id && String(p.residentId || '').trim() === String(resident.id).trim()) || isSameFlatNumber(p.flatNumber, resident.flatNumber)) && 
+                      Number(p.year) === Number(currentYear) && 
+                      parseInt(p.month, 10) === targetMonthNum && 
+                      p.status !== 'cancelled' && p.status !== 'لاغي' &&
+                      matchesPaymentType(p.paymentType, selectedPaymentType)
+                    );
 
-                  const isUncollectedStatus = (s?: string, isManuallyPaid?: boolean) => 
-                    s === 'pending' || 
-                    s === 'لم يتم التحصيل' || 
-                    s === 'uncollected' || 
-                    s === 'غير مسدد' || 
-                    s === 'معلق' || 
-                    s === 'unpaid' ||
-                    (!isManuallyPaid && s !== 'collected' && s !== 'paid' && s !== 'تم التحصيل');
+                    const isUncollectedStatus = (s?: string, isManuallyPaid?: boolean) => 
+                      s === 'pending' || 
+                      s === 'لم يتم التحصيل' || 
+                      s === 'uncollected' || 
+                      s === 'غير مسدد' || 
+                      s === 'معلق' || 
+                      s === 'unpaid' ||
+                      (!isManuallyPaid && s !== 'collected' && s !== 'paid' && s !== 'تم التحصيل');
 
-                  const collectedPayments = unitMatchingPayments.filter(p => !isUncollectedStatus(p.status, p.isManuallyPaid) && (p.amount > 0 || p.isManuallyPaid));
-                  const collectedVal = collectedPayments.reduce((s, p) => s + (p.amount || 0), 0);
-                  const isPaid = collectedPayments.length > 0 || collectedVal > 0;
+                    const collectedPayments = unitMatchingPayments.filter(p => !isUncollectedStatus(p.status, p.isManuallyPaid) && (p.amount > 0 || p.isManuallyPaid));
+                    const collectedVal = collectedPayments.reduce((s, p) => s + (p.amount || 0), 0);
+                    const isPaid = collectedPayments.length > 0 || collectedVal > 0;
 
-                  const pendingPaymentWithReceipt = unitMatchingPayments.find(p => 
-                    isUncollectedStatus(p.status, p.isManuallyPaid) && Boolean(p.receiptNumber && p.receiptNumber.trim() !== '')
-                  );
+                    const pendingPaymentWithReceipt = unitMatchingPayments.find(p => 
+                      isUncollectedStatus(p.status, p.isManuallyPaid) && Boolean(p.receiptNumber && p.receiptNumber.trim() !== '')
+                    );
 
-                  const pendingPaymentWithoutReceipt = unitMatchingPayments.find(p => 
-                    isUncollectedStatus(p.status, p.isManuallyPaid) && (!p.receiptNumber || p.receiptNumber.trim() === '')
-                  );
+                    const pendingPaymentWithoutReceipt = unitMatchingPayments.find(p => 
+                      isUncollectedStatus(p.status, p.isManuallyPaid) && (!p.receiptNumber || p.receiptNumber.trim() === '')
+                    );
 
-                  const isUnpaid = status === 'unpaid' || Boolean(pendingPaymentWithoutReceipt);
-                  const dueVal = isRaw ? 0 : (prescribed?.monthlyFee ?? defaultMonthlyFee);
+                    const isUnpaid = status === 'unpaid' || Boolean(pendingPaymentWithoutReceipt);
+                    const dueVal = isRaw ? 0 : (prescribed?.monthlyFee ?? defaultMonthlyFee);
 
-                  let btnBgClass = 'bg-slate-800 border-slate-900 text-white hover:bg-slate-900'; // vacant / unregistered
-                  let isWhiteCard = false;
+                    let btnBgClass = 'bg-slate-800 border-slate-900 text-white hover:bg-slate-900'; // vacant / unregistered
+                    let isWhiteCard = false;
 
-                  if (resident) {
-                    if (isOtherPaymentFilter) {
-                      if (isPaid) {
-                        btnBgClass = 'bg-emerald-600 border-emerald-700 text-white hover:bg-emerald-700';
-                      } else if (pendingPaymentWithReceipt) {
-                        btnBgClass = 'bg-red-900 border-red-950 text-white hover:bg-red-950';
-                      } else if (pendingPaymentWithoutReceipt) {
-                        btnBgClass = 'bg-rose-600 border-rose-700 text-white hover:bg-rose-700';
+                    if (resident) {
+                      if (isOtherPaymentFilter) {
+                        if (isPaid) {
+                          btnBgClass = 'bg-emerald-600 border-emerald-700 text-white hover:bg-emerald-700';
+                        } else if (pendingPaymentWithReceipt) {
+                          btnBgClass = 'bg-red-900 border-red-950 text-white hover:bg-red-950';
+                        } else if (pendingPaymentWithoutReceipt) {
+                          btnBgClass = 'bg-rose-600 border-rose-700 text-white hover:bg-rose-700';
+                        } else {
+                          btnBgClass = 'bg-white border-slate-300 text-slate-800 hover:bg-slate-100/90 shadow-2xs';
+                          isWhiteCard = true;
+                        }
                       } else {
-                        btnBgClass = 'bg-white border-slate-300 text-slate-800 hover:bg-slate-100/90 shadow-2xs';
-                        isWhiteCard = true;
-                      }
-                    } else {
-                      if (isRaw) {
-                        btnBgClass = 'bg-slate-600 border-slate-700 text-slate-100 hover:bg-slate-700';
-                      } else if (isPaid) {
-                        btnBgClass = 'bg-emerald-600 border-emerald-700 text-white hover:bg-emerald-700';
-                      } else if (pendingPaymentWithReceipt) {
-                        btnBgClass = 'bg-red-900 border-red-950 text-white hover:bg-red-950';
-                      } else if (isFinishing) {
-                        btnBgClass = 'bg-rose-600 border-rose-700 text-white hover:bg-rose-700';
-                      } else {
-                        btnBgClass = 'bg-rose-600 border-rose-700 text-white hover:bg-rose-700';
+                        if (isRaw) {
+                          btnBgClass = 'bg-slate-600 border-slate-700 text-slate-100 hover:bg-slate-700';
+                        } else if (isPaid) {
+                          btnBgClass = 'bg-emerald-600 border-emerald-700 text-white hover:bg-emerald-700';
+                        } else if (pendingPaymentWithReceipt) {
+                          btnBgClass = 'bg-red-900 border-red-950 text-white hover:bg-red-950';
+                        } else if (isFinishing) {
+                          btnBgClass = 'bg-rose-600 border-rose-700 text-white hover:bg-rose-700';
+                        } else {
+                          btnBgClass = 'bg-rose-600 border-rose-700 text-white hover:bg-rose-700';
+                        }
                       }
                     }
-                  }
 
-                  const unitStr = String(unitNum);
+                    const unitStr = String(unitNum);
 
-                  return (
-                    <button 
-                      key={unitNum}
-                      onClick={() => setActiveUnit({ unitNum, floor, resident })}
-                      className={`
-                        p-1.5 sm:p-2 rounded-xl flex flex-col justify-between gap-1 transition-all relative group text-right
-                        ${btnBgClass}
-                        border-2 cursor-pointer active:scale-95 shadow-2xs hover:shadow-md hover:-translate-y-0.5 min-h-[64px] sm:min-h-[72px]
-                      `}
-                    >
-                      {/* Unit Number & Status Icon */}
-                      <div className={`flex items-center justify-between gap-1 w-full border-b ${isWhiteCard ? 'border-slate-200' : 'border-white/20'} pb-0.5`}>
-                        <span className={`text-[11px] sm:text-xs font-black ${isWhiteCard ? 'text-slate-900' : 'text-white'} font-mono leading-none`} dir="ltr">
-                          وحدة {unitStr}
-                        </span>
-                        {isPaid && <Check className={`w-3 h-3 ${isWhiteCard ? 'text-emerald-600' : 'text-white'} stroke-[3] shrink-0`} />}
-                        {!isPaid && pendingPaymentWithReceipt && (
-                          <span className="text-[7.5px] bg-red-950 text-amber-300 px-1 py-0.2 rounded font-black border border-red-700 leading-tight shrink-0">
-                            #{pendingPaymentWithReceipt.receiptNumber}
+                    return (
+                      <button 
+                        key={unitNum}
+                        onClick={() => setActiveUnit({ unitNum, floor, resident })}
+                        className={`
+                          p-1.5 sm:p-2 rounded-xl flex flex-col justify-between gap-1 transition-all relative group text-right
+                          ${btnBgClass}
+                          border-2 cursor-pointer active:scale-95 shadow-2xs hover:shadow-md hover:-translate-y-0.5 min-h-[64px] sm:min-h-[72px]
+                        `}
+                      >
+                        {/* Unit Number & Status Icon */}
+                        <div className={`flex items-center justify-between gap-1 w-full border-b ${isWhiteCard ? 'border-slate-200' : 'border-white/20'} pb-0.5`}>
+                          <span className={`text-[11px] sm:text-xs font-black ${isWhiteCard ? 'text-slate-900' : 'text-white'} font-mono leading-none`} dir="ltr">
+                            وحدة {unitStr}
                           </span>
-                        )}
-                        {!isPaid && !pendingPaymentWithReceipt && pendingPaymentWithoutReceipt && (
-                          <AlertCircle className={`w-3 h-3 ${isWhiteCard ? 'text-rose-600' : 'text-white'} animate-pulse stroke-[3] shrink-0`} />
-                        )}
-                        {!isOtherPaymentFilter && !isPaid && !pendingPaymentWithReceipt && !isFinishing && !isRaw && isUnpaid && (
-                          <AlertCircle className="w-3 h-3 text-white animate-pulse stroke-[3] shrink-0" />
-                        )}
-                        {!isOtherPaymentFilter && isRaw && (
-                          <span className="text-[7.5px] bg-slate-900/60 text-slate-200 px-1 py-0.2 rounded font-bold leading-tight">معفي</span>
-                        )}
-                      </div>
+                          {isPaid && <Check className={`w-3 h-3 ${isWhiteCard ? 'text-emerald-600' : 'text-white'} stroke-[3] shrink-0`} />}
+                          {!isPaid && pendingPaymentWithReceipt && (
+                            <span className="text-[7.5px] bg-red-950 text-amber-300 px-1 py-0.2 rounded font-black border border-red-700 leading-tight shrink-0">
+                              #{pendingPaymentWithReceipt.receiptNumber}
+                            </span>
+                          )}
+                          {!isPaid && !pendingPaymentWithReceipt && pendingPaymentWithoutReceipt && (
+                            <AlertCircle className={`w-3 h-3 ${isWhiteCard ? 'text-rose-600' : 'text-white'} animate-pulse stroke-[3] shrink-0`} />
+                          )}
+                          {!isOtherPaymentFilter && !isPaid && !pendingPaymentWithReceipt && !isFinishing && !isRaw && isUnpaid && (
+                            <AlertCircle className="w-3 h-3 text-white animate-pulse stroke-[3] shrink-0" />
+                          )}
+                          {!isOtherPaymentFilter && isRaw && (
+                            <span className="text-[7.5px] bg-slate-900/60 text-slate-200 px-1 py-0.2 rounded font-bold leading-tight">معفي</span>
+                          )}
+                        </div>
 
-                      {/* Owner Name */}
-                      <div className={`text-[9px] sm:text-[10px] font-black ${isWhiteCard ? 'text-slate-700' : 'text-white/95'} truncate w-full leading-tight`} title={ownerName}>
-                        {ownerName}
-                      </div>
+                        {/* Owner Name */}
+                        <div className={`text-[9px] sm:text-[10px] font-black ${isWhiteCard ? 'text-slate-700' : 'text-white/95'} truncate w-full leading-tight`} title={ownerName}>
+                          {ownerName}
+                        </div>
 
-                      {/* Financial Dues & Collection */}
-                      <div className={`flex items-center ${isOtherPaymentFilter ? 'justify-center' : 'justify-between'} text-[7.5px] min-[360px]:text-[8px] sm:text-[8.5px] font-black pt-0.5 border-t ${isWhiteCard ? 'border-slate-200 text-slate-600' : 'border-white/20 text-white/95'} leading-none`}>
-                        {!isOtherPaymentFilter && (
-                          <span>المستحق: <strong className="font-mono">{dueVal.toLocaleString()}</strong></span>
-                        )}
-                        <span>المحصل: <strong className="font-mono">{collectedVal.toLocaleString()}</strong></span>
-                      </div>
-                    </button>
-                  );
-                })}
+                        {/* Financial Dues & Collection */}
+                        <div className={`flex items-center ${isOtherPaymentFilter ? 'justify-center' : 'justify-between'} text-[7.5px] min-[360px]:text-[8px] sm:text-[8.5px] font-black pt-0.5 border-t ${isWhiteCard ? 'border-slate-200 text-slate-600' : 'border-white/20 text-white/95'} leading-none`}>
+                          {!isOtherPaymentFilter && (
+                            <span>المستحق: <strong className="font-mono">{dueVal.toLocaleString()}</strong></span>
+                          )}
+                          <span>المحصل: <strong className="font-mono">{collectedVal.toLocaleString()}</strong></span>
+                        </div>
+                      </button>
+                    );
+                  })}
 
-                {/* مربعات فارغة في الأماكن الناقصة لإكمال صف الـ 4 أعمدة */}
-                {(() => {
-                  const remainder = units.length % 4;
-                  const emptySlots = remainder === 0 ? 0 : 4 - remainder;
-                  return Array.from({ length: emptySlots }).map((_, idx) => (
-                    <div 
-                      key={`empty-slot-${floor.id}-${idx}`}
-                      className="rounded-xl border-2 border-dashed border-slate-400/70 bg-white/30 min-h-[64px] sm:min-h-[72px] shadow-2xs pointer-events-none select-none"
-                      aria-hidden="true"
-                    />
-                  ));
-                })()}
-              </div>
+                  {/* مربعات فارغة في الأماكن الناقصة لإكمال صف الـ 4 أعمدة */}
+                  {(() => {
+                    const remainder = units.length % 4;
+                    const emptySlots = remainder === 0 ? 0 : 4 - remainder;
+                    return Array.from({ length: emptySlots }).map((_, idx) => (
+                      <div 
+                        key={`empty-slot-${floor.id}-${idx}`}
+                        className="rounded-xl border-2 border-dashed border-slate-400/70 bg-white/30 min-h-[64px] sm:min-h-[72px] shadow-2xs pointer-events-none select-none"
+                        aria-hidden="true"
+                      />
+                    ));
+                  })()}
+                </div>
+              )}
             </div>
           );
         })}
@@ -1726,9 +1765,27 @@ const BuildingMapComponent: React.FC<BuildingMapProps> = ({
                           {/* الجزء الخامس */}
                           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 text-slate-900 font-black">
                             <span>5️⃣ إجمالي المستحق عن هذا الشهر:</span>
-                            <span className="text-blue-900 font-black text-xs sm:text-sm bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200 self-start sm:self-auto">
-                              {financials.claimBreakdown.currentMonthTotalDue.toLocaleString()} ج.م
-                            </span>
+                            <div className="flex items-center gap-2 self-start sm:self-auto">
+                              <span className="text-blue-900 font-black text-xs sm:text-sm bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200">
+                                {financials.claimBreakdown.currentMonthTotalDue.toLocaleString()} ج.م
+                              </span>
+                              {financials.claimBreakdown.currentMonthTotalDue === 0 ? (
+                                <span className="px-2 py-0.5 rounded-lg bg-emerald-100 text-emerald-900 border border-emerald-300 font-black text-xs flex items-center gap-1">
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                  <span>غير مطالب ✓</span>
+                                </span>
+                              ) : (financials.claimBreakdown.isCurrentMonthSubsPaid && financials.claimBreakdown.isCurrentMonthOtherPaid) || (financials.claimBreakdown.currentMonthSubsPaid + financials.claimBreakdown.currentMonthOtherPaid) >= financials.claimBreakdown.currentMonthTotalDue ? (
+                                <span className="px-2 py-0.5 rounded-lg bg-emerald-100 text-emerald-900 border border-emerald-300 font-black text-xs flex items-center gap-1">
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                  <span>مسدد ✓</span>
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded-lg bg-rose-100 text-rose-900 border border-rose-300 font-black text-xs flex items-center gap-1">
+                                  <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                                  <span>غير مسدد ⚠️</span>
+                                </span>
+                              )}
+                            </div>
                           </div>
 
                           {/* الجزء السادس */}

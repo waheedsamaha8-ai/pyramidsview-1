@@ -8,7 +8,9 @@ import {
   Clock, 
   AlertCircle, 
   ShieldCheck, 
-  ChevronLeft
+  ChevronLeft,
+  ChevronUp,
+  ChevronDown
 } from 'lucide-react';
 import { Resident, Payment, AppConfig, FloorConfig } from '../../types';
 import { 
@@ -59,6 +61,14 @@ export const AnnualBuildingMapModal: React.FC<AnnualBuildingMapModalProps> = ({
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [selectedResident, setSelectedResident] = useState<Resident | null>(null);
+  const [collapsedFloors, setCollapsedFloors] = useState<Record<string, boolean>>({});
+
+  const toggleFloorCollapse = (floorId: string) => {
+    setCollapsedFloors(prev => ({
+      ...prev,
+      [floorId]: !prev[floorId]
+    }));
+  };
 
   // Available years for selection
   const availableYears = useMemo(() => {
@@ -335,104 +345,134 @@ export const AnnualBuildingMapModal: React.FC<AnnualBuildingMapModalProps> = ({
         ) : (
           filteredFloorGroups.map((group) => {
             const floor = group.floorConfig;
+            const isCollapsed = Boolean(collapsedFloors[floor.id]);
+
             return (
               <div key={floor.id} className="space-y-3">
                 
-                {/* Floor Divider Banner */}
-                <div className="flex items-center gap-3 bg-gradient-to-r from-slate-900 via-blue-950/70 to-slate-900 border-y border-slate-800/80 px-4 py-2 rounded-xl shadow-xs">
-                  <div className="w-3 h-3 rounded-full bg-blue-500 animate-pulse" />
-                  <h3 className="text-xs sm:text-sm font-black text-blue-200 tracking-wide flex items-center gap-2">
-                    <span>🏢 {floor.floorLabel}</span>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 border border-slate-700">
-                      ({group.residents.length} وحدات)
-                    </span>
-                  </h3>
-                  <div className="flex-1 border-b border-dashed border-slate-800" />
+                {/* Floor Divider Banner مع زر فتح وغلق صفوف الدور */}
+                <div className="flex items-center justify-between bg-gradient-to-r from-slate-900 via-blue-950/70 to-slate-900 border-y border-slate-800/80 px-4 py-2 rounded-xl shadow-xs">
+                  <div className="flex items-center gap-3">
+                    <div className="w-3 h-3 rounded-full bg-blue-500 animate-pulse" />
+                    <h3 className="text-xs sm:text-sm font-black text-blue-200 tracking-wide flex items-center gap-2">
+                      <span>🏢 {floor.floorLabel}</span>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 border border-slate-700">
+                        ({group.residents.length} وحدات)
+                      </span>
+                    </h3>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => toggleFloorCollapse(floor.id)}
+                    className={`flex items-center gap-1.5 text-[10px] sm:text-xs font-black px-2.5 py-1 rounded-lg border transition cursor-pointer active:scale-95 shadow-2xs ${
+                      isCollapsed
+                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-500'
+                        : 'bg-blue-900 hover:bg-blue-800 text-white border-blue-700'
+                    }`}
+                    title={isCollapsed ? 'فتح صفوف وحدات الدور' : 'غلق صفوف وحدات الدور'}
+                  >
+                    {isCollapsed ? (
+                      <>
+                        <ChevronDown className="w-3.5 h-3.5 stroke-[2.5]" />
+                        <span>فتح صفوف الدور</span>
+                        <span className="opacity-80 font-mono text-[9px]">({group.residents.length})</span>
+                      </>
+                    ) : (
+                      <>
+                        <ChevronUp className="w-3.5 h-3.5 stroke-[2.5]" />
+                        <span>غلق صفوف الدور</span>
+                        <span className="opacity-80 font-mono text-[9px]">({group.residents.length})</span>
+                      </>
+                    )}
+                  </button>
                 </div>
 
                 {/* 6 Columns Grid across screen for units */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-                  {group.residents.map((res) => {
-                    const metrics = getResidentYearMetrics(res);
+                {!isCollapsed && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                    {group.residents.map((res) => {
+                      const metrics = getResidentYearMetrics(res);
 
-                    // Color theme based on year status
-                    let statusBg = 'bg-slate-900/90 border-slate-800 text-slate-300 hover:border-slate-700';
-                    let badgeBg = 'bg-slate-800 text-slate-400 border-slate-700';
-                    let statusIcon = <ShieldCheck className="w-3.5 h-3.5 text-slate-400" />;
-                    let statusLabel = 'معفي';
+                      // Color theme based on year status
+                      let statusBg = 'bg-slate-900/90 border-slate-800 text-slate-300 hover:border-slate-700';
+                      let badgeBg = 'bg-slate-800 text-slate-400 border-slate-700';
+                      let statusIcon = <ShieldCheck className="w-3.5 h-3.5 text-slate-400" />;
+                      let statusLabel = 'معفي';
 
-                    if (metrics.yearStatus === 'PAID') {
-                      statusBg = 'bg-emerald-950/30 border-emerald-800/60 hover:border-emerald-500/80 shadow-emerald-950/20';
-                      badgeBg = 'bg-emerald-900/50 text-emerald-300 border-emerald-700/60';
-                      statusIcon = <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />;
-                      statusLabel = 'مسدد بالكامل';
-                    } else if (metrics.yearStatus === 'PARTIAL') {
-                      statusBg = 'bg-amber-950/30 border-amber-800/60 hover:border-amber-500/80 shadow-amber-950/20';
-                      badgeBg = 'bg-amber-900/50 text-amber-300 border-amber-700/60';
-                      statusIcon = <Clock className="w-3.5 h-3.5 text-amber-400" />;
-                      statusLabel = 'سداد جزئي';
-                    } else if (metrics.yearStatus === 'UNPAID') {
-                      statusBg = 'bg-rose-950/30 border-rose-800/60 hover:border-rose-500/80 shadow-rose-950/20';
-                      badgeBg = 'bg-rose-900/50 text-rose-300 border-rose-700/60';
-                      statusIcon = <AlertCircle className="w-3.5 h-3.5 text-rose-400" />;
-                      statusLabel = 'غير مسدد';
-                    } else if (metrics.yearStatus === 'EXEMPT') {
-                      statusBg = 'bg-slate-900/80 border-slate-800 hover:border-slate-700';
-                      badgeBg = 'bg-slate-800/80 text-slate-400 border-slate-700';
-                      statusIcon = <ShieldCheck className="w-3.5 h-3.5 text-slate-400" />;
-                      statusLabel = 'معفي';
-                    }
+                      if (metrics.yearStatus === 'PAID') {
+                        statusBg = 'bg-emerald-950/30 border-emerald-800/60 hover:border-emerald-500/80 shadow-emerald-950/20';
+                        badgeBg = 'bg-emerald-900/50 text-emerald-300 border-emerald-700/60';
+                        statusIcon = <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />;
+                        statusLabel = 'مسدد بالكامل';
+                      } else if (metrics.yearStatus === 'PARTIAL') {
+                        statusBg = 'bg-amber-950/30 border-amber-800/60 hover:border-amber-500/80 shadow-amber-950/20';
+                        badgeBg = 'bg-amber-900/50 text-amber-300 border-amber-700/60';
+                        statusIcon = <Clock className="w-3.5 h-3.5 text-amber-400" />;
+                        statusLabel = 'سداد جزئي';
+                      } else if (metrics.yearStatus === 'UNPAID') {
+                        statusBg = 'bg-rose-950/30 border-rose-800/60 hover:border-rose-500/80 shadow-rose-950/20';
+                        badgeBg = 'bg-rose-900/50 text-rose-300 border-rose-700/60';
+                        statusIcon = <AlertCircle className="w-3.5 h-3.5 text-rose-400" />;
+                        statusLabel = 'غير مسدد';
+                      } else if (metrics.yearStatus === 'EXEMPT') {
+                        statusBg = 'bg-slate-900/80 border-slate-800 hover:border-slate-700';
+                        badgeBg = 'bg-slate-800/80 text-slate-400 border-slate-700';
+                        statusIcon = <ShieldCheck className="w-3.5 h-3.5 text-slate-400" />;
+                        statusLabel = 'معفي';
+                      }
 
-                    return (
-                      <div
-                        key={res.id}
-                        onClick={() => setSelectedResident(res)}
-                        className={`p-3 rounded-2xl border transition-all duration-200 cursor-pointer flex flex-col justify-between shadow-md hover:scale-[1.02] ${statusBg}`}
-                      >
-                        {/* Card Header: Unit Number & Status Badge */}
-                        <div className="space-y-1.5">
-                          <div className="flex items-center justify-between gap-1">
-                            <span className="text-xs font-black text-white px-2 py-0.5 rounded-lg bg-blue-900/60 border border-blue-700/50 shadow-2xs">
-                              شقة {res.flatNumber}
-                            </span>
-                            <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-md border flex items-center gap-1 shrink-0 ${badgeBg}`}>
-                              {statusIcon}
-                              <span>{statusLabel}</span>
-                            </span>
+                      return (
+                        <div
+                          key={res.id}
+                          onClick={() => setSelectedResident(res)}
+                          className={`p-3 rounded-2xl border transition-all duration-200 cursor-pointer flex flex-col justify-between shadow-md hover:scale-[1.02] ${statusBg}`}
+                        >
+                          {/* Card Header: Unit Number & Status Badge */}
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between gap-1">
+                              <span className="text-xs font-black text-white px-2 py-0.5 rounded-lg bg-blue-900/60 border border-blue-700/50 shadow-2xs">
+                                شقة {res.flatNumber}
+                              </span>
+                              <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-md border flex items-center gap-1 shrink-0 ${badgeBg}`}>
+                                {statusIcon}
+                                <span>{statusLabel}</span>
+                              </span>
+                            </div>
+
+                            {/* Owner Name */}
+                            <div className="pt-1">
+                              <h4 className="text-xs font-extrabold text-slate-100 truncate" title={res.name}>
+                                {res.name}
+                              </h4>
+                              <p className="text-[10px] font-bold text-slate-400 truncate">
+                                {res.activityType || 'سكني'} {res.ownershipType ? `(${res.ownershipType})` : ''}
+                              </p>
+                            </div>
                           </div>
 
-                          {/* Owner Name */}
-                          <div className="pt-1">
-                            <h4 className="text-xs font-extrabold text-slate-100 truncate" title={res.name}>
-                              {res.name}
-                            </h4>
-                            <p className="text-[10px] font-bold text-slate-400 truncate">
-                              {res.activityType || 'سكني'} {res.ownershipType ? `(${res.ownershipType})` : ''}
-                            </p>
+                          {/* Financial Metrics Row: Required Due Amount & Collected Paid Amount */}
+                          <div className="mt-3 pt-2 border-t border-slate-800/80 grid grid-cols-2 gap-1.5 text-[10px]">
+                            <div className="bg-slate-950/60 p-1.5 rounded-lg border border-slate-800 text-center">
+                              <span className="text-slate-400 block text-[9px]">المستحق:</span>
+                              <span className="font-black text-slate-200 text-[11px]">{metrics.prescribed.toLocaleString()}</span>
+                            </div>
+                            <div className="bg-slate-950/60 p-1.5 rounded-lg border border-slate-800 text-center">
+                              <span className="text-emerald-400 block text-[9px]">المحصل:</span>
+                              <span className="font-black text-emerald-400 text-[11px]">{metrics.paid.toLocaleString()}</span>
+                            </div>
+                          </div>
+
+                          {/* Interactive Hint */}
+                          <div className="mt-2 text-center text-[9px] font-extrabold text-blue-400 flex items-center justify-center gap-1 group-hover:underline">
+                            <span>عرض كشف الـ 12 شهراً</span>
+                            <ChevronLeft className="w-3 h-3" />
                           </div>
                         </div>
-
-                        {/* Financial Metrics Row: Required Due Amount & Collected Paid Amount */}
-                        <div className="mt-3 pt-2 border-t border-slate-800/80 grid grid-cols-2 gap-1.5 text-[10px]">
-                          <div className="bg-slate-950/60 p-1.5 rounded-lg border border-slate-800 text-center">
-                            <span className="text-slate-400 block text-[9px]">المستحق:</span>
-                            <span className="font-black text-slate-200 text-[11px]">{metrics.prescribed.toLocaleString()}</span>
-                          </div>
-                          <div className="bg-slate-950/60 p-1.5 rounded-lg border border-slate-800 text-center">
-                            <span className="text-emerald-400 block text-[9px]">المحصل:</span>
-                            <span className="font-black text-emerald-400 text-[11px]">{metrics.paid.toLocaleString()}</span>
-                          </div>
-                        </div>
-
-                        {/* Interactive Hint */}
-                        <div className="mt-2 text-center text-[9px] font-extrabold text-blue-400 flex items-center justify-center gap-1 group-hover:underline">
-                          <span>عرض كشف الـ 12 شهراً</span>
-                          <ChevronLeft className="w-3 h-3" />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             );
           })

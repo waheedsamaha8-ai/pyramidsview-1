@@ -1455,9 +1455,27 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
               {/* الجزء الخامس */}
               <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 text-slate-900 font-black">
                 <span>5️⃣ إجمالي المستحق عن هذا الشهر:</span>
-                <span className="text-blue-900 font-black text-xs sm:text-sm bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200 self-start sm:self-auto">
-                  {claimBreakdown.currentMonthTotalDue.toLocaleString()} ج.م
-                </span>
+                <div className="flex items-center gap-2 self-start sm:self-auto">
+                  <span className="text-blue-900 font-black text-xs sm:text-sm bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200">
+                    {claimBreakdown.currentMonthTotalDue.toLocaleString()} ج.م
+                  </span>
+                  {claimBreakdown.currentMonthTotalDue === 0 ? (
+                    <span className="px-2 py-0.5 rounded-lg bg-emerald-100 text-emerald-900 border border-emerald-300 font-black text-xs flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span>غير مطالب ✓</span>
+                    </span>
+                  ) : (claimBreakdown.isCurrentMonthSubsPaid && claimBreakdown.isCurrentMonthOtherPaid) || (claimBreakdown.currentMonthSubsPaid + claimBreakdown.currentMonthOtherPaid) >= claimBreakdown.currentMonthTotalDue ? (
+                    <span className="px-2 py-0.5 rounded-lg bg-emerald-100 text-emerald-900 border border-emerald-300 font-black text-xs flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span>مسدد ✓</span>
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded-lg bg-rose-100 text-rose-900 border border-rose-300 font-black text-xs flex items-center gap-1">
+                      <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                      <span>غير مسدد ⚠️</span>
+                    </span>
+                  )}
+                </div>
               </div>
 
               {/* الجزء السادس */}

@@ -522,8 +522,12 @@ export function generateReceiptClaimCanvas(
   ctx.fillStyle = '#0f172a';
   ctx.fillText(`5️⃣ إجمالي المستحق عن هذا الشهر:`, width - padding - 22, innerY + 18);
   ctx.textAlign = 'left';
-  ctx.fillStyle = '#1e3a8a';
-  ctx.fillText(`${cb.currentMonthTotalDue.toLocaleString()} ج.م`, padding + 22, innerY + 18);
+  const isZeroDue = cb.currentMonthTotalDue === 0;
+  const isMonthPaid = (cb.isCurrentMonthSubsPaid && cb.isCurrentMonthOtherPaid) || ((cb.currentMonthSubsPaid + cb.currentMonthOtherPaid) >= cb.currentMonthTotalDue);
+  const statusBadgeText = isZeroDue ? '(غير مطالب ✓)' : (isMonthPaid ? '(مسدد ✓)' : '(غير مسدد ⚠️)');
+  ctx.fillStyle = (isZeroDue || isMonthPaid) ? '#047857' : '#be123c';
+  ctx.font = `bold 11px ${fontFamily}`;
+  ctx.fillText(`${cb.currentMonthTotalDue.toLocaleString()} ج.م  ${statusBadgeText}`, padding + 22, innerY + 18);
 
   // Dashed line
   ctx.save();
