@@ -213,7 +213,11 @@ export function useAppSync({
       });
 
       setPayments(prev => {
-        const filtered = prev.filter(p => !delSet.has(String(p.id).trim()));
+        const filtered = prev.filter(p => {
+          const isCancelled = p.status === 'cancelled' || p.status === 'لاغي' || p.status === 'VOID' || p.status === 'ملغي' || p.status === 'مرفوض';
+          if (isCancelled) return true;
+          return !delSet.has(String(p.id).trim());
+        });
         if (filtered.length !== prev.length) {
           offlineSync.saveCachedData('payments', filtered);
           // Broadcast to other components and tabs

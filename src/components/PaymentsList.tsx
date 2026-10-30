@@ -636,6 +636,50 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
     return p.amount;
   };
 
+  const isPaymentMatchingTypeOrStatus = (p: Payment, filter: string): boolean => {
+    if (!filter) return true;
+
+    const isCancelled =
+      p.status === 'cancelled' ||
+      p.status === 'لاغي' ||
+      p.status === 'VOID' ||
+      p.status === 'ملغي' ||
+      p.status === 'مرفوض';
+
+    const isExempt =
+      p.status === 'معفي' ||
+      p.status === 'exempt' ||
+      (p.amount === 0 && (
+        p.notes?.includes('معفي') ||
+        p.notes?.includes('إعفاء') ||
+        p.paymentType?.includes('معفي') ||
+        p.status === 'pending' ||
+        p.status === 'لم يتم التحصيل' ||
+        p.status === 'uncollected'
+      ));
+
+    const isUncollected =
+      !isCancelled &&
+      !isExempt &&
+      (p.status === 'pending' ||
+        p.status === 'لم يتم التحصيل' ||
+        p.status === 'uncollected' ||
+        p.status === 'unpaid' ||
+        p.status === 'غير مسدد' ||
+        p.status === 'لم يسدد' ||
+        p.status === 'معلق' ||
+        p.isManuallyPaid === false);
+
+    const isPaid = !isCancelled && !isExempt && !isUncollected;
+
+    if (filter === 'مسدد') return isPaid;
+    if (filter === 'غير مسدد') return isUncollected;
+    if (filter === 'ملغي' || filter === 'لاغي') return isCancelled;
+    if (filter === 'معفي') return isExempt;
+
+    return p.paymentType === filter;
+  };
+
   const filteredPayments = payments
     .filter((p) => p.year === currentYear)
     .filter((p) => (filterResident ? p.residentId === filterResident : true))
@@ -645,7 +689,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       }
       return filterMonth ? parseInt(p.month, 10) === parseInt(filterMonth, 10) : true;
     })
-    .filter((p) => (filterType ? p.paymentType === filterType : true))
+    .filter((p) => isPaymentMatchingTypeOrStatus(p, filterType))
     .filter((p) => {
       if (distributionFilter === 'without_distributed') {
         return !isDistributedFromAnotherMonth(p);
@@ -658,7 +702,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
       .filter((p) => p.year === currentYear)
       .filter((p) => parseInt(p.month, 10) === parseInt(actualCurrentMonth, 10))
       .filter((p) => (filterResident ? p.residentId === filterResident : true))
-      .filter((p) => (filterType ? p.paymentType === filterType : true))
+      .filter((p) => isPaymentMatchingTypeOrStatus(p, filterType))
       .filter((p) => {
         if (distributionFilter === 'without_distributed') {
           return !isDistributedFromAnotherMonth(p);
@@ -974,9 +1018,20 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
     });
   };
 
-  const totalAmount = filteredPayments
-    .filter(p => p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل')
-    .reduce((sum, p) => sum + getEffectiveDisplayAmount(p), 0);
+  const totalAmount = useMemo(() => {
+    if (filterType === 'غير مسدد') {
+      return filteredPayments.reduce((sum, p) => sum + getEffectiveDisplayAmount(p), 0);
+    }
+    if (filterType === 'ملغي' || filterType === 'لاغي') {
+      return filteredPayments.reduce((sum, p) => sum + getEffectiveDisplayAmount(p), 0);
+    }
+    if (filterType === 'معفي') {
+      return 0;
+    }
+    return filteredPayments
+      .filter(p => p.status !== 'cancelled' && p.status !== 'لاغي' && p.status !== 'VOID' && p.status !== 'ملغي' && p.status !== 'مرفوض' && p.status !== 'pending' && p.status !== 'لم يتم التحصيل' && p.status !== 'uncollected' && p.status !== 'unpaid' && p.status !== 'غير مسدد')
+      .reduce((sum, p) => sum + getEffectiveDisplayAmount(p), 0);
+  }, [filteredPayments, filterType, distributionFilter]);
 
   const effectiveFloorConfigs = useMemo(() => {
     let base: FloorConfig[] = [];
@@ -2334,14 +2389,24 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
             <select
               value={filterType}
               onChange={(e) => setFilterType(e.target.value)}
-              className="w-full md:w-36 px-2.5 py-2 bg-white border border-slate-100 rounded-xl text-xs font-bold focus:ring-2 focus:ring-blue-500/10 outline-none rtl:text-right cursor-pointer"
+              className="w-full md:w-44 px-2.5 py-2 bg-white border border-slate-100 rounded-xl text-xs font-bold focus:ring-2 focus:ring-blue-500/10 outline-none rtl:text-right cursor-pointer"
             >
               <option value="">كل أنواع التحصيل</option>
-              {paymentTypes.map((type) => (
-                <option key={type} value={type}>
-                  {type}
-                </option>
-              ))}
+              <optgroup label="حسب حالة السداد">
+                <option value="مسدد">مسدد</option>
+                <option value="غير مسدد">غير مسدد</option>
+                <option value="ملغي">ملغي</option>
+                <option value="معفي">معفي</option>
+              </optgroup>
+              <optgroup label="حسب نوع التحصيل">
+                {paymentTypes
+                  .filter((t) => !['مسدد', 'غير مسدد', 'ملغي', 'لاغي', 'معفي'].includes(t))
+                  .map((type) => (
+                    <option key={type} value={type}>
+                      {type}
+                    </option>
+                  ))}
+              </optgroup>
             </select>
           </div>
 
@@ -4215,7 +4280,7 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
               )}
               {filterType && (
                 <span className="px-2 py-0.5 bg-slate-100 text-slate-800 rounded border border-slate-300">
-                  فئة التحصيل: {filterType}
+                  {['مسدد', 'غير مسدد', 'ملغي', 'معفي'].includes(filterType) ? `حالة السداد: ${filterType}` : `فئة التحصيل: ${filterType}`}
                 </span>
               )}
               {filterMonth && !onlyCurrentMonth && (

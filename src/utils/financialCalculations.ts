@@ -1819,8 +1819,18 @@ export function unregisterDeletedPaymentIds(ids: string | string[]): void {
 }
 
 export function restoreActivePaymentsFromDeletedSet(activePayments: Payment[]): void {
-  // Intentionally no-op: Never unregister deleted payment IDs when reading arrays from cloud or cache.
-  // User deletions are authoritative and must permanently remove records across all devices.
+  if (!Array.isArray(activePayments) || activePayments.length === 0) return;
+  const toUnregister: string[] = [];
+  for (const p of activePayments) {
+    if (!p || !p.id) continue;
+    const isCancelledStatus = p.status === 'cancelled' || p.status === 'لاغي' || p.status === 'VOID' || p.status === 'ملغي' || p.status === 'مرفوض';
+    if (isCancelledStatus || (p.receiptNumber && p.receiptNumber.trim() !== '')) {
+      toUnregister.push(String(p.id).trim());
+    }
+  }
+  if (toUnregister.length > 0) {
+    unregisterDeletedPaymentIds(toUnregister);
+  }
 }
 
 /**
@@ -1837,8 +1847,15 @@ export function filterAndDeduplicatePayments(list: Payment[]): Payment[] {
     if (!p) return false;
     const cleanId = String(p.id || '').trim();
     if (!cleanId) return false;
-    if (deletedSet.has(cleanId)) return false;
     if ((p as any).isDeleted || p.status === 'deleted') return false;
+
+    // Cancelled ("لاغي") payments must ALWAYS be preserved with their receipt numbers
+    const isCancelledStatus = p.status === 'cancelled' || p.status === 'لاغي' || p.status === 'VOID' || p.status === 'ملغي' || p.status === 'مرفوض';
+    if (isCancelledStatus) {
+      return true;
+    }
+
+    if (deletedSet.has(cleanId)) return false;
     return true;
   });
 

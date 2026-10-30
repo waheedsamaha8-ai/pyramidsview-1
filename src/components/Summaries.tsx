@@ -419,11 +419,16 @@ const SummariesComponent: React.FC<SummariesProps> = ({
     const originalAggregatedSet = new Set<string>();
 
     const globallyDeleted = getDeletedPaymentIds();
-    const isPaymentDeleted = (id: string) => localDeletedPaymentIds.has(String(id)) || globallyDeleted.has(String(id));
+    const isPaymentDeleted = (p: Payment) => {
+      if (!p || !p.id) return true;
+      const isCancelled = p.status === 'cancelled' || p.status === 'لاغي' || p.status === 'VOID' || p.status === 'ملغي' || p.status === 'مرفوض';
+      if (isCancelled) return false;
+      return localDeletedPaymentIds.has(String(p.id)) || globallyDeleted.has(String(p.id));
+    };
 
     for (let i = 0; i < payments.length; i++) {
       const p = payments[i];
-      if (!p || !p.id || isPaymentDeleted(p.id)) continue;
+      if (!p || !p.id || isPaymentDeleted(p)) continue;
       if (p.distributionSourceId && String(p.distributionSourceId) !== String(p.id)) {
         childSet.add(String(p.id));
       }
@@ -445,7 +450,7 @@ const SummariesComponent: React.FC<SummariesProps> = ({
     const paymentsByResidentAndMonth = new Map<string, Payment[]>();
     for (let i = 0; i < payments.length; i++) {
       const p = payments[i];
-      if (!p || !p.id || isPaymentDeleted(p.id)) continue;
+      if (!p || !p.id || isPaymentDeleted(p)) continue;
       if (Number(p.year) !== Number(currentYear)) continue;
       const mStr = String(parseInt(p.month, 10)).padStart(2, '0');
       
@@ -1770,6 +1775,37 @@ const SummariesComponent: React.FC<SummariesProps> = ({
           config?.customUnitFeePeriods
         );
 
+        const isCancelledPayment = (p: Payment) =>
+          p.status === 'cancelled' ||
+          p.status === 'لاغي' ||
+          p.status === 'VOID' ||
+          p.status === 'ملغي' ||
+          p.status === 'مرفوض';
+
+        const isUncollectedPayment = (p: Payment) =>
+          p.status === 'pending' ||
+          p.status === 'لم يتم التحصيل' ||
+          p.status === 'uncollected' ||
+          p.status === 'unpaid' ||
+          p.status === 'غير مسدد' ||
+          p.status === 'معلق' ||
+          p.isManuallyPaid === false;
+
+        const isExemptPayment = (p: Payment) =>
+          p.status === 'معفي' ||
+          p.status === 'exempt' ||
+          p.status === 'إعفاء' ||
+          (p.amount === 0 && (p.status === 'pending' || p.status === 'لم يتم التحصيل' || (p.notes && p.notes.includes('استحقاق'))));
+
+        const validCollectedPayments = activeCellPayments.filter(
+          (p) => !isCancelledPayment(p) && !isUncollectedPayment(p) && !isExemptPayment(p)
+        );
+
+        const activeCellTotal = validCollectedPayments.reduce(
+          (sum, p) => sum + (Number(p.amount) || 0),
+          0
+        );
+
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto" dir="rtl">
             <div className="w-full max-w-lg bg-white rounded-xl sm:rounded-2xl border border-slate-100 shadow-xl animate-scale-up text-right flex flex-col h-[92vh] max-h-[95vh] sm:h-auto sm:max-h-[90vh] overflow-hidden my-auto">
@@ -1803,7 +1839,7 @@ const SummariesComponent: React.FC<SummariesProps> = ({
                     <div className="flex items-center gap-1.5">
                       <span className="text-[10px] text-slate-500 font-bold">الإجمالي:</span>
                       <span className="text-xs font-black text-emerald-600 bg-emerald-50/80 px-2 py-0.5 rounded">
-                        {activeCellPayments.reduce((sum, p) => sum + p.amount, 0)} ج.م
+                        {activeCellTotal.toLocaleString()} ج.م
                       </span>
                     </div>
                   </div>
@@ -1842,7 +1878,7 @@ const SummariesComponent: React.FC<SummariesProps> = ({
                         <div className="space-y-1.5 max-h-[50vh] sm:max-h-[42vh] overflow-y-auto pr-0.5">
                           {activeCellPayments.map((pay) => {
                             const isEditing = editingPaymentId === pay.id;
-                      const isCancelled = pay.status === 'cancelled' || pay.status === 'لاغي' || pay.status === 'VOID' || pay.status === 'ملغي';
+                      const isCancelled = pay.status === 'cancelled' || pay.status === 'لاغي' || pay.status === 'VOID' || pay.status === 'ملغي' || pay.status === 'مرفوض';
                       const isExempt = pay.status === 'معفي' || pay.status === 'exempt' || pay.status === 'إعفاء' || (pay.amount === 0 && (pay.status === 'pending' || pay.status === 'لم يتم التحصيل' || (pay.notes && pay.notes.includes('استحقاق'))));
                       const isPending = !isCancelled && !isExempt && (pay.status === 'pending' || pay.status === 'لم يتم التحصيل' || pay.status === 'uncollected' || pay.status === 'unpaid' || pay.status === 'غير مسدد' || pay.status === 'معلق' || pay.isManuallyPaid === false);
                       const isCollected = !isCancelled && !isExempt && !isPending;

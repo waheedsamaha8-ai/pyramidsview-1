@@ -230,7 +230,6 @@ async function deleteFromAllFirestorePaths(colName: string, id: string): Promise
   // Soft-delete marker first so any active cache/query immediately treats it as deleted
   const softDeletePayload = {
     isDeleted: true,
-    status: 'cancelled',
     deletedAt: new Date().toISOString()
   };
 
@@ -1640,13 +1639,15 @@ export function subscribeToFirestoreCollection<T>(
       const deletedSet = getDeletedEntityIds();
 
       rootItemsMap.forEach((val, key) => {
-        if (!deletedSet.has(key) && !(val as any)?.isDeleted && (val as any)?.status !== 'cancelled' && (val as any)?.status !== 'deleted') {
+        const isCancelled = (val as any)?.status === 'cancelled' || (val as any)?.status === 'لاغي' || (val as any)?.status === 'VOID' || (val as any)?.status === 'ملغي' || (val as any)?.status === 'مرفوض';
+        if (isCancelled || (!deletedSet.has(key) && !(val as any)?.isDeleted && (val as any)?.status !== 'deleted')) {
           mergedMap.set(key, val);
         }
       });
 
       subItemsMap.forEach((val, key) => {
-        if (!deletedSet.has(key) && !(val as any)?.isDeleted && (val as any)?.status !== 'cancelled' && (val as any)?.status !== 'deleted') {
+        const isCancelled = (val as any)?.status === 'cancelled' || (val as any)?.status === 'لاغي' || (val as any)?.status === 'VOID' || (val as any)?.status === 'ملغي' || (val as any)?.status === 'مرفوض';
+        if (isCancelled || (!deletedSet.has(key) && !(val as any)?.isDeleted && (val as any)?.status !== 'deleted')) {
           mergedMap.set(key, val);
         }
       });
@@ -1672,11 +1673,15 @@ export function subscribeToFirestoreCollection<T>(
           if (change.type === 'removed') {
             const docId = String(change.doc.id).trim();
             const dataId = String((change.doc.data() as any)?.id || '').trim();
-            registerDeletedEntityId(docId);
-            registerDeletedPaymentIds(docId);
-            if (dataId) {
-              registerDeletedEntityId(dataId);
-              registerDeletedPaymentIds(dataId);
+            const changeStatus = (change.doc.data() as any)?.status;
+            const isCancelled = changeStatus === 'cancelled' || changeStatus === 'لاغي' || changeStatus === 'VOID' || changeStatus === 'ملغي';
+            if (!isCancelled) {
+              registerDeletedEntityId(docId);
+              registerDeletedPaymentIds(docId);
+              if (dataId) {
+                registerDeletedEntityId(dataId);
+                registerDeletedPaymentIds(dataId);
+              }
             }
             rootItemsMap.delete(docId);
             if (dataId) rootItemsMap.delete(dataId);
@@ -1695,11 +1700,15 @@ export function subscribeToFirestoreCollection<T>(
         const docId = String(docSnap.id).trim();
         const id = String((data as any)?.id || docSnap.id).trim();
 
-        if (currentDeleted.has(id) || currentDeleted.has(docId)) {
-          return;
-        }
-        if ((data as any)?.isDeleted === true || (data as any)?.status === 'cancelled' || (data as any)?.status === 'deleted') {
-          return;
+        const isCancelled = (data as any)?.status === 'cancelled' || (data as any)?.status === 'لاغي' || (data as any)?.status === 'VOID' || (data as any)?.status === 'ملغي' || (data as any)?.status === 'مرفوض';
+
+        if (!isCancelled) {
+          if (currentDeleted.has(id) || currentDeleted.has(docId)) {
+            return;
+          }
+          if ((data as any)?.isDeleted === true || (data as any)?.status === 'deleted') {
+            return;
+          }
         }
         targetMap.set(id, data);
       });
