@@ -7,8 +7,10 @@ import {
   deleteDoc,
   onSnapshot,
   query,
+  where,
   orderBy,
-  writeBatch
+  writeBatch,
+  arrayUnion
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType, notifyFirebaseStatus } from './firebaseConfig';
 import {
@@ -104,6 +106,49 @@ export function isEntityDeleted(id: string | number): boolean {
   return getDeletedEntityIds().has(String(id));
 }
 
+export async function recordDeletedPaymentIdsInCloud(ids: string[]): Promise<void> {
+  if (!ids || ids.length === 0) return;
+  const cleanIds = ids.map(String).filter(Boolean);
+  if (cleanIds.length === 0) return;
+  try {
+    const activeId = getActiveBuildingId();
+    const docRef = doc(db, 'system', 'deleted_records');
+    await setDoc(docRef, {
+      paymentIds: arrayUnion(...cleanIds),
+      updatedAt: new Date().toISOString()
+    }, { merge: true });
+
+    if (activeId && activeId !== DEFAULT_BUILDING_ID) {
+      try {
+        const subDocRef = doc(db, 'buildings', activeId, 'system', 'deleted_records');
+        await setDoc(subDocRef, {
+          paymentIds: arrayUnion(...cleanIds),
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
+      } catch {}
+    }
+  } catch (err) {
+    console.warn('Cloud deleted sync notice:', err);
+  }
+}
+
+export function subscribeToDeletedRecords(callback: (deletedPaymentIds: string[]) => void): () => void {
+  try {
+    const docRef = doc(db, 'system', 'deleted_records');
+    return onSnapshot(docRef, (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        const ids = Array.isArray(data?.paymentIds) ? data.paymentIds.map(String) : [];
+        if (ids.length > 0) {
+          callback(ids);
+        }
+      }
+    }, () => {});
+  } catch {
+    return () => {};
+  }
+}
+
 // Low-level helper to permanently delete document across all Firestore structures (root, building subcollections, etc.)
 async function deleteFromAllFirestorePaths(colName: string, id: string): Promise<void> {
   const cleanId = String(id);
@@ -129,6 +174,14 @@ async function deleteFromAllFirestorePaths(colName: string, id: string): Promise
       deletePromises.push(deleteDoc(doc(db, 'buildings', DEFAULT_BUILDING_ID, colName, cleanId)));
     } catch {}
   }
+
+  // 4. Delete any orphaned documents where data.id matches cleanId
+  try {
+    const q = query(getBuildingColRef(colName), where('id', '==', cleanId));
+    getDocs(q).then(snap => {
+      snap.forEach(d => deleteDoc(d.ref).catch(() => {}));
+    }).catch(() => {});
+  } catch {}
 
   await Promise.allSettled(deletePromises);
 }
@@ -479,6 +532,7 @@ export async function deleteBatchPaymentsFromFirestore(ids: string[]): Promise<v
   const cleanIds = ids.map(id => String(id));
   registerDeletedPaymentIds(cleanIds);
   cleanIds.forEach(id => offlineSync.purgeEntityFromQueue(id));
+  recordDeletedPaymentIdsInCloud(cleanIds).catch(() => {});
 
   const activeId = getActiveBuildingId();
   const cacheKey = getBuildingCacheKey('payments');
@@ -493,12 +547,23 @@ export async function deleteBatchPaymentsFromFirestore(ids: string[]): Promise<v
       const batch = writeBatch(db);
       const chunk = cleanIds.slice(i, i + CHUNK_SIZE);
       chunk.forEach(cleanId => {
+        // 1. Root collection
         const docRef = getBuildingDocRef('payments', cleanId);
         batch.delete(docRef);
-        if (activeId && activeId !== DEFAULT_BUILDING_ID) {
+
+        // 2. Active building subcollection
+        if (activeId) {
           try {
             const subDocRef = doc(db, 'buildings', activeId, 'payments', cleanId);
             batch.delete(subDocRef);
+          } catch {}
+        }
+
+        // 3. Default building subcollection fallback
+        if (activeId !== DEFAULT_BUILDING_ID) {
+          try {
+            const defDocRef = doc(db, 'buildings', DEFAULT_BUILDING_ID, 'payments', cleanId);
+            batch.delete(defDocRef);
           } catch {}
         }
       });
@@ -603,6 +668,7 @@ export async function deletePaymentFromFirestore(id: string): Promise<void> {
   const cleanId = String(id);
   registerDeletedPaymentIds(cleanId);
   offlineSync.purgeEntityFromQueue(cleanId);
+  recordDeletedPaymentIdsInCloud([cleanId]).catch(() => {});
 
   try {
     await deleteFromAllFirestorePaths('payments', cleanId);

@@ -1795,13 +1795,8 @@ export function unregisterDeletedPaymentIds(ids: string | string[]): void {
 }
 
 export function restoreActivePaymentsFromDeletedSet(activePayments: Payment[]): void {
-  if (!Array.isArray(activePayments) || activePayments.length === 0) return;
-  const activeIds = activePayments
-    .map(p => p ? String(p.id).trim() : '')
-    .filter(Boolean);
-  if (activeIds.length > 0) {
-    unregisterDeletedPaymentIds(activeIds);
-  }
+  // Intentionally no-op: Never unregister deleted payment IDs when reading arrays from cloud or cache.
+  // User deletions are authoritative and must permanently remove records across all devices.
 }
 
 /**

@@ -270,8 +270,6 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
       const act = (item.resident.activityType || '').trim();
       const isExemptActivity = 
         act.includes('تشطيب') || 
-        act.includes('مغلق') || 
-        act.includes('مغلقة') || 
         act.includes('معفي') || 
         act.includes('معفاه') || 
         act.includes('معفاة') ||
@@ -326,8 +324,6 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
         const act = (item.resident.activityType || '').trim();
         const isExemptActivity = 
           act.includes('تشطيب') || 
-          act.includes('مغلق') || 
-          act.includes('مغلقة') || 
           act.includes('معفي') || 
           act.includes('معفاه') || 
           act.includes('معفاة') ||
@@ -1136,8 +1132,6 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                         const act = (histAct.activityType || resident.activityType || '').trim();
                         const isExemptActivity = 
                           act.includes('تشطيب') || 
-                          act.includes('مغلق') || 
-                          act.includes('مغلقة') || 
                           act.includes('معفي') || 
                           act.includes('معفاه') || 
                           act.includes('معفاة') ||
@@ -1488,8 +1482,6 @@ export const DebtsReport: React.FC<DebtsReportProps> = ({
                     const act = (histAct.activityType || resident.activityType || '').trim();
                     const isExemptActivity = 
                       act.includes('تشطيب') || 
-                      act.includes('مغلق') || 
-                      act.includes('مغلقة') || 
                       act.includes('معفي') || 
                       act.includes('معفاه') || 
                       act.includes('معفاة') ||

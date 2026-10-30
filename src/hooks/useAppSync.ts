@@ -18,7 +18,7 @@ import {
   UserRole 
 } from '../types';
 import { deduplicateResidents } from '../utils/buildingStructure';
-import { filterAndDeduplicatePayments } from '../utils/financialCalculations';
+import { filterAndDeduplicatePayments, registerDeletedPaymentIds } from '../utils/financialCalculations';
 
 interface UseAppSyncOptions {
   userEmail?: string | null;
@@ -202,6 +202,20 @@ export function useAppSync({
       offlineSync.saveCachedData('rules', { rules: r });
     });
 
+    const unsubDeletedRecords = firestoreService.subscribeToDeletedRecords((cloudDeletedIds) => {
+      if (!isMounted || !Array.isArray(cloudDeletedIds) || cloudDeletedIds.length === 0) return;
+      registerDeletedPaymentIds(cloudDeletedIds);
+      const delSet = new Set(cloudDeletedIds.map(String));
+      setPayments(prev => {
+        const filtered = prev.filter(p => !delSet.has(String(p.id)));
+        if (filtered.length !== prev.length) {
+          offlineSync.saveCachedData('payments', filtered);
+          return filtered;
+        }
+        return prev;
+      });
+    });
+
     const fetchLatestChatAndComplaints = async () => {
       if (!isApiServerAvailable) return;
       try {
@@ -294,6 +308,7 @@ export function useAppSync({
       unsubExpenses();
       unsubConfig();
       unsubRules();
+      unsubDeletedRecords();
       if (interval) clearInterval(interval);
     };
   }, [userEmail, buildingId, role]);

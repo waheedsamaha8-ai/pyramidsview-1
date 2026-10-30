@@ -345,10 +345,40 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
       });
   }, [activeResident, payments]);
 
+  // Actual collected/paid payments belonging to this unit (for Unit Payments Log)
+  // Strictly excludes uncollected/pending dues so unpaid months never appear in this log
+  const paidUnitPayments = useMemo(() => {
+    if (!activeResident) return [];
+    return payments
+      .filter(p => {
+        const matchesUnit = isSameFlatNumber(p.flatNumber, activeResident.flatNumber) || (p.residentId && p.residentId === activeResident.id);
+        if (!matchesUnit) return false;
+        if (!p.amount || p.amount <= 0) return false;
+        if (!isValidPaidPayment(p)) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        const yearA = Number(a.year) || 2026;
+        const yearB = Number(b.year) || 2026;
+        if (yearA !== yearB) return yearA - yearB;
+
+        const monthA = parseInt(String(a.month), 10) || 1;
+        const monthB = parseInt(String(b.month), 10) || 1;
+        if (monthA !== monthB) return monthA - monthB;
+
+        const isSubA = isMonthlySubscriptionType(a.paymentType) || !a.paymentType || a.paymentType === 'اشتراك شهري';
+        const isSubB = isMonthlySubscriptionType(b.paymentType) || !b.paymentType || b.paymentType === 'اشتراك شهري';
+        if (isSubA && !isSubB) return -1;
+        if (!isSubA && isSubB) return 1;
+
+        return new Date(a.date).getTime() - new Date(b.date).getTime();
+      });
+  }, [activeResident, payments]);
+
   // Group unit payments by Month and Year, separating Monthly Subscriptions and Other Collections
-  // to achieve identical month row splitting and formatting as the detailed months timeline table
+  // Strictly groups collected/paid payments so uncollected dues do not appear in this log
   const groupedUnitPayments = useMemo(() => {
-    if (!activeResident || unitPayments.length === 0) return [];
+    if (!activeResident || paidUnitPayments.length === 0) return [];
 
     const groupsMap = new Map<string, {
       year: number;
@@ -358,7 +388,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
       otherCollectionPayments: Payment[];
     }>();
 
-    for (const p of unitPayments) {
+    for (const p of paidUnitPayments) {
       const y = parsePaymentYear(p, currentYear) || Number(p.year) || currentYear;
       const m = parsePaymentMonth(p) || parseInt(String(p.month), 10) || 1;
       const key = `${y}-${m}`;
@@ -414,7 +444,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
     });
 
     return groups;
-  }, [activeResident, unitPayments, currentYear, defaultMonthlyFee, activityDefaultFees]);
+  }, [activeResident, paidUnitPayments, unitPayments, currentYear, defaultMonthlyFee, activityDefaultFees, activityFeePeriods, config?.customUnitFeePeriods]);
 
   // Generate detailed breakdown of all months from accounting start date up to current date (or strictly scoped to active accounting period)
   const monthsTimeline = useMemo(() => {
@@ -525,14 +555,15 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
 
       const act = (effectiveActivityType || activeResident.activityType || '').trim();
       const isExempt = 
-        Boolean(activeResident.isExempt) ||
-        act.includes('تشطيب') || 
-        act.includes('مغلق') || 
-        act.includes('مغلقة') || 
-        act.includes('معفي') || 
-        act.includes('معفاه') || 
-        act.includes('معفاة') ||
-        effectiveFee === 0;
+        effectiveFee === 0 && (
+          Boolean(activeResident.isExempt) ||
+          act.includes('تشطيب') || 
+          act.includes('معفي') || 
+          act.includes('معفاه') || 
+          act.includes('معفاة') ||
+          act.includes('بدون') ||
+          true
+        );
 
       const isPaid = !isExempt && pendingSubsMatching.length === 0 && hasValidPaidPayment;
 
@@ -1735,14 +1766,15 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
 
                       const act = (m.activityType || activeResident.activityType || '').trim();
                       const isMonthExempt = m.isExempt || 
-                        Boolean(activeResident.isExempt) || 
-                        act.includes('تشطيب') || 
-                        act.includes('مغلق') || 
-                        act.includes('مغلقة') || 
-                        act.includes('معفي') || 
-                        act.includes('معفاه') || 
-                        act.includes('معفاة') || 
-                        (m.fee === 0 && !isMonthlySubPaid && monthlySubPaidAmount === 0);
+                        (m.fee === 0 && (
+                          Boolean(activeResident.isExempt) || 
+                          act.includes('تشطيب') || 
+                          act.includes('معفي') || 
+                          act.includes('معفاه') || 
+                          act.includes('معفاة') || 
+                          act.includes('بدون') ||
+                          (!isMonthlySubPaid && monthlySubPaidAmount === 0)
+                        ));
 
                       let subStatusInfo;
                       if (isMonthlySubPaid) {
@@ -1821,12 +1853,12 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                               </span>
                             </td>
                             <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center sm:text-right text-[10.5px] align-middle">
-                              {firstMonthlySubPay ? (
+                              {firstMonthlySubPay && firstMonthlySubPay.receiptNumber ? (
                                 <span
                                   className="font-mono px-1 py-0.5 rounded text-[9.5px] font-bold bg-slate-100 text-slate-700 border border-slate-200 truncate max-w-[75px]"
-                                  title={firstMonthlySubPay.receiptNumber ? `#${firstMonthlySubPay.receiptNumber}` : 'مسدد'}
+                                  title={`#${firstMonthlySubPay.receiptNumber}`}
                                 >
-                                  {firstMonthlySubPay.receiptNumber ? `#${firstMonthlySubPay.receiptNumber}` : 'مسدد'}
+                                  #{firstMonthlySubPay.receiptNumber}
                                 </span>
                               ) : (
                                 <span className="text-slate-300 font-normal">—</span>
@@ -1922,7 +1954,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
             <div>
               <h3 className="text-sm sm:text-base font-black text-slate-950 flex items-center gap-2">
                 <CreditCard className="w-4 h-4 text-emerald-700" />
-                <span>سجل مدفوعات وتحصيلات الوحدة ({unitPayments.length} عملية تحصيل)</span>
+                <span>سجل مدفوعات وتحصيلات الوحدة ({paidUnitPayments.length} عملية تحصيل)</span>
               </h3>
               <p className="text-[11px] text-slate-400 font-semibold mt-0.5">
                 سجل كافة عمليات السداد والتحصيل المقيدة للوحدة تفصيلياً بنفس هضم وتنسيق الأعمدة
@@ -2012,12 +2044,16 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                                 </span>
                               </td>
                               <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center sm:text-right text-[10.5px] align-middle">
-                                <span
-                                  className="font-mono px-1 py-0.5 rounded text-[9.5px] font-bold bg-slate-100 text-slate-700 border border-slate-200 truncate max-w-[75px]"
-                                  title={firstSub.receiptNumber ? `#${firstSub.receiptNumber}` : 'مسدد'}
-                                >
-                                  {firstSub.receiptNumber ? `#${firstSub.receiptNumber}` : 'مسدد'}
-                                </span>
+                                {firstSub.receiptNumber ? (
+                                  <span
+                                    className="font-mono px-1 py-0.5 rounded text-[9.5px] font-bold bg-slate-100 text-slate-700 border border-slate-200 truncate max-w-[75px]"
+                                    title={`#${firstSub.receiptNumber}`}
+                                  >
+                                    #{firstSub.receiptNumber}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-300 font-normal">—</span>
+                                )}
                               </td>
                               <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center text-xs align-middle">
                                 {firstSub.fileUrl ? (
@@ -2068,12 +2104,16 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                                     </span>
                                   </td>
                                   <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center sm:text-right text-[10.5px] align-middle">
-                                    <span
-                                      className="font-mono px-1 py-0.5 rounded text-[9.5px] font-bold bg-slate-100 text-slate-700 border border-slate-200 truncate max-w-[75px]"
-                                      title={es.receiptNumber ? `#${es.receiptNumber}` : 'مسدد'}
-                                    >
-                                      {es.receiptNumber ? `#${es.receiptNumber}` : 'مسدد'}
-                                    </span>
+                                    {es.receiptNumber ? (
+                                      <span
+                                        className="font-mono px-1 py-0.5 rounded text-[9.5px] font-bold bg-slate-100 text-slate-700 border border-slate-200 truncate max-w-[75px]"
+                                        title={`#${es.receiptNumber}`}
+                                      >
+                                        #{es.receiptNumber}
+                                      </span>
+                                    ) : (
+                                      <span className="text-slate-300 font-normal">—</span>
+                                    )}
                                   </td>
                                   <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center text-xs align-middle">
                                     {es.fileUrl ? (
@@ -2126,12 +2166,16 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                                     </span>
                                   </td>
                                   <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center sm:text-right text-[10.5px] align-middle">
-                                    <span
-                                      className="font-mono px-1 py-0.5 rounded text-[9.5px] font-bold bg-slate-100 text-slate-700 border border-slate-200 truncate max-w-[75px]"
-                                      title={op.receiptNumber ? `#${op.receiptNumber}` : 'مسدد'}
-                                    >
-                                      {op.receiptNumber ? `#${op.receiptNumber}` : 'مسدد'}
-                                    </span>
+                                    {op.receiptNumber ? (
+                                      <span
+                                        className="font-mono px-1 py-0.5 rounded text-[9.5px] font-bold bg-slate-100 text-slate-700 border border-slate-200 truncate max-w-[75px]"
+                                        title={`#${op.receiptNumber}`}
+                                      >
+                                        #{op.receiptNumber}
+                                      </span>
+                                    ) : (
+                                      <span className="text-slate-300 font-normal">—</span>
+                                    )}
                                   </td>
                                   <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center text-xs align-middle">
                                     {op.fileUrl ? (
@@ -2197,12 +2241,16 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                               </span>
                             </td>
                             <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center sm:text-right text-[10.5px] align-middle">
-                              <span
-                                className="font-mono px-1 py-0.5 rounded text-[9.5px] font-bold bg-slate-100 text-slate-700 border border-slate-200 truncate max-w-[75px]"
-                                title={firstOp.receiptNumber ? `#${firstOp.receiptNumber}` : 'مسدد'}
-                              >
-                                {firstOp.receiptNumber ? `#${firstOp.receiptNumber}` : 'مسدد'}
-                              </span>
+                              {firstOp.receiptNumber ? (
+                                <span
+                                  className="font-mono px-1 py-0.5 rounded text-[9.5px] font-bold bg-slate-100 text-slate-700 border border-slate-200 truncate max-w-[75px]"
+                                  title={`#${firstOp.receiptNumber}`}
+                                >
+                                  #{firstOp.receiptNumber}
+                                </span>
+                              ) : (
+                                <span className="text-slate-300 font-normal">—</span>
+                              )}
                             </td>
                             <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center text-xs align-middle">
                               {firstOp.fileUrl ? (
@@ -2251,12 +2299,16 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                                   </span>
                                 </td>
                                 <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center sm:text-right text-[10.5px] align-middle">
-                                  <span
-                                    className="font-mono px-1 py-0.5 rounded text-[9.5px] font-bold bg-slate-100 text-slate-700 border border-slate-200 truncate max-w-[75px]"
-                                    title={op.receiptNumber ? `#${op.receiptNumber}` : 'مسدد'}
-                                  >
-                                    {op.receiptNumber ? `#${op.receiptNumber}` : 'مسدد'}
-                                  </span>
+                                  {op.receiptNumber ? (
+                                    <span
+                                      className="font-mono px-1 py-0.5 rounded text-[9.5px] font-bold bg-slate-100 text-slate-700 border border-slate-200 truncate max-w-[75px]"
+                                      title={`#${op.receiptNumber}`}
+                                    >
+                                      #{op.receiptNumber}
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-300 font-normal">—</span>
+                                  )}
                                 </td>
                                 <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 whitespace-nowrap text-center text-xs align-middle">
                                   {op.fileUrl ? (
@@ -2604,14 +2656,15 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
 
                 const act = (m.activityType || activeResident.activityType || '').trim();
                 const isMonthExempt = m.isExempt || 
-                  Boolean(activeResident.isExempt) || 
-                  act.includes('تشطيب') || 
-                  act.includes('مغلق') || 
-                  act.includes('مغلقة') || 
-                  act.includes('معفي') || 
-                  act.includes('معفاه') || 
-                  act.includes('معفاة') || 
-                  (m.fee === 0 && !isMonthlySubPaid && monthlySubPaidAmount === 0);
+                  (m.fee === 0 && (
+                    Boolean(activeResident.isExempt) || 
+                    act.includes('تشطيب') || 
+                    act.includes('معفي') || 
+                    act.includes('معفاه') || 
+                    act.includes('معفاة') || 
+                    act.includes('بدون') ||
+                    (!isMonthlySubPaid && monthlySubPaidAmount === 0)
+                  ));
 
                 let subStatusInfo;
                 if (isMonthlySubPaid) {
@@ -2679,7 +2732,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                       </td>
                       <td className="border border-slate-300 p-2 text-center font-mono text-[11px] font-bold text-slate-800 align-middle">
                         {firstMonthlySubPay ? (
-                          <span>{firstMonthlySubPay.receiptNumber ? `#${firstMonthlySubPay.receiptNumber}` : 'مسدد'} ({firstMonthlySubPay.date})</span>
+                          <span>{firstMonthlySubPay.receiptNumber ? `#${firstMonthlySubPay.receiptNumber}` : '—'} ({firstMonthlySubPay.date})</span>
                         ) : (
                           <span>—</span>
                         )}
@@ -2713,7 +2766,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                             </span>
                           </td>
                           <td className="border border-slate-300 p-2 text-center font-mono text-[11px] font-bold text-slate-800 align-middle">
-                            <span>{op.receiptNumber ? `#${op.receiptNumber}` : 'مسدد'} ({op.date})</span>
+                            <span>{op.receiptNumber ? `#${op.receiptNumber}` : '—'} ({op.date})</span>
                           </td>
                         </tr>
                       );
@@ -2725,9 +2778,9 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
           </table>
 
           {/* Payments & Receipts Log Table - Matching Monthly Table Columns & Styling */}
-          {unitPayments.length > 0 && (
+          {paidUnitPayments.length > 0 && (
             <>
-              <h2 className="font-black text-slate-800 text-xs mb-2 mt-4">سجل مدفوعات وتحصيلات الوحدة ({unitPayments.length} عملية تحصيل)</h2>
+              <h2 className="font-black text-slate-800 text-xs mb-2 mt-4">سجل مدفوعات وتحصيلات الوحدة ({paidUnitPayments.length} عملية تحصيل)</h2>
               <table className="w-full text-right border-collapse border border-slate-400 text-xs mb-6 table-fixed">
                 <colgroup>
                   <col className="w-[14%]" />
@@ -2783,7 +2836,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                               </span>
                             </td>
                             <td className="border border-slate-300 p-2 text-center font-mono text-[11px] font-bold text-slate-800 align-middle">
-                              <span>{firstSub.receiptNumber ? `#${firstSub.receiptNumber}` : 'مسدد'} ({firstSub.date})</span>
+                              <span>{firstSub.receiptNumber ? `#${firstSub.receiptNumber}` : '—'} ({firstSub.date})</span>
                             </td>
                           </tr>
 
@@ -2810,7 +2863,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                                   </span>
                                 </td>
                                 <td className="border border-slate-300 p-2 text-center font-mono text-[11px] font-bold text-slate-800 align-middle">
-                                  <span>{es.receiptNumber ? `#${es.receiptNumber}` : 'مسدد'} ({es.date})</span>
+                                  <span>{es.receiptNumber ? `#${es.receiptNumber}` : '—'} ({es.date})</span>
                                 </td>
                               </tr>
                             );
@@ -2843,7 +2896,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                                   </span>
                                 </td>
                                 <td className="border border-slate-300 p-2 text-center font-mono text-[11px] font-bold text-slate-800 align-middle">
-                                  <span>{op.receiptNumber ? `#${op.receiptNumber}` : 'مسدد'} ({op.date})</span>
+                                  <span>{op.receiptNumber ? `#${op.receiptNumber}` : '—'} ({op.date})</span>
                                 </td>
                               </tr>
                             );
@@ -2886,7 +2939,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                             </span>
                           </td>
                           <td className="border border-slate-300 p-2 text-center font-mono text-[11px] font-bold text-slate-800 align-middle">
-                            <span>{firstOp.receiptNumber ? `#${firstOp.receiptNumber}` : 'مسدد'} ({firstOp.date})</span>
+                            <span>{firstOp.receiptNumber ? `#${firstOp.receiptNumber}` : '—'} ({firstOp.date})</span>
                           </td>
                         </tr>
                         {extraOps.map((op, opIdx) => {
@@ -2912,7 +2965,7 @@ export const ResidentAccountStatement: React.FC<ResidentAccountStatementProps> =
                                 </span>
                               </td>
                               <td className="border border-slate-300 p-2 text-center font-mono text-[11px] font-bold text-slate-800 align-middle">
-                                <span>{op.receiptNumber ? `#${op.receiptNumber}` : 'مسدد'} ({op.date})</span>
+                                <span>{op.receiptNumber ? `#${op.receiptNumber}` : '—'} ({op.date})</span>
                               </td>
                             </tr>
                           );
