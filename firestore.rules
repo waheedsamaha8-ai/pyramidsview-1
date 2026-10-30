@@ -48,10 +48,24 @@ service cloud.firestore {
       allow create, update, delete: if isValidId(residentId);
     }
 
-    // Payments Records
+    // Payments Records (root and any subcollection)
     match /payments/{paymentId} {
       allow read: if true;
       allow create, update, delete: if isValidId(paymentId);
+    }
+
+    match /{path=**}/payments/{paymentId} {
+      allow read, write: if true;
+    }
+
+    // System metadata & deleted records sync
+    match /system/{systemId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /{path=**}/system/{systemId} {
+      allow read, write: if true;
     }
 
     // Expenses Records

@@ -1739,19 +1739,37 @@ export function exportCarriedBalancesForYear(
 // PERSISTENT DELETED PAYMENTS & DEDUPLICATION REGISTRY
 // ----------------------------------------------------
 const DELETED_PAYMENTS_KEY = 'deleted_payment_ids_v2';
+const DELETED_ENTITY_IDS_KEY = 'pyramids_deleted_entity_ids_v1';
 
 export function getDeletedPaymentIds(): Set<string> {
+  const combined = new Set<string>();
   try {
-    const raw = localStorage.getItem(DELETED_PAYMENTS_KEY);
-    if (!raw) return new Set<string>();
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) {
-      return new Set<string>(parsed.map(id => String(id).trim()).filter(Boolean));
+    const raw1 = localStorage.getItem(DELETED_PAYMENTS_KEY);
+    if (raw1) {
+      const parsed1 = JSON.parse(raw1);
+      if (Array.isArray(parsed1)) {
+        parsed1.forEach(id => {
+          const s = String(id).trim();
+          if (s) combined.add(s);
+        });
+      }
     }
-    return new Set<string>();
-  } catch {
-    return new Set<string>();
-  }
+  } catch {}
+
+  try {
+    const raw2 = localStorage.getItem(DELETED_ENTITY_IDS_KEY);
+    if (raw2) {
+      const parsed2 = JSON.parse(raw2);
+      if (Array.isArray(parsed2)) {
+        parsed2.forEach(id => {
+          const s = String(id).trim();
+          if (s) combined.add(s);
+        });
+      }
+    }
+  } catch {}
+
+  return combined;
 }
 
 export function registerDeletedPaymentIds(ids: string | string[]): void {
@@ -1769,7 +1787,10 @@ export function registerDeletedPaymentIds(ids: string | string[]): void {
   }
   if (added) {
     try {
-      localStorage.setItem(DELETED_PAYMENTS_KEY, JSON.stringify(Array.from(set)));
+      const arr = Array.from(set).slice(-2000);
+      const json = JSON.stringify(arr);
+      localStorage.setItem(DELETED_PAYMENTS_KEY, json);
+      localStorage.setItem(DELETED_ENTITY_IDS_KEY, json);
     } catch {}
   }
 }
@@ -1789,7 +1810,10 @@ export function unregisterDeletedPaymentIds(ids: string | string[]): void {
   }
   if (removed) {
     try {
-      localStorage.setItem(DELETED_PAYMENTS_KEY, JSON.stringify(Array.from(set)));
+      const arr = Array.from(set);
+      const json = JSON.stringify(arr);
+      localStorage.setItem(DELETED_PAYMENTS_KEY, json);
+      localStorage.setItem(DELETED_ENTITY_IDS_KEY, json);
     } catch {}
   }
 }

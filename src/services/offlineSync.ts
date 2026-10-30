@@ -458,8 +458,15 @@ export async function syncOfflineQueue(onProgress?: (msg: string) => void): Prom
   const paymentDeletes: { action: OfflineAction; id: string }[] = [];
   const otherActions: OfflineAction[] = [];
 
+  const deletedPaymentSet = firestoreService.getDeletedEntityIds();
+
   for (const action of queue) {
     if (action.type === 'ADD_PAYMENT' || action.type === 'EDIT_PAYMENT') {
+      const pId = String(action.payload?.id || '').trim();
+      if (pId && deletedPaymentSet.has(pId)) {
+        // Discard: entity was deleted by user, do not resurrect to cloud
+        continue;
+      }
       paymentSaves.push({ action, payment: action.payload });
     } else if (action.type === 'DELETE_PAYMENT') {
       paymentDeletes.push({ action, id: action.payload.id || action.payload });

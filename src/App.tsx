@@ -1661,7 +1661,7 @@ export default function App() {
 
   const deleteBatchPayments = async (ids: string[]) => {
     if (!ids || ids.length === 0) return;
-    const cleanIds = ids.map(id => String(id));
+    const cleanIds = ids.map(id => String(id).trim());
     const idSet = new Set(cleanIds);
     cleanIds.forEach(id => {
       registerDeletedPaymentIds(id);
@@ -1671,6 +1671,10 @@ export default function App() {
     const updatedPayments = filterAndDeduplicatePayments(payments.filter(p => !idSet.has(String(p.id))));
     setPayments(updatedPayments);
     offlineSync.saveCachedData('payments', updatedPayments);
+
+    try {
+      window.dispatchEvent(new CustomEvent('pyramids_cache_updated', { detail: { key: 'payments' } }));
+    } catch {}
 
     try {
       await firestoreService.deleteBatchPaymentsFromFirestore(cleanIds);
@@ -1698,26 +1702,55 @@ export default function App() {
   };
 
   const deletePayment = async (id: string) => {
-    const cleanId = String(id);
-    const target = payments.find(p => String(p.id) === cleanId);
+    const cleanId = String(id).trim();
+    const target = payments.find(p => String(p.id).trim() === cleanId);
     
-    registerDeletedPaymentIds(cleanId);
-    offlineSync.purgeEntityFromQueue(cleanId);
+    // If target is a master distribution payment, gather its child IDs as well
+    const childIds: string[] = [];
+    if (target) {
+      if (Array.isArray(target.distributedPaymentIds) && target.distributedPaymentIds.length > 0) {
+        target.distributedPaymentIds.forEach(cId => childIds.push(String(cId).trim()));
+      }
+      payments.forEach(p => {
+        if (p.distributionSourceId && String(p.distributionSourceId).trim() === cleanId) {
+          childIds.push(String(p.id).trim());
+        }
+      });
+    }
+
+    const allIdsToDelete = Array.from(new Set([cleanId, ...childIds]));
+
+    allIdsToDelete.forEach(toDelId => {
+      registerDeletedPaymentIds(toDelId);
+      offlineSync.purgeEntityFromQueue(toDelId);
+    });
+
+    const deleteSet = new Set(allIdsToDelete);
 
     setPayments(prev => {
-      const updatedPayments = filterAndDeduplicatePayments(prev.filter((p) => String(p.id) !== cleanId));
+      const updatedPayments = filterAndDeduplicatePayments(prev.filter((p) => !deleteSet.has(String(p.id).trim())));
       offlineSync.saveCachedData('payments', updatedPayments);
       return updatedPayments;
     });
 
     try {
-      await firestoreService.deletePaymentFromFirestore(cleanId);
+      window.dispatchEvent(new CustomEvent('pyramids_cache_updated', { detail: { key: 'payments' } }));
+    } catch {}
+
+    try {
+      if (allIdsToDelete.length > 1) {
+        await firestoreService.deleteBatchPaymentsFromFirestore(allIdsToDelete);
+      } else {
+        await firestoreService.deletePaymentFromFirestore(cleanId);
+      }
       if (target) {
         addNotification('حذف دفعة', `تم حذف دفعة الوحدة ${target.flatNumber} بقيمة ${target.amount} ج.م نهائياً.`, 'info', 'services');
       }
     } catch (err) {
       logError(err, 'deletePayment');
-      offlineSync.enqueueAction('DELETE_PAYMENT', { id: cleanId });
+      allIdsToDelete.forEach(toDelId => {
+        offlineSync.enqueueAction('DELETE_PAYMENT', { id: toDelId });
+      });
     }
   };
 

@@ -205,11 +205,21 @@ export function useAppSync({
     const unsubDeletedRecords = firestoreService.subscribeToDeletedRecords((cloudDeletedIds) => {
       if (!isMounted || !Array.isArray(cloudDeletedIds) || cloudDeletedIds.length === 0) return;
       registerDeletedPaymentIds(cloudDeletedIds);
-      const delSet = new Set(cloudDeletedIds.map(String));
+      const delSet = new Set(cloudDeletedIds.map(id => String(id).trim()));
+
+      // Purge any pending queue items for these deleted IDs so desktop never attempts to re-push them
+      cloudDeletedIds.forEach(id => {
+        offlineSync.purgeEntityFromQueue(String(id).trim());
+      });
+
       setPayments(prev => {
-        const filtered = prev.filter(p => !delSet.has(String(p.id)));
+        const filtered = prev.filter(p => !delSet.has(String(p.id).trim()));
         if (filtered.length !== prev.length) {
           offlineSync.saveCachedData('payments', filtered);
+          // Broadcast to other components and tabs
+          try {
+            window.dispatchEvent(new CustomEvent('pyramids_cache_updated', { detail: { key: 'payments' } }));
+          } catch {}
           return filtered;
         }
         return prev;

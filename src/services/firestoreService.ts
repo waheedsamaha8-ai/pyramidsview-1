@@ -80,88 +80,170 @@ export function getBuildingDocRef(colName: string, docId: string) {
 
 // Persistent Deleted Entity IDs Tracker to permanently prevent deleted items from reappearing on refresh/sync
 const DELETED_ENTITY_IDS_KEY = 'pyramids_deleted_entity_ids_v1';
+const DELETED_PAYMENTS_KEY = 'deleted_payment_ids_v2';
 
 export function getDeletedEntityIds(): Set<string> {
+  const combined = new Set<string>();
   try {
-    const raw = localStorage.getItem(DELETED_ENTITY_IDS_KEY);
-    return new Set<string>(raw ? JSON.parse(raw) : []);
-  } catch {
-    return new Set<string>();
-  }
+    const raw1 = localStorage.getItem(DELETED_ENTITY_IDS_KEY);
+    if (raw1) {
+      const parsed1 = JSON.parse(raw1);
+      if (Array.isArray(parsed1)) {
+        parsed1.forEach(id => {
+          const s = String(id).trim();
+          if (s) combined.add(s);
+        });
+      }
+    }
+  } catch {}
+
+  try {
+    const raw2 = localStorage.getItem(DELETED_PAYMENTS_KEY);
+    if (raw2) {
+      const parsed2 = JSON.parse(raw2);
+      if (Array.isArray(parsed2)) {
+        parsed2.forEach(id => {
+          const s = String(id).trim();
+          if (s) combined.add(s);
+        });
+      }
+    }
+  } catch {}
+
+  return combined;
 }
 
 export function registerDeletedEntityId(id: string | number): void {
   if (!id) return;
-  const cleanId = String(id);
+  const cleanId = String(id).trim();
+  if (!cleanId) return;
   try {
     const set = getDeletedEntityIds();
     set.add(cleanId);
-    const arr = Array.from(set).slice(-1000);
-    localStorage.setItem(DELETED_ENTITY_IDS_KEY, JSON.stringify(arr));
+    const arr = Array.from(set).slice(-2000);
+    const json = JSON.stringify(arr);
+    localStorage.setItem(DELETED_ENTITY_IDS_KEY, json);
+    localStorage.setItem(DELETED_PAYMENTS_KEY, json);
   } catch {}
 }
 
 export function isEntityDeleted(id: string | number): boolean {
   if (!id) return false;
-  return getDeletedEntityIds().has(String(id));
+  return getDeletedEntityIds().has(String(id).trim());
 }
 
 export async function recordDeletedPaymentIdsInCloud(ids: string[]): Promise<void> {
   if (!ids || ids.length === 0) return;
-  const cleanIds = ids.map(String).filter(Boolean);
+  const cleanIds = ids.map(id => String(id).trim()).filter(Boolean);
   if (cleanIds.length === 0) return;
-  try {
-    const activeId = getActiveBuildingId();
-    const docRef = doc(db, 'system', 'deleted_records');
-    await setDoc(docRef, {
-      paymentIds: arrayUnion(...cleanIds),
-      updatedAt: new Date().toISOString()
-    }, { merge: true });
 
-    if (activeId && activeId !== DEFAULT_BUILDING_ID) {
-      try {
-        const subDocRef = doc(db, 'buildings', activeId, 'system', 'deleted_records');
-        await setDoc(subDocRef, {
-          paymentIds: arrayUnion(...cleanIds),
-          updatedAt: new Date().toISOString()
-        }, { merge: true });
-      } catch {}
-    }
-  } catch (err) {
-    console.warn('Cloud deleted sync notice:', err);
+  const payload = {
+    paymentIds: arrayUnion(...cleanIds),
+    updatedAt: new Date().toISOString()
+  };
+
+  const activeId = getActiveBuildingId();
+  const promises: Promise<any>[] = [];
+
+  // 1. Guaranteed allowed path under config collection
+  try {
+    promises.push(setDoc(doc(db, 'config', 'deleted_records'), payload, { merge: true }));
+  } catch {}
+
+  // 2. Standard system collection
+  try {
+    promises.push(setDoc(doc(db, 'system', 'deleted_records'), payload, { merge: true }));
+  } catch {}
+
+  // 3. Active building subcollection
+  if (activeId && activeId !== DEFAULT_BUILDING_ID) {
+    try {
+      promises.push(setDoc(doc(db, 'buildings', activeId, 'system', 'deleted_records'), payload, { merge: true }));
+      promises.push(setDoc(doc(db, 'buildings', activeId, 'config', 'deleted_records'), payload, { merge: true }));
+    } catch {}
   }
+
+  // 4. Default building fallback
+  try {
+    promises.push(setDoc(doc(db, 'buildings', DEFAULT_BUILDING_ID, 'system', 'deleted_records'), payload, { merge: true }));
+    promises.push(setDoc(doc(db, 'buildings', DEFAULT_BUILDING_ID, 'config', 'deleted_records'), payload, { merge: true }));
+  } catch {}
+
+  await Promise.allSettled(promises);
 }
 
 export function subscribeToDeletedRecords(callback: (deletedPaymentIds: string[]) => void): () => void {
-  try {
-    const docRef = doc(db, 'system', 'deleted_records');
-    return onSnapshot(docRef, (snap) => {
-      if (snap.exists()) {
-        const data = snap.data();
-        const ids = Array.isArray(data?.paymentIds) ? data.paymentIds.map(String) : [];
-        if (ids.length > 0) {
-          callback(ids);
-        }
+  const unsubs: (() => void)[] = [];
+  const handledIds = new Set<string>();
+
+  const processSnap = (snap: any) => {
+    if (snap && snap.exists()) {
+      const data = snap.data();
+      const ids = Array.isArray(data?.paymentIds) ? data.paymentIds.map((id: any) => String(id).trim()).filter(Boolean) : [];
+      const newIds = ids.filter((id: string) => !handledIds.has(id));
+      if (newIds.length > 0) {
+        newIds.forEach((id: string) => handledIds.add(id));
+        registerDeletedEntityId(newIds[0]); // Register into localStorage
+        registerDeletedPaymentIds(newIds);
+        callback(ids);
       }
-    }, () => {});
-  } catch {
-    return () => {};
+    }
+  };
+
+  // Listen to config/deleted_records (always allowed)
+  try {
+    const unsubConfig = onSnapshot(doc(db, 'config', 'deleted_records'), processSnap, () => {});
+    unsubs.push(unsubConfig);
+  } catch {}
+
+  // Listen to system/deleted_records
+  try {
+    const unsubSystem = onSnapshot(doc(db, 'system', 'deleted_records'), processSnap, () => {});
+    unsubs.push(unsubSystem);
+  } catch {}
+
+  const activeId = getActiveBuildingId();
+  if (activeId && activeId !== DEFAULT_BUILDING_ID) {
+    try {
+      const unsubSub = onSnapshot(doc(db, 'buildings', activeId, 'config', 'deleted_records'), processSnap, () => {});
+      unsubs.push(unsubSub);
+    } catch {}
   }
+
+  return () => {
+    unsubs.forEach(unsub => {
+      try { unsub(); } catch {}
+    });
+  };
 }
 
 // Low-level helper to permanently delete document across all Firestore structures (root, building subcollections, etc.)
 async function deleteFromAllFirestorePaths(colName: string, id: string): Promise<void> {
-  const cleanId = String(id);
+  const cleanId = String(id).trim();
   registerDeletedEntityId(cleanId);
+  registerDeletedPaymentIds(cleanId);
+  offlineSync.purgeEntityFromQueue(cleanId);
+
   const activeId = getActiveBuildingId();
   const deletePromises: Promise<any>[] = [];
 
-  // 1. Root collection document
+  // Soft-delete marker first so any active cache/query immediately treats it as deleted
+  const softDeletePayload = {
+    isDeleted: true,
+    status: 'cancelled',
+    deletedAt: new Date().toISOString()
+  };
+
+  try {
+    deletePromises.push(setDoc(doc(db, colName, cleanId), softDeletePayload, { merge: true }));
+  } catch {}
+
+  // 1. Root collection document delete
   try {
     deletePromises.push(deleteDoc(doc(db, colName, cleanId)));
   } catch {}
 
-  // 2. Active building subcollection document
+  // 2. Active building subcollection document delete
   if (activeId) {
     try {
       deletePromises.push(deleteDoc(doc(db, 'buildings', activeId, colName, cleanId)));
@@ -175,12 +257,25 @@ async function deleteFromAllFirestorePaths(colName: string, id: string): Promise
     } catch {}
   }
 
-  // 4. Delete any orphaned documents where data.id matches cleanId
+  // 4. Query and eliminate any orphaned documents where data.id matches cleanId
   try {
-    const q = query(getBuildingColRef(colName), where('id', '==', cleanId));
-    getDocs(q).then(snap => {
-      snap.forEach(d => deleteDoc(d.ref).catch(() => {}));
-    }).catch(() => {});
+    const q1 = query(collection(db, colName), where('id', '==', cleanId));
+    const snap1 = await getDocs(q1);
+    snap1.forEach(d => deletePromises.push(deleteDoc(d.ref)));
+  } catch {}
+
+  if (activeId && activeId !== DEFAULT_BUILDING_ID) {
+    try {
+      const q2 = query(collection(db, 'buildings', activeId, colName), where('id', '==', cleanId));
+      const snap2 = await getDocs(q2);
+      snap2.forEach(d => deletePromises.push(deleteDoc(d.ref)));
+    } catch {}
+  }
+
+  try {
+    const qDef = query(collection(db, 'buildings', DEFAULT_BUILDING_ID, colName), where('id', '==', cleanId));
+    const snapDef = await getDocs(qDef);
+    snapDef.forEach(d => deletePromises.push(deleteDoc(d.ref)));
   } catch {}
 
   await Promise.allSettled(deletePromises);
@@ -1542,18 +1637,16 @@ export function subscribeToFirestoreCollection<T>(
 
     const emitMerged = () => {
       const mergedMap = new Map<string, T>();
-      const activeId = getActiveBuildingId();
-
       const deletedSet = getDeletedEntityIds();
 
       rootItemsMap.forEach((val, key) => {
-        if (!deletedSet.has(key)) {
+        if (!deletedSet.has(key) && !(val as any)?.isDeleted && (val as any)?.status !== 'cancelled' && (val as any)?.status !== 'deleted') {
           mergedMap.set(key, val);
         }
       });
 
       subItemsMap.forEach((val, key) => {
-        if (!deletedSet.has(key)) {
+        if (!deletedSet.has(key) && !(val as any)?.isDeleted && (val as any)?.status !== 'cancelled' && (val as any)?.status !== 'deleted') {
           mergedMap.set(key, val);
         }
       });
@@ -1572,15 +1665,50 @@ export function subscribeToFirestoreCollection<T>(
       }, 35);
     };
 
-    const colRef = getBuildingColRef(collectionName);
-    const unsubRoot = onSnapshot(colRef, (snapshot) => {
-      rootItemsMap.clear();
-      snapshot.forEach(docSnap => {
+    const handleSnapshotChanges = (snapshot: any, targetMap: Map<string, T>) => {
+      // 1. Process removed documents instantly
+      if (typeof snapshot.docChanges === 'function') {
+        snapshot.docChanges().forEach((change: any) => {
+          if (change.type === 'removed') {
+            const docId = String(change.doc.id).trim();
+            const dataId = String((change.doc.data() as any)?.id || '').trim();
+            registerDeletedEntityId(docId);
+            registerDeletedPaymentIds(docId);
+            if (dataId) {
+              registerDeletedEntityId(dataId);
+              registerDeletedPaymentIds(dataId);
+            }
+            rootItemsMap.delete(docId);
+            if (dataId) rootItemsMap.delete(dataId);
+            subItemsMap.delete(docId);
+            if (dataId) subItemsMap.delete(dataId);
+          }
+        });
+      }
+
+      // 2. Re-populate current collection map with strict deleted filtering
+      targetMap.clear();
+      const currentDeleted = getDeletedEntityIds();
+
+      snapshot.forEach((docSnap: any) => {
         const data = docSnap.data() as T;
-        const id = (data as any)?.id || docSnap.id;
-        rootItemsMap.set(String(id), data);
+        const docId = String(docSnap.id).trim();
+        const id = String((data as any)?.id || docSnap.id).trim();
+
+        if (currentDeleted.has(id) || currentDeleted.has(docId)) {
+          return;
+        }
+        if ((data as any)?.isDeleted === true || (data as any)?.status === 'cancelled' || (data as any)?.status === 'deleted') {
+          return;
+        }
+        targetMap.set(id, data);
       });
       scheduleEmitMerged();
+    };
+
+    const colRef = getBuildingColRef(collectionName);
+    const unsubRoot = onSnapshot(colRef, (snapshot) => {
+      handleSnapshotChanges(snapshot, rootItemsMap);
     }, (error) => {
       console.warn(`[Firestore root listener notice for ${collectionName}]:`, error.message);
     });
@@ -1591,13 +1719,7 @@ export function subscribeToFirestoreCollection<T>(
       try {
         const subColRef = collection(db, 'buildings', activeId, collectionName);
         unsubSub = onSnapshot(subColRef, (snapshot) => {
-          subItemsMap.clear();
-          snapshot.forEach(docSnap => {
-            const data = docSnap.data() as T;
-            const id = (data as any)?.id || docSnap.id;
-            subItemsMap.set(String(id), data);
-          });
-          scheduleEmitMerged();
+          handleSnapshotChanges(snapshot, subItemsMap);
         }, (error) => {
           console.warn(`[Firestore subcollection listener notice for ${collectionName}]:`, error.message);
         });
