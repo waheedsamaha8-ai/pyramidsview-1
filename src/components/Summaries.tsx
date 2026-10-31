@@ -534,8 +534,24 @@ const SummariesComponent: React.FC<SummariesProps> = ({
           (p) => p.status === 'cancelled' || p.status === 'لاغي' || p.status === 'VOID' || p.status === 'ملغي' || p.status === 'مرفوض'
         );
 
-        const isUncollectedPayment = (p: Payment) =>
-          p.status === 'pending' || p.status === 'لم يتم التحصيل' || p.status === 'uncollected' || p.status === 'unpaid' || p.status === 'غير مسدد' || p.status === 'معلق';
+        const isExplicitPaidStatus = (p: Payment) =>
+          p.status === 'collected' ||
+          p.status === 'paid' ||
+          p.status === 'تم التحصيل' ||
+          p.status === 'مسدد' ||
+          p.isManuallyPaid === true;
+
+        const isUncollectedPayment = (p: Payment) => {
+          if (isExplicitPaidStatus(p)) return false;
+          return (
+            p.status === 'pending' ||
+            p.status === 'لم يتم التحصيل' ||
+            p.status === 'uncollected' ||
+            p.status === 'unpaid' ||
+            p.status === 'غير مسدد' ||
+            p.status === 'معلق'
+          );
+        };
 
         const validCollectedPayments = matchingPayments.filter(
           (p) => !cancelledPayments.includes(p) && !isUncollectedPayment(p)
@@ -1782,14 +1798,25 @@ const SummariesComponent: React.FC<SummariesProps> = ({
           p.status === 'ملغي' ||
           p.status === 'مرفوض';
 
-        const isUncollectedPayment = (p: Payment) =>
-          p.status === 'pending' ||
-          p.status === 'لم يتم التحصيل' ||
-          p.status === 'uncollected' ||
-          p.status === 'unpaid' ||
-          p.status === 'غير مسدد' ||
-          p.status === 'معلق' ||
-          p.isManuallyPaid === false;
+        const isExplicitPaidStatus = (p: Payment) =>
+          p.status === 'collected' ||
+          p.status === 'paid' ||
+          p.status === 'تم التحصيل' ||
+          p.status === 'مسدد' ||
+          p.isManuallyPaid === true;
+
+        const isUncollectedPayment = (p: Payment) => {
+          if (isExplicitPaidStatus(p)) return false;
+          return (
+            p.status === 'pending' ||
+            p.status === 'لم يتم التحصيل' ||
+            p.status === 'uncollected' ||
+            p.status === 'unpaid' ||
+            p.status === 'غير مسدد' ||
+            p.status === 'معلق' ||
+            (p.isManuallyPaid === false && !p.receiptNumber && (!p.status || p.status === 'pending'))
+          );
+        };
 
         const isExemptPayment = (p: Payment) =>
           p.status === 'معفي' ||
@@ -1879,8 +1906,26 @@ const SummariesComponent: React.FC<SummariesProps> = ({
                           {activeCellPayments.map((pay) => {
                             const isEditing = editingPaymentId === pay.id;
                       const isCancelled = pay.status === 'cancelled' || pay.status === 'لاغي' || pay.status === 'VOID' || pay.status === 'ملغي' || pay.status === 'مرفوض';
-                      const isExempt = pay.status === 'معفي' || pay.status === 'exempt' || pay.status === 'إعفاء' || (pay.amount === 0 && (pay.status === 'pending' || pay.status === 'لم يتم التحصيل' || (pay.notes && pay.notes.includes('استحقاق'))));
-                      const isPending = !isCancelled && !isExempt && (pay.status === 'pending' || pay.status === 'لم يتم التحصيل' || pay.status === 'uncollected' || pay.status === 'unpaid' || pay.status === 'غير مسدد' || pay.status === 'معلق' || pay.isManuallyPaid === false);
+                      const isExempt = !isCancelled && (pay.status === 'معفي' || pay.status === 'exempt' || pay.status === 'إعفاء' || (pay.amount === 0 && (pay.status === 'pending' || pay.status === 'لم يتم التحصيل' || (pay.notes && pay.notes.includes('استحقاق')))));
+                      const isExplicitCollected =
+                        pay.status === 'collected' ||
+                        pay.status === 'paid' ||
+                        pay.status === 'تم التحصيل' ||
+                        pay.status === 'مسدد' ||
+                        pay.isManuallyPaid === true;
+
+                      const isPending =
+                        !isCancelled &&
+                        !isExempt &&
+                        !isExplicitCollected &&
+                        (pay.status === 'pending' ||
+                          pay.status === 'لم يتم التحصيل' ||
+                          pay.status === 'uncollected' ||
+                          pay.status === 'unpaid' ||
+                          pay.status === 'غير مسدد' ||
+                          pay.status === 'معلق' ||
+                          (pay.isManuallyPaid === false && !pay.receiptNumber && (!pay.status || pay.status === 'pending')));
+
                       const isCollected = !isCancelled && !isExempt && !isPending;
                       const hasReceipt = Boolean(pay.receiptNumber && pay.receiptNumber.trim() !== '');
 

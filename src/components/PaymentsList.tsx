@@ -658,9 +658,17 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
         p.status === 'uncollected'
       ));
 
+    const isExplicitCollected =
+      p.status === 'collected' ||
+      p.status === 'paid' ||
+      p.status === 'تم التحصيل' ||
+      p.status === 'مسدد' ||
+      p.isManuallyPaid === true;
+
     const isUncollected =
       !isCancelled &&
       !isExempt &&
+      !isExplicitCollected &&
       (p.status === 'pending' ||
         p.status === 'لم يتم التحصيل' ||
         p.status === 'uncollected' ||
@@ -668,9 +676,9 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
         p.status === 'غير مسدد' ||
         p.status === 'لم يسدد' ||
         p.status === 'معلق' ||
-        p.isManuallyPaid === false);
+        (p.isManuallyPaid === false && !p.receiptNumber && (!p.status || p.status === 'pending')));
 
-    const isPaid = !isCancelled && !isExempt && !isUncollected;
+    const isPaid = !isCancelled && !isExempt && (isExplicitCollected || !isUncollected);
 
     if (filter === 'مسدد') return isPaid;
     if (filter === 'غير مسدد') return isUncollected;
@@ -2211,17 +2219,25 @@ export const PaymentsList: React.FC<PaymentsListProps> = ({
         p.status === 'uncollected'
       ));
 
-    const isUncollected = !isCancelled && !isExempt && (
+    const isExplicitCollected =
+      p.status === 'collected' ||
+      p.status === 'paid' ||
+      p.status === 'تم التحصيل' ||
+      p.status === 'مسدد' ||
+      p.isManuallyPaid === true;
+
+    const isUncollected = !isCancelled && !isExempt && !isExplicitCollected && (
       p.status === 'pending' || 
       p.status === 'لم يتم التحصيل' || 
       p.status === 'uncollected' ||
       p.status === 'unpaid' ||
       p.status === 'غير مسدد' ||
       p.status === 'لم يسدد' ||
-      p.status === 'معلق'
+      p.status === 'معلق' ||
+      (p.isManuallyPaid === false && !p.receiptNumber && (!p.status || p.status === 'pending'))
     );
 
-    const isPaid = !isCancelled && !isExempt && !isUncollected;
+    const isPaid = !isCancelled && !isExempt && (isExplicitCollected || !isUncollected);
 
     if (isSelected) {
       return {
